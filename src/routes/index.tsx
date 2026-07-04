@@ -120,12 +120,12 @@ function Header() {
 
         <div className="hidden items-center gap-3 md:flex">
           <a
-            href="#login"
+            href="/auth/login"
             className="rounded-xl px-4 py-2 text-sm font-medium text-text-secondary transition-colors hover:text-foreground"
           >
             Iniciar sesión
           </a>
-          <a href="#signup" className="btn-primary-gradient inline-flex items-center gap-1 text-sm">
+          <a href="/auth/register" className="btn-primary-gradient inline-flex items-center gap-1 text-sm">
             Comenzar gratis <ArrowRight className="h-4 w-4" />
           </a>
         </div>
@@ -164,12 +164,12 @@ function Header() {
               </div>
               <div className="mt-3 grid gap-2">
                 <a
-                  href="#login"
+                  href="/auth/login"
                   className="rounded-xl border border-white/10 px-4 py-2 text-center text-sm"
                 >
                   Iniciar sesión
                 </a>
-                <a href="#signup" className="btn-primary-gradient text-center text-sm">
+                <a href="/auth/register" className="btn-primary-gradient text-center text-sm">
                   Comenzar gratis →
                 </a>
               </div>
@@ -227,7 +227,7 @@ function Hero() {
             className="mt-8 flex flex-col items-center justify-center gap-3 sm:flex-row"
           >
             <a
-              href="#signup"
+              href="/auth/register"
               className="btn-primary-gradient inline-flex items-center gap-2 text-base"
             >
               Comenzar gratis — 0 tarjeta <ArrowRight className="h-4 w-4" />
@@ -700,14 +700,14 @@ function Pricing() {
                   <div className="mt-8">
                     {p.popular ? (
                       <a
-                        href="#signup"
+                        href="/auth/register"
                         className="btn-primary-gradient block w-full text-center text-sm"
                       >
                         {p.cta}
                       </a>
                     ) : (
                       <a
-                        href="#signup"
+                        href="/auth/register"
                         className="btn-secondary-brand block w-full text-center text-sm"
                       >
                         {p.cta}
@@ -920,7 +920,7 @@ function AffiliateTeaser() {
                 Cada persona que traigas te paga mes a mes. Sin techo de ingresos.
               </p>
               <a
-                href="#afiliados-signup"
+                href="/auth/register"
                 className="btn-primary-gradient mt-8 inline-flex items-center gap-2"
               >
                 Unirte al programa <ArrowRight className="h-4 w-4" />
