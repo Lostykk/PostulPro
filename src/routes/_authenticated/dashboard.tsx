@@ -13,6 +13,7 @@ import {
 import { supabase } from "@/integrations/supabase/client";
 import { useProfile } from "@/hooks/use-profile";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { toast } from "sonner";
 
 export const Route = createFileRoute("/_authenticated/dashboard")({
@@ -334,6 +335,7 @@ function EmptyState() {
 function ActivityRow({ gen, onDelete }: { gen: Generation; onDelete: () => void }) {
   const meta = TOOL_META[gen.tool] ?? { label: gen.tool, icon: "⚡" };
   const title = (gen.title ?? gen.output?.slice(0, 50) ?? "Sin título").slice(0, 50);
+  const [viewing, setViewing] = useState(false);
 
   async function handleCopy() {
     if (!gen.output) return;
@@ -356,7 +358,7 @@ function ActivityRow({ gen, onDelete }: { gen: Generation; onDelete: () => void 
         </div>
       </div>
       <div className="flex gap-1">
-        <IconBtn label="Ver" onClick={handleCopy}>
+        <IconBtn label="Ver" onClick={() => setViewing(true)}>
           <Eye className="w-3.5 h-3.5" />
         </IconBtn>
         <IconBtn label="Copiar" onClick={handleCopy}>
@@ -366,6 +368,18 @@ function ActivityRow({ gen, onDelete }: { gen: Generation; onDelete: () => void 
           <Trash2 className="w-3.5 h-3.5" />
         </IconBtn>
       </div>
+      <Dialog open={viewing} onOpenChange={setViewing}>
+        <DialogContent className="max-w-2xl max-h-[80vh] overflow-auto">
+          <DialogHeader>
+            <DialogTitle>
+              {meta.icon} {title}
+            </DialogTitle>
+          </DialogHeader>
+          <pre className="whitespace-pre-wrap font-sans text-sm leading-relaxed text-foreground/90">
+            {gen.output ?? "Sin contenido"}
+          </pre>
+        </DialogContent>
+      </Dialog>
     </li>
   );
 }

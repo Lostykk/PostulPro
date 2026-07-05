@@ -62,29 +62,19 @@ function OnboardingPage() {
   async function complete() {
     if (!user) return;
     setSaving(true);
-    // Fetch current credits_limit to add +50
-    const { data: current } = await supabase
-      .from("users")
-      .select("credits_limit")
-      .eq("id", user.id)
-      .maybeSingle();
-    const newLimit = (current?.credits_limit ?? 10) + 50;
-    const { error } = await supabase
-      .from("users")
-      .update({
-        name,
-        country,
-        bio,
-        onboarding_completed: true,
-        credits_limit: newLimit,
-      })
-      .eq("id", user.id);
+    // Server-side RPC: grants the +50 welcome bonus exactly once, guarded by
+    // onboarding_bonus_claimed so this can't be replayed for infinite credits.
+    const { error } = await supabase.rpc("complete_onboarding", {
+      p_name: name,
+      p_country: country,
+      p_bio: bio,
+    });
     setSaving(false);
     if (error) {
       toast.error(error.message);
       return;
     }
-    // Also save goal/target/company as a first generation-style record? For now show welcome modal.
+    // Goal/target/company are used to personalize copy only; not persisted yet.
     setShowWelcome(true);
   }
 

@@ -366,6 +366,7 @@ export type Database = {
           email: string
           id: string
           name: string | null
+          onboarding_bonus_claimed: boolean
           onboarding_completed: boolean
           plan: string
           role: string
@@ -381,6 +382,7 @@ export type Database = {
           email: string
           id: string
           name?: string | null
+          onboarding_bonus_claimed?: boolean
           onboarding_completed?: boolean
           plan?: string
           role?: string
@@ -396,6 +398,7 @@ export type Database = {
           email?: string
           id?: string
           name?: string | null
+          onboarding_bonus_claimed?: boolean
           onboarding_completed?: boolean
           plan?: string
           role?: string
@@ -407,6 +410,14 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      complete_onboarding: {
+        Args: { p_bio: string; p_country: string; p_name: string }
+        Returns: {
+          bonus_granted: boolean
+          credits_limit: number
+          onboarding_completed: boolean
+        }[]
+      }
       generate_affiliate_code: { Args: never; Returns: string }
       has_role: {
         Args: {
@@ -414,6 +425,14 @@ export type Database = {
           _user_id: string
         }
         Returns: boolean
+      }
+      refund_credits: {
+        Args: { p_cost: number }
+        Returns: { credits_limit: number; credits_used: number }[]
+      }
+      reserve_credits: {
+        Args: { p_cost: number }
+        Returns: { credits_limit: number; credits_used: number; ok: boolean }[]
       }
     }
     Enums: {

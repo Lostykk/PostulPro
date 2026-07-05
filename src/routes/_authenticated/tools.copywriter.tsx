@@ -37,6 +37,8 @@ function CopywriterPage() {
   const [context, setContext] = useState("");
   const [output, setOutput] = useState("");
   const [streaming, setStreaming] = useState(false);
+  const [generationId, setGenerationId] = useState<string | null>(null);
+  const [saved, setSaved] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
 
   const words = output.trim() ? output.trim().split(/\s+/).length : 0;
@@ -47,6 +49,8 @@ function CopywriterPage() {
       return;
     }
     setOutput("");
+    setGenerationId(null);
+    setSaved(false);
     setStreaming(true);
 
     const prompt = `Escribe un ${contentType} en ${language}.
@@ -104,12 +108,14 @@ Devuelve solo el copy final, sin comentarios ni explicaciones.`;
               text?: string;
               message?: string;
               creditsRemaining?: number;
+              generationId?: string;
             };
             if (evt.type === "delta" && evt.text) {
               setOutput((prev) => prev + evt.text);
             } else if (evt.type === "error") {
               throw new Error(evt.message ?? "Error del modelo");
             } else if (evt.type === "done") {
+              if (evt.generationId) setGenerationId(evt.generationId);
               toast.success(
                 typeof evt.creditsRemaining === "number"
                   ? `Listo · ${evt.creditsRemaining} créditos restantes`
@@ -135,6 +141,16 @@ Devuelve solo el copy final, sin comentarios ni explicaciones.`;
   async function handleCopy() {
     await navigator.clipboard.writeText(output);
     toast.success("Copiado");
+  }
+  async function handleSave() {
+    if (!generationId) return;
+    const { error } = await supabase
+      .from("generations")
+      .update({ is_favorite: true })
+      .eq("id", generationId);
+    if (error) return toast.error(error.message);
+    setSaved(true);
+    toast.success("Guardado en favoritos de tu biblioteca");
   }
   function handleDownload() {
     const blob = new Blob([output], { type: "text/plain;charset=utf-8" });
@@ -221,7 +237,7 @@ Devuelve solo el copy final, sin comentarios ni explicaciones.`;
               <ToolbarBtn onClick={handleCopy} disabled={!output} icon={<Copy className="w-3.5 h-3.5" />} label="Copiar" />
               <ToolbarBtn onClick={handleGenerate} disabled={streaming || !product} icon={<RefreshCw className="w-3.5 h-3.5" />} label="Regenerar" />
               <ToolbarBtn onClick={handleDownload} disabled={!output} icon={<Download className="w-3.5 h-3.5" />} label="TXT" />
-              <ToolbarBtn onClick={() => toast.info("Guardado en tu biblioteca")} disabled={!output || streaming} icon={<Save className="w-3.5 h-3.5" />} label="Guardar" />
+              <ToolbarBtn onClick={handleSave} disabled={!generationId || streaming || saved} icon={<Save className="w-3.5 h-3.5" />} label={saved ? "Guardado" : "Guardar"} />
             </div>
           </div>
           <div className="flex-1 p-6 overflow-auto">

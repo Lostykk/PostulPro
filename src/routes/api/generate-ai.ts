@@ -52,10 +52,10 @@ export const Route = createFileRoute("/api/generate-ai")({
         const tool = getTool(toolId);
         if (!tool) return json({ error: `Unknown tool: ${toolId}` }, 400);
 
-        // Fetch user's plan + credits
+        // Fetch user's plan
         const { data: profile, error: profErr } = await supabase
           .from("users")
-          .select("plan,credits_used,credits_limit")
+          .select("plan")
           .eq("id", userId)
           .maybeSingle();
         if (profErr || !profile) return json({ error: "Profile not found" }, 404);
@@ -71,9 +71,17 @@ export const Route = createFileRoute("/api/generate-ai")({
           }
         }
 
-        // Credits
-        const remaining = profile.credits_limit - profile.credits_used;
-        if (remaining < tool.credits) {
+        // Reserve credits atomically BEFORE streaming. The overspend guard
+        // lives inside the DB function's UPDATE...WHERE clause, so parallel
+        // requests can't both pass a stale "remaining credits" check.
+        const { data: reserveRows, error: reserveErr } = await supabase.rpc("reserve_credits", {
+          p_cost: tool.credits,
+        });
+        if (reserveErr) return json({ error: "Failed to reserve credits" }, 500);
+        const reserve = reserveRows?.[0];
+        if (!reserve) return json({ error: "Failed to reserve credits" }, 500);
+        if (!reserve.ok) {
+          const remaining = reserve.credits_limit - reserve.credits_used;
           return json(
             {
               error: `Créditos insuficientes. Necesitas ${tool.credits}, tienes ${remaining}.`,
@@ -84,13 +92,6 @@ export const Route = createFileRoute("/api/generate-ai")({
             402,
           );
         }
-
-        // Reserve credits BEFORE streaming so parallel requests can't overspend.
-        const { error: reserveErr } = await supabase
-          .from("users")
-          .update({ credits_used: profile.credits_used + tool.credits })
-          .eq("id", userId);
-        if (reserveErr) return json({ error: "Failed to reserve credits" }, 500);
 
         // Build stream
         const encoder = new TextEncoder();
@@ -137,11 +138,8 @@ export const Route = createFileRoute("/api/generate-ai")({
               });
               controller.close();
             } catch (err) {
-              // Refund on error
-              await supabase
-                .from("users")
-                .update({ credits_used: profile.credits_used })
-                .eq("id", userId);
+              // Refund on error (atomic decrement, floored at 0)
+              await supabase.rpc("refund_credits", { p_cost: tool.credits });
               send({
                 type: "error",
                 message: err instanceof Error ? err.message : "Model call failed",
