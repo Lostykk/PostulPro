@@ -38,6 +38,11 @@ export function AppShell({ children }: { children: ReactNode }) {
 }
 
 function ShellInner({ children }: { children: ReactNode }) {
+  const pathname = useRouterState({ select: (s) => s.location.pathname });
+  // Full-screen routes bypass the shell (onboarding, etc.)
+  if (pathname.startsWith("/onboarding")) {
+    return <>{children}</>;
+  }
   return (
     <div className="min-h-screen bg-background text-foreground">
       <Sidebar />
