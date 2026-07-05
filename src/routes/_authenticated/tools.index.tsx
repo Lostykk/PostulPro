@@ -70,7 +70,7 @@ function ToolsIndex() {
                 </button>
               ) : (
                 <Link
-                  to={tool.to}
+                  to={tool.to as "/tools/copywriter"}
                   className="mt-4 inline-flex items-center justify-center gap-2 h-9 rounded-lg text-sm font-semibold bg-gradient-to-r from-violet-500 to-fuchsia-500 text-white hover:opacity-90 transition"
                 >
                   Usar <ArrowRight className="w-4 h-4" />
