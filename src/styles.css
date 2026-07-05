@@ -194,6 +194,21 @@
   animation: marquee 40s linear infinite;
 }
 
+@utility input {
+  display: block;
+  width: 100%;
+  height: 2.375rem;
+  padding: 0 0.75rem;
+  border-radius: 0.5rem;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  color: var(--foreground);
+  font-size: 0.875rem;
+  transition: border-color 0.15s, background 0.15s;
+  &:focus { outline: none; border-color: rgba(168, 85, 247, 0.5); background: rgba(255,255,255,0.07); }
+  &::placeholder { color: var(--muted-foreground); }
+}
+
 @keyframes float-slow {
   0%, 100% { transform: translateY(0); }
   50% { transform: translateY(-8px); }
