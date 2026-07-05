@@ -16,10 +16,20 @@ import { Route as AuthRegisterRouteImport } from './routes/auth.register'
 import { Route as AuthLoginRouteImport } from './routes/auth.login'
 import { Route as AuthCallbackRouteImport } from './routes/auth.callback'
 import { Route as ApiGenerateAiRouteImport } from './routes/api/generate-ai'
+import { Route as AuthenticatedSettingsRouteImport } from './routes/_authenticated/settings'
 import { Route as AuthenticatedOnboardingRouteImport } from './routes/_authenticated/onboarding'
+import { Route as AuthenticatedMarketplaceRouteImport } from './routes/_authenticated/marketplace'
+import { Route as AuthenticatedLibraryRouteImport } from './routes/_authenticated/library'
 import { Route as AuthenticatedDashboardRouteImport } from './routes/_authenticated/dashboard'
+import { Route as AuthenticatedAffiliatesRouteImport } from './routes/_authenticated/affiliates'
 import { Route as AuthenticatedToolsIndexRouteImport } from './routes/_authenticated/tools.index'
+import { Route as AuthenticatedToolsSocialPackRouteImport } from './routes/_authenticated/tools.social-pack'
+import { Route as AuthenticatedToolsSalesEmailRouteImport } from './routes/_authenticated/tools.sales-email'
+import { Route as AuthenticatedToolsLandingCopyRouteImport } from './routes/_authenticated/tools.landing-copy'
+import { Route as AuthenticatedToolsEmailSequencesRouteImport } from './routes/_authenticated/tools.email-sequences'
 import { Route as AuthenticatedToolsCopywriterRouteImport } from './routes/_authenticated/tools.copywriter'
+import { Route as AuthenticatedToolsConsultantRouteImport } from './routes/_authenticated/tools.consultant'
+import { Route as AuthenticatedToolsBusinessPlanRouteImport } from './routes/_authenticated/tools.business-plan'
 
 const AuthenticatedRouteRoute = AuthenticatedRouteRouteImport.update({
   id: '/_authenticated',
@@ -55,9 +65,25 @@ const ApiGenerateAiRoute = ApiGenerateAiRouteImport.update({
   path: '/api/generate-ai',
   getParentRoute: () => rootRouteImport,
 } as any)
+const AuthenticatedSettingsRoute = AuthenticatedSettingsRouteImport.update({
+  id: '/settings',
+  path: '/settings',
+  getParentRoute: () => AuthenticatedRouteRoute,
+} as any)
 const AuthenticatedOnboardingRoute = AuthenticatedOnboardingRouteImport.update({
   id: '/onboarding',
   path: '/onboarding',
+  getParentRoute: () => AuthenticatedRouteRoute,
+} as any)
+const AuthenticatedMarketplaceRoute =
+  AuthenticatedMarketplaceRouteImport.update({
+    id: '/marketplace',
+    path: '/marketplace',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
+const AuthenticatedLibraryRoute = AuthenticatedLibraryRouteImport.update({
+  id: '/library',
+  path: '/library',
   getParentRoute: () => AuthenticatedRouteRoute,
 } as any)
 const AuthenticatedDashboardRoute = AuthenticatedDashboardRouteImport.update({
@@ -65,93 +91,194 @@ const AuthenticatedDashboardRoute = AuthenticatedDashboardRouteImport.update({
   path: '/dashboard',
   getParentRoute: () => AuthenticatedRouteRoute,
 } as any)
+const AuthenticatedAffiliatesRoute = AuthenticatedAffiliatesRouteImport.update({
+  id: '/affiliates',
+  path: '/affiliates',
+  getParentRoute: () => AuthenticatedRouteRoute,
+} as any)
 const AuthenticatedToolsIndexRoute = AuthenticatedToolsIndexRouteImport.update({
   id: '/tools/',
   path: '/tools/',
   getParentRoute: () => AuthenticatedRouteRoute,
 } as any)
+const AuthenticatedToolsSocialPackRoute =
+  AuthenticatedToolsSocialPackRouteImport.update({
+    id: '/tools/social-pack',
+    path: '/tools/social-pack',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
+const AuthenticatedToolsSalesEmailRoute =
+  AuthenticatedToolsSalesEmailRouteImport.update({
+    id: '/tools/sales-email',
+    path: '/tools/sales-email',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
+const AuthenticatedToolsLandingCopyRoute =
+  AuthenticatedToolsLandingCopyRouteImport.update({
+    id: '/tools/landing-copy',
+    path: '/tools/landing-copy',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
+const AuthenticatedToolsEmailSequencesRoute =
+  AuthenticatedToolsEmailSequencesRouteImport.update({
+    id: '/tools/email-sequences',
+    path: '/tools/email-sequences',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
 const AuthenticatedToolsCopywriterRoute =
   AuthenticatedToolsCopywriterRouteImport.update({
     id: '/tools/copywriter',
     path: '/tools/copywriter',
     getParentRoute: () => AuthenticatedRouteRoute,
   } as any)
+const AuthenticatedToolsConsultantRoute =
+  AuthenticatedToolsConsultantRouteImport.update({
+    id: '/tools/consultant',
+    path: '/tools/consultant',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
+const AuthenticatedToolsBusinessPlanRoute =
+  AuthenticatedToolsBusinessPlanRouteImport.update({
+    id: '/tools/business-plan',
+    path: '/tools/business-plan',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/affiliates': typeof AuthenticatedAffiliatesRoute
   '/dashboard': typeof AuthenticatedDashboardRoute
+  '/library': typeof AuthenticatedLibraryRoute
+  '/marketplace': typeof AuthenticatedMarketplaceRoute
   '/onboarding': typeof AuthenticatedOnboardingRoute
+  '/settings': typeof AuthenticatedSettingsRoute
   '/api/generate-ai': typeof ApiGenerateAiRoute
   '/auth/callback': typeof AuthCallbackRoute
   '/auth/login': typeof AuthLoginRoute
   '/auth/register': typeof AuthRegisterRoute
   '/auth/reset-password': typeof AuthResetPasswordRoute
+  '/tools/business-plan': typeof AuthenticatedToolsBusinessPlanRoute
+  '/tools/consultant': typeof AuthenticatedToolsConsultantRoute
   '/tools/copywriter': typeof AuthenticatedToolsCopywriterRoute
+  '/tools/email-sequences': typeof AuthenticatedToolsEmailSequencesRoute
+  '/tools/landing-copy': typeof AuthenticatedToolsLandingCopyRoute
+  '/tools/sales-email': typeof AuthenticatedToolsSalesEmailRoute
+  '/tools/social-pack': typeof AuthenticatedToolsSocialPackRoute
   '/tools/': typeof AuthenticatedToolsIndexRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/affiliates': typeof AuthenticatedAffiliatesRoute
   '/dashboard': typeof AuthenticatedDashboardRoute
+  '/library': typeof AuthenticatedLibraryRoute
+  '/marketplace': typeof AuthenticatedMarketplaceRoute
   '/onboarding': typeof AuthenticatedOnboardingRoute
+  '/settings': typeof AuthenticatedSettingsRoute
   '/api/generate-ai': typeof ApiGenerateAiRoute
   '/auth/callback': typeof AuthCallbackRoute
   '/auth/login': typeof AuthLoginRoute
   '/auth/register': typeof AuthRegisterRoute
   '/auth/reset-password': typeof AuthResetPasswordRoute
+  '/tools/business-plan': typeof AuthenticatedToolsBusinessPlanRoute
+  '/tools/consultant': typeof AuthenticatedToolsConsultantRoute
   '/tools/copywriter': typeof AuthenticatedToolsCopywriterRoute
+  '/tools/email-sequences': typeof AuthenticatedToolsEmailSequencesRoute
+  '/tools/landing-copy': typeof AuthenticatedToolsLandingCopyRoute
+  '/tools/sales-email': typeof AuthenticatedToolsSalesEmailRoute
+  '/tools/social-pack': typeof AuthenticatedToolsSocialPackRoute
   '/tools': typeof AuthenticatedToolsIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/_authenticated': typeof AuthenticatedRouteRouteWithChildren
+  '/_authenticated/affiliates': typeof AuthenticatedAffiliatesRoute
   '/_authenticated/dashboard': typeof AuthenticatedDashboardRoute
+  '/_authenticated/library': typeof AuthenticatedLibraryRoute
+  '/_authenticated/marketplace': typeof AuthenticatedMarketplaceRoute
   '/_authenticated/onboarding': typeof AuthenticatedOnboardingRoute
+  '/_authenticated/settings': typeof AuthenticatedSettingsRoute
   '/api/generate-ai': typeof ApiGenerateAiRoute
   '/auth/callback': typeof AuthCallbackRoute
   '/auth/login': typeof AuthLoginRoute
   '/auth/register': typeof AuthRegisterRoute
   '/auth/reset-password': typeof AuthResetPasswordRoute
+  '/_authenticated/tools/business-plan': typeof AuthenticatedToolsBusinessPlanRoute
+  '/_authenticated/tools/consultant': typeof AuthenticatedToolsConsultantRoute
   '/_authenticated/tools/copywriter': typeof AuthenticatedToolsCopywriterRoute
+  '/_authenticated/tools/email-sequences': typeof AuthenticatedToolsEmailSequencesRoute
+  '/_authenticated/tools/landing-copy': typeof AuthenticatedToolsLandingCopyRoute
+  '/_authenticated/tools/sales-email': typeof AuthenticatedToolsSalesEmailRoute
+  '/_authenticated/tools/social-pack': typeof AuthenticatedToolsSocialPackRoute
   '/_authenticated/tools/': typeof AuthenticatedToolsIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
+    | '/affiliates'
     | '/dashboard'
+    | '/library'
+    | '/marketplace'
     | '/onboarding'
+    | '/settings'
     | '/api/generate-ai'
     | '/auth/callback'
     | '/auth/login'
     | '/auth/register'
     | '/auth/reset-password'
+    | '/tools/business-plan'
+    | '/tools/consultant'
     | '/tools/copywriter'
+    | '/tools/email-sequences'
+    | '/tools/landing-copy'
+    | '/tools/sales-email'
+    | '/tools/social-pack'
     | '/tools/'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
+    | '/affiliates'
     | '/dashboard'
+    | '/library'
+    | '/marketplace'
     | '/onboarding'
+    | '/settings'
     | '/api/generate-ai'
     | '/auth/callback'
     | '/auth/login'
     | '/auth/register'
     | '/auth/reset-password'
+    | '/tools/business-plan'
+    | '/tools/consultant'
     | '/tools/copywriter'
+    | '/tools/email-sequences'
+    | '/tools/landing-copy'
+    | '/tools/sales-email'
+    | '/tools/social-pack'
     | '/tools'
   id:
     | '__root__'
     | '/'
     | '/_authenticated'
+    | '/_authenticated/affiliates'
     | '/_authenticated/dashboard'
+    | '/_authenticated/library'
+    | '/_authenticated/marketplace'
     | '/_authenticated/onboarding'
+    | '/_authenticated/settings'
     | '/api/generate-ai'
     | '/auth/callback'
     | '/auth/login'
     | '/auth/register'
     | '/auth/reset-password'
+    | '/_authenticated/tools/business-plan'
+    | '/_authenticated/tools/consultant'
     | '/_authenticated/tools/copywriter'
+    | '/_authenticated/tools/email-sequences'
+    | '/_authenticated/tools/landing-copy'
+    | '/_authenticated/tools/sales-email'
+    | '/_authenticated/tools/social-pack'
     | '/_authenticated/tools/'
   fileRoutesById: FileRoutesById
 }
@@ -216,11 +343,32 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiGenerateAiRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/_authenticated/settings': {
+      id: '/_authenticated/settings'
+      path: '/settings'
+      fullPath: '/settings'
+      preLoaderRoute: typeof AuthenticatedSettingsRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
     '/_authenticated/onboarding': {
       id: '/_authenticated/onboarding'
       path: '/onboarding'
       fullPath: '/onboarding'
       preLoaderRoute: typeof AuthenticatedOnboardingRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/marketplace': {
+      id: '/_authenticated/marketplace'
+      path: '/marketplace'
+      fullPath: '/marketplace'
+      preLoaderRoute: typeof AuthenticatedMarketplaceRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/library': {
+      id: '/_authenticated/library'
+      path: '/library'
+      fullPath: '/library'
+      preLoaderRoute: typeof AuthenticatedLibraryRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
     '/_authenticated/dashboard': {
@@ -230,11 +378,46 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedDashboardRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
+    '/_authenticated/affiliates': {
+      id: '/_authenticated/affiliates'
+      path: '/affiliates'
+      fullPath: '/affiliates'
+      preLoaderRoute: typeof AuthenticatedAffiliatesRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
     '/_authenticated/tools/': {
       id: '/_authenticated/tools/'
       path: '/tools'
       fullPath: '/tools/'
       preLoaderRoute: typeof AuthenticatedToolsIndexRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/tools/social-pack': {
+      id: '/_authenticated/tools/social-pack'
+      path: '/tools/social-pack'
+      fullPath: '/tools/social-pack'
+      preLoaderRoute: typeof AuthenticatedToolsSocialPackRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/tools/sales-email': {
+      id: '/_authenticated/tools/sales-email'
+      path: '/tools/sales-email'
+      fullPath: '/tools/sales-email'
+      preLoaderRoute: typeof AuthenticatedToolsSalesEmailRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/tools/landing-copy': {
+      id: '/_authenticated/tools/landing-copy'
+      path: '/tools/landing-copy'
+      fullPath: '/tools/landing-copy'
+      preLoaderRoute: typeof AuthenticatedToolsLandingCopyRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/tools/email-sequences': {
+      id: '/_authenticated/tools/email-sequences'
+      path: '/tools/email-sequences'
+      fullPath: '/tools/email-sequences'
+      preLoaderRoute: typeof AuthenticatedToolsEmailSequencesRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
     '/_authenticated/tools/copywriter': {
@@ -244,20 +427,54 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedToolsCopywriterRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
+    '/_authenticated/tools/consultant': {
+      id: '/_authenticated/tools/consultant'
+      path: '/tools/consultant'
+      fullPath: '/tools/consultant'
+      preLoaderRoute: typeof AuthenticatedToolsConsultantRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/tools/business-plan': {
+      id: '/_authenticated/tools/business-plan'
+      path: '/tools/business-plan'
+      fullPath: '/tools/business-plan'
+      preLoaderRoute: typeof AuthenticatedToolsBusinessPlanRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
   }
 }
 
 interface AuthenticatedRouteRouteChildren {
+  AuthenticatedAffiliatesRoute: typeof AuthenticatedAffiliatesRoute
   AuthenticatedDashboardRoute: typeof AuthenticatedDashboardRoute
+  AuthenticatedLibraryRoute: typeof AuthenticatedLibraryRoute
+  AuthenticatedMarketplaceRoute: typeof AuthenticatedMarketplaceRoute
   AuthenticatedOnboardingRoute: typeof AuthenticatedOnboardingRoute
+  AuthenticatedSettingsRoute: typeof AuthenticatedSettingsRoute
+  AuthenticatedToolsBusinessPlanRoute: typeof AuthenticatedToolsBusinessPlanRoute
+  AuthenticatedToolsConsultantRoute: typeof AuthenticatedToolsConsultantRoute
   AuthenticatedToolsCopywriterRoute: typeof AuthenticatedToolsCopywriterRoute
+  AuthenticatedToolsEmailSequencesRoute: typeof AuthenticatedToolsEmailSequencesRoute
+  AuthenticatedToolsLandingCopyRoute: typeof AuthenticatedToolsLandingCopyRoute
+  AuthenticatedToolsSalesEmailRoute: typeof AuthenticatedToolsSalesEmailRoute
+  AuthenticatedToolsSocialPackRoute: typeof AuthenticatedToolsSocialPackRoute
   AuthenticatedToolsIndexRoute: typeof AuthenticatedToolsIndexRoute
 }
 
 const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
+  AuthenticatedAffiliatesRoute: AuthenticatedAffiliatesRoute,
   AuthenticatedDashboardRoute: AuthenticatedDashboardRoute,
+  AuthenticatedLibraryRoute: AuthenticatedLibraryRoute,
+  AuthenticatedMarketplaceRoute: AuthenticatedMarketplaceRoute,
   AuthenticatedOnboardingRoute: AuthenticatedOnboardingRoute,
+  AuthenticatedSettingsRoute: AuthenticatedSettingsRoute,
+  AuthenticatedToolsBusinessPlanRoute: AuthenticatedToolsBusinessPlanRoute,
+  AuthenticatedToolsConsultantRoute: AuthenticatedToolsConsultantRoute,
   AuthenticatedToolsCopywriterRoute: AuthenticatedToolsCopywriterRoute,
+  AuthenticatedToolsEmailSequencesRoute: AuthenticatedToolsEmailSequencesRoute,
+  AuthenticatedToolsLandingCopyRoute: AuthenticatedToolsLandingCopyRoute,
+  AuthenticatedToolsSalesEmailRoute: AuthenticatedToolsSalesEmailRoute,
+  AuthenticatedToolsSocialPackRoute: AuthenticatedToolsSocialPackRoute,
   AuthenticatedToolsIndexRoute: AuthenticatedToolsIndexRoute,
 }
 
