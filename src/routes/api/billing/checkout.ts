@@ -1,14 +1,15 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { createClient } from "@supabase/supabase-js";
 import type { Database } from "@/integrations/supabase/types";
-import { getStripe, resolvePriceId, type PriceKey } from "@/lib/stripe.server";
+import { createCheckout, resolveVariantId, VARIANT_PLAN_MAP, type VariantKey } from "@/lib/lemon-squeezy.server";
 
-// Creates a Stripe Checkout session for a plan subscription or a one-time
+// Creates a Lemon Squeezy Checkout for a plan subscription or a one-time
 // credits pack. Contract: POST { kind: "subscription"|"credits", priceKey }
-// with Bearer token. The client never chooses a raw Stripe price ID — only
-// one of the fixed logical keys below, resolved server-side to an env var.
+// with Bearer token. The client never chooses a raw Lemon Squeezy variant id
+// — only one of the fixed logical keys below, resolved server-side to an
+// env var and cross-checked against VARIANT_PLAN_MAP's own "kind".
 
-const SUBSCRIPTION_KEYS: PriceKey[] = ["pro_monthly", "pro_annual", "business_monthly", "business_annual"];
+const ALL_KEYS = Object.keys(VARIANT_PLAN_MAP) as VariantKey[];
 
 export const Route = createFileRoute("/api/billing/checkout")({
   server: {
@@ -29,6 +30,7 @@ export const Route = createFileRoute("/api/billing/checkout")({
         const { data: userData, error: userErr } = await supabase.auth.getUser(token);
         if (userErr || !userData?.user) return json({ error: "Unauthorized" }, 401);
         const user = userData.user;
+        if (!user.email) return json({ error: "Account has no email" }, 400);
 
         let body: { kind?: string; priceKey?: string };
         try {
@@ -38,32 +40,25 @@ export const Route = createFileRoute("/api/billing/checkout")({
         }
 
         const kind = body.kind;
-        const priceKey = body.priceKey as PriceKey | undefined;
+        const priceKey = body.priceKey as VariantKey | undefined;
         if (kind !== "subscription" && kind !== "credits") return json({ error: "Invalid kind" }, 400);
-        if (!priceKey) return json({ error: "priceKey is required" }, 400);
-        if (kind === "subscription" && !SUBSCRIPTION_KEYS.includes(priceKey)) {
-          return json({ error: "Invalid subscription priceKey" }, 400);
-        }
-        if (kind === "credits" && priceKey !== "credits_100") {
-          return json({ error: "Invalid credits priceKey" }, 400);
-        }
+        if (!priceKey || !ALL_KEYS.includes(priceKey)) return json({ error: "Invalid priceKey" }, 400);
+
+        const mapping = VARIANT_PLAN_MAP[priceKey];
+        if (kind !== mapping.kind) return json({ error: "priceKey does not match kind" }, 400);
 
         try {
-          const stripe = getStripe();
-          const price = resolvePriceId(priceKey);
+          const variantId = resolveVariantId(priceKey);
           const origin = new URL(request.url).origin;
 
-          const session = await stripe.checkout.sessions.create({
-            mode: kind === "subscription" ? "subscription" : "payment",
-            client_reference_id: user.id,
-            customer_email: user.email,
-            line_items: [{ price, quantity: 1 }],
-            metadata: { user_id: user.id, kind, price_key: priceKey },
-            success_url: `${origin}/dashboard?checkout=success`,
-            cancel_url: `${origin}/settings?checkout=cancelled`,
+          const url = await createCheckout({
+            variantId,
+            userId: user.id,
+            email: user.email,
+            redirectUrl: `${origin}/dashboard?checkout=success`,
           });
 
-          return json({ url: session.url });
+          return json({ url });
         } catch (err) {
           return json({ error: err instanceof Error ? err.message : "Checkout failed" }, 501);
         }

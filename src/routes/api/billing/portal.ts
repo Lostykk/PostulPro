@@ -1,7 +1,13 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { createClient } from "@supabase/supabase-js";
 import type { Database } from "@/integrations/supabase/types";
-import { getStripe } from "@/lib/stripe.server";
+import { getSubscription } from "@/lib/lemon-squeezy.server";
+
+// Lemon Squeezy has no "create a portal session" call like Stripe's — the
+// Customer Portal URL is a pre-signed field (urls.customer_portal) on the
+// subscription resource itself, valid for ~24h. So "opening the portal" is
+// just: look up the user's own subscription id, re-fetch it for a fresh URL,
+// and redirect there.
 
 export const Route = createFileRoute("/api/billing/portal")({
   server: {
@@ -24,24 +30,21 @@ export const Route = createFileRoute("/api/billing/portal")({
 
         const { data: sub } = await supabase
           .from("subscriptions")
-          .select("stripe_customer_id")
+          .select("provider_subscription_id")
           .eq("user_id", userData.user.id)
-          .not("stripe_customer_id", "is", null)
+          .not("provider_subscription_id", "is", null)
           .order("created_at", { ascending: false })
           .maybeSingle();
 
-        if (!sub?.stripe_customer_id) {
-          return json({ error: "Todavía no tenés una suscripción activa con Stripe." }, 404);
+        if (!sub?.provider_subscription_id) {
+          return json({ error: "Todavía no tenés una suscripción activa." }, 404);
         }
 
         try {
-          const stripe = getStripe();
-          const origin = new URL(request.url).origin;
-          const session = await stripe.billingPortal.sessions.create({
-            customer: sub.stripe_customer_id,
-            return_url: `${origin}/settings`,
-          });
-          return json({ url: session.url });
+          const remote = await getSubscription(sub.provider_subscription_id);
+          const url = remote.attributes.urls.customer_portal;
+          if (!url) return json({ error: "Lemon Squeezy no devolvió una URL de portal" }, 501);
+          return json({ url });
         } catch (err) {
           return json({ error: err instanceof Error ? err.message : "Portal failed" }, 501);
         }
