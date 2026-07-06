@@ -11,6 +11,7 @@
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as AuthenticatedRouteRouteImport } from './routes/_authenticated/route'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as RefCodeRouteImport } from './routes/ref.$code'
 import { Route as AuthResetPasswordRouteImport } from './routes/auth.reset-password'
 import { Route as AuthRegisterRouteImport } from './routes/auth.register'
 import { Route as AuthLoginRouteImport } from './routes/auth.login'
@@ -40,6 +41,11 @@ const AuthenticatedRouteRoute = AuthenticatedRouteRouteImport.update({
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const RefCodeRoute = RefCodeRouteImport.update({
+  id: '/ref/$code',
+  path: '/ref/$code',
   getParentRoute: () => rootRouteImport,
 } as any)
 const AuthResetPasswordRoute = AuthResetPasswordRouteImport.update({
@@ -171,6 +177,7 @@ export interface FileRoutesByFullPath {
   '/auth/login': typeof AuthLoginRoute
   '/auth/register': typeof AuthRegisterRoute
   '/auth/reset-password': typeof AuthResetPasswordRoute
+  '/ref/$code': typeof RefCodeRoute
   '/marketplace/$productId': typeof AuthenticatedMarketplaceProductIdRoute
   '/marketplace/sell': typeof AuthenticatedMarketplaceSellRoute
   '/tools/business-plan': typeof AuthenticatedToolsBusinessPlanRoute
@@ -195,6 +202,7 @@ export interface FileRoutesByTo {
   '/auth/login': typeof AuthLoginRoute
   '/auth/register': typeof AuthRegisterRoute
   '/auth/reset-password': typeof AuthResetPasswordRoute
+  '/ref/$code': typeof RefCodeRoute
   '/marketplace/$productId': typeof AuthenticatedMarketplaceProductIdRoute
   '/marketplace/sell': typeof AuthenticatedMarketplaceSellRoute
   '/tools/business-plan': typeof AuthenticatedToolsBusinessPlanRoute
@@ -221,6 +229,7 @@ export interface FileRoutesById {
   '/auth/login': typeof AuthLoginRoute
   '/auth/register': typeof AuthRegisterRoute
   '/auth/reset-password': typeof AuthResetPasswordRoute
+  '/ref/$code': typeof RefCodeRoute
   '/_authenticated/marketplace/$productId': typeof AuthenticatedMarketplaceProductIdRoute
   '/_authenticated/marketplace/sell': typeof AuthenticatedMarketplaceSellRoute
   '/_authenticated/tools/business-plan': typeof AuthenticatedToolsBusinessPlanRoute
@@ -247,6 +256,7 @@ export interface FileRouteTypes {
     | '/auth/login'
     | '/auth/register'
     | '/auth/reset-password'
+    | '/ref/$code'
     | '/marketplace/$productId'
     | '/marketplace/sell'
     | '/tools/business-plan'
@@ -271,6 +281,7 @@ export interface FileRouteTypes {
     | '/auth/login'
     | '/auth/register'
     | '/auth/reset-password'
+    | '/ref/$code'
     | '/marketplace/$productId'
     | '/marketplace/sell'
     | '/tools/business-plan'
@@ -296,6 +307,7 @@ export interface FileRouteTypes {
     | '/auth/login'
     | '/auth/register'
     | '/auth/reset-password'
+    | '/ref/$code'
     | '/_authenticated/marketplace/$productId'
     | '/_authenticated/marketplace/sell'
     | '/_authenticated/tools/business-plan'
@@ -316,6 +328,7 @@ export interface RootRouteChildren {
   AuthLoginRoute: typeof AuthLoginRoute
   AuthRegisterRoute: typeof AuthRegisterRoute
   AuthResetPasswordRoute: typeof AuthResetPasswordRoute
+  RefCodeRoute: typeof RefCodeRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -332,6 +345,13 @@ declare module '@tanstack/react-router' {
       path: '/'
       fullPath: '/'
       preLoaderRoute: typeof IndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/ref/$code': {
+      id: '/ref/$code'
+      path: '/ref/$code'
+      fullPath: '/ref/$code'
+      preLoaderRoute: typeof RefCodeRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/auth/reset-password': {
@@ -546,6 +566,7 @@ const rootRouteChildren: RootRouteChildren = {
   AuthLoginRoute: AuthLoginRoute,
   AuthRegisterRoute: AuthRegisterRoute,
   AuthResetPasswordRoute: AuthResetPasswordRoute,
+  RefCodeRoute: RefCodeRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

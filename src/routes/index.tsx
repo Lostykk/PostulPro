@@ -28,12 +28,16 @@ import {
   AccordionItem,
   AccordionTrigger,
 } from "@/components/ui/accordion";
+import { captureReferral } from "@/lib/referral";
 
 export const Route = createFileRoute("/")({
   component: Landing,
 });
 
 function Landing() {
+  useEffect(() => {
+    captureReferral();
+  }, []);
   return (
     <div className="min-h-screen bg-background text-foreground">
       <Header />

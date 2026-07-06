@@ -5,6 +5,7 @@ import { Loader2 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { lovable } from "@/integrations/lovable";
 import { AuthSplitLayout, GoogleButton } from "@/components/auth/AuthSplitLayout";
+import { getStoredReferral } from "@/lib/referral";
 
 export const Route = createFileRoute("/auth/register")({
   head: () => ({
@@ -32,11 +33,12 @@ function RegisterPage() {
     if (password.length < 8) return toast.error("Contraseña mínima de 8 caracteres.");
     if (!terms) return toast.error("Aceptá los términos para continuar.");
     setLoading(true);
+    const ref = getStoredReferral();
     const { error } = await supabase.auth.signUp({
       email,
       password,
       options: {
-        data: { name },
+        data: ref ? { name, ref } : { name },
         emailRedirectTo: window.location.origin + "/auth/callback",
       },
     });
