@@ -2,7 +2,19 @@ import { createFileRoute } from "@tanstack/react-router";
 import { createClient } from "@supabase/supabase-js";
 import type { Database } from "@/integrations/supabase/types";
 import { getStripe } from "@/lib/stripe.server";
+import { sendNewCommissionEmail, sendPaymentFailedEmail, sendProConfirmationEmail } from "@/lib/resend.server";
 import type Stripe from "stripe";
+
+// Email sends are best-effort: RESEND_API_KEY isn't configured in this
+// environment, and a failed notification must never fail the webhook itself
+// (Stripe needs its 200 regardless).
+async function safeSend(fn: () => Promise<unknown>) {
+  try {
+    await fn();
+  } catch {
+    /* not configured yet / delivery failure — ignore */
+  }
+}
 
 // Stripe webhook. NOT wired to any real endpoint until STRIPE_SECRET_KEY and
 // STRIPE_WEBHOOK_SECRET exist — until then every event fails signature
@@ -88,6 +100,11 @@ export const Route = createFileRoute("/api/billing/webhook")({
                 { onConflict: "stripe_subscription_id" },
               );
               await admin.from("users").update({ plan, credits_limit: creditsLimit }).eq("id", userId);
+
+              if (event.type === "customer.subscription.created") {
+                const { data: profile } = await admin.from("users").select("email").eq("id", userId).maybeSingle();
+                if (profile) await safeSend(() => sendProConfirmationEmail(profile.email, plan));
+              }
               break;
             }
             case "customer.subscription.deleted": {
@@ -99,7 +116,47 @@ export const Route = createFileRoute("/api/billing/webhook")({
               break;
             }
             case "invoice.payment_failed": {
-              // Notification only (Resend) — no plan/credit change here.
+              const invoice = event.data.object as Stripe.Invoice;
+              const customerId = typeof invoice.customer === "string" ? invoice.customer : invoice.customer?.id;
+              if (!customerId) break;
+              const { data: sub } = await admin.from("subscriptions").select("user_id").eq("stripe_customer_id", customerId).maybeSingle();
+              if (!sub) break;
+              const { data: profile } = await admin.from("users").select("email").eq("id", sub.user_id).maybeSingle();
+              if (profile) await safeSend(() => sendPaymentFailedEmail(profile.email, event.id));
+              break;
+            }
+            case "invoice.payment_succeeded": {
+              // Recurring commission: if the paying user was referred, credit
+              // their referrer commission_amount = invoice amount * rate.
+              const invoice = event.data.object as Stripe.Invoice;
+              const subscriptionId =
+                typeof invoice.parent?.subscription_details?.subscription === "string"
+                  ? invoice.parent.subscription_details.subscription
+                  : undefined;
+              if (!subscriptionId) break;
+              const { data: subRow } = await admin
+                .from("subscriptions")
+                .select("user_id")
+                .eq("stripe_subscription_id", subscriptionId)
+                .maybeSingle();
+              if (!subRow) break;
+
+              const { data: referral } = await admin
+                .from("affiliate_referrals")
+                .select("id,referrer_id,commission_rate,commission_amount")
+                .eq("referred_user_id", subRow.user_id)
+                .maybeSingle();
+              if (!referral || !referral.commission_rate) break;
+
+              const amountPaid = invoice.amount_paid / 100;
+              const commission = amountPaid * (referral.commission_rate / 100);
+              await admin
+                .from("affiliate_referrals")
+                .update({ commission_amount: (referral.commission_amount ?? 0) + commission })
+                .eq("id", referral.id);
+
+              const { data: referrerProfile } = await admin.from("users").select("email").eq("id", referral.referrer_id).maybeSingle();
+              if (referrerProfile) await safeSend(() => sendNewCommissionEmail(referrerProfile.email, commission));
               break;
             }
             default:
