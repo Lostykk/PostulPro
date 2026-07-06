@@ -14,6 +14,53 @@ export type Database = {
   }
   public: {
     Tables: {
+      stripe_events: {
+        Row: { id: string; processed_at: string }
+        Insert: { id: string; processed_at?: string }
+        Update: { id?: string; processed_at?: string }
+        Relationships: []
+      }
+      api_keys: {
+        Row: {
+          created_at: string
+          id: string
+          key_hash: string
+          key_prefix: string
+          last_used_at: string | null
+          name: string
+          revoked_at: string | null
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          key_hash: string
+          key_prefix: string
+          last_used_at?: string | null
+          name: string
+          revoked_at?: string | null
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          key_hash?: string
+          key_prefix?: string
+          last_used_at?: string | null
+          name?: string
+          revoked_at?: string | null
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "api_keys_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "users"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       affiliate_clicks: {
         Row: {
           affiliate_code: string
@@ -448,6 +495,8 @@ export type Database = {
           email: string
           id: string
           name: string | null
+          notify_email: boolean
+          notify_push: boolean
           onboarding_bonus_claimed: boolean
           onboarding_completed: boolean
           plan: string
@@ -464,6 +513,8 @@ export type Database = {
           email: string
           id: string
           name?: string | null
+          notify_email?: boolean
+          notify_push?: boolean
           onboarding_bonus_claimed?: boolean
           onboarding_completed?: boolean
           plan?: string
@@ -480,6 +531,8 @@ export type Database = {
           email?: string
           id?: string
           name?: string | null
+          notify_email?: boolean
+          notify_push?: boolean
           onboarding_bonus_claimed?: boolean
           onboarding_completed?: boolean
           plan?: string
@@ -501,6 +554,10 @@ export type Database = {
         }[]
       }
       generate_affiliate_code: { Args: never; Returns: string }
+      generate_api_key: {
+        Args: { p_name: string }
+        Returns: { created_at: string; id: string; key_prefix: string; plaintext_key: string }[]
+      }
       has_role: {
         Args: {
           _role: Database["public"]["Enums"]["app_role"]

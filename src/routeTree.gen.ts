@@ -17,6 +17,7 @@ import { Route as AuthRegisterRouteImport } from './routes/auth.register'
 import { Route as AuthLoginRouteImport } from './routes/auth.login'
 import { Route as AuthCallbackRouteImport } from './routes/auth.callback'
 import { Route as ApiGenerateAiRouteImport } from './routes/api/generate-ai'
+import { Route as ApiDeleteAccountRouteImport } from './routes/api/delete-account'
 import { Route as AuthenticatedSettingsRouteImport } from './routes/_authenticated/settings'
 import { Route as AuthenticatedOnboardingRouteImport } from './routes/_authenticated/onboarding'
 import { Route as AuthenticatedMarketplaceRouteImport } from './routes/_authenticated/marketplace'
@@ -24,6 +25,9 @@ import { Route as AuthenticatedLibraryRouteImport } from './routes/_authenticate
 import { Route as AuthenticatedDashboardRouteImport } from './routes/_authenticated/dashboard'
 import { Route as AuthenticatedAffiliatesRouteImport } from './routes/_authenticated/affiliates'
 import { Route as AuthenticatedToolsIndexRouteImport } from './routes/_authenticated/tools.index'
+import { Route as ApiBillingWebhookRouteImport } from './routes/api/billing/webhook'
+import { Route as ApiBillingPortalRouteImport } from './routes/api/billing/portal'
+import { Route as ApiBillingCheckoutRouteImport } from './routes/api/billing/checkout'
 import { Route as AuthenticatedToolsSocialPackRouteImport } from './routes/_authenticated/tools.social-pack'
 import { Route as AuthenticatedToolsSalesEmailRouteImport } from './routes/_authenticated/tools.sales-email'
 import { Route as AuthenticatedToolsLandingCopyRouteImport } from './routes/_authenticated/tools.landing-copy'
@@ -73,6 +77,11 @@ const ApiGenerateAiRoute = ApiGenerateAiRouteImport.update({
   path: '/api/generate-ai',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiDeleteAccountRoute = ApiDeleteAccountRouteImport.update({
+  id: '/api/delete-account',
+  path: '/api/delete-account',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const AuthenticatedSettingsRoute = AuthenticatedSettingsRouteImport.update({
   id: '/settings',
   path: '/settings',
@@ -108,6 +117,21 @@ const AuthenticatedToolsIndexRoute = AuthenticatedToolsIndexRouteImport.update({
   id: '/tools/',
   path: '/tools/',
   getParentRoute: () => AuthenticatedRouteRoute,
+} as any)
+const ApiBillingWebhookRoute = ApiBillingWebhookRouteImport.update({
+  id: '/api/billing/webhook',
+  path: '/api/billing/webhook',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiBillingPortalRoute = ApiBillingPortalRouteImport.update({
+  id: '/api/billing/portal',
+  path: '/api/billing/portal',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiBillingCheckoutRoute = ApiBillingCheckoutRouteImport.update({
+  id: '/api/billing/checkout',
+  path: '/api/billing/checkout',
+  getParentRoute: () => rootRouteImport,
 } as any)
 const AuthenticatedToolsSocialPackRoute =
   AuthenticatedToolsSocialPackRouteImport.update({
@@ -172,6 +196,7 @@ export interface FileRoutesByFullPath {
   '/marketplace': typeof AuthenticatedMarketplaceRouteWithChildren
   '/onboarding': typeof AuthenticatedOnboardingRoute
   '/settings': typeof AuthenticatedSettingsRoute
+  '/api/delete-account': typeof ApiDeleteAccountRoute
   '/api/generate-ai': typeof ApiGenerateAiRoute
   '/auth/callback': typeof AuthCallbackRoute
   '/auth/login': typeof AuthLoginRoute
@@ -187,6 +212,9 @@ export interface FileRoutesByFullPath {
   '/tools/landing-copy': typeof AuthenticatedToolsLandingCopyRoute
   '/tools/sales-email': typeof AuthenticatedToolsSalesEmailRoute
   '/tools/social-pack': typeof AuthenticatedToolsSocialPackRoute
+  '/api/billing/checkout': typeof ApiBillingCheckoutRoute
+  '/api/billing/portal': typeof ApiBillingPortalRoute
+  '/api/billing/webhook': typeof ApiBillingWebhookRoute
   '/tools/': typeof AuthenticatedToolsIndexRoute
 }
 export interface FileRoutesByTo {
@@ -197,6 +225,7 @@ export interface FileRoutesByTo {
   '/marketplace': typeof AuthenticatedMarketplaceRouteWithChildren
   '/onboarding': typeof AuthenticatedOnboardingRoute
   '/settings': typeof AuthenticatedSettingsRoute
+  '/api/delete-account': typeof ApiDeleteAccountRoute
   '/api/generate-ai': typeof ApiGenerateAiRoute
   '/auth/callback': typeof AuthCallbackRoute
   '/auth/login': typeof AuthLoginRoute
@@ -212,6 +241,9 @@ export interface FileRoutesByTo {
   '/tools/landing-copy': typeof AuthenticatedToolsLandingCopyRoute
   '/tools/sales-email': typeof AuthenticatedToolsSalesEmailRoute
   '/tools/social-pack': typeof AuthenticatedToolsSocialPackRoute
+  '/api/billing/checkout': typeof ApiBillingCheckoutRoute
+  '/api/billing/portal': typeof ApiBillingPortalRoute
+  '/api/billing/webhook': typeof ApiBillingWebhookRoute
   '/tools': typeof AuthenticatedToolsIndexRoute
 }
 export interface FileRoutesById {
@@ -224,6 +256,7 @@ export interface FileRoutesById {
   '/_authenticated/marketplace': typeof AuthenticatedMarketplaceRouteWithChildren
   '/_authenticated/onboarding': typeof AuthenticatedOnboardingRoute
   '/_authenticated/settings': typeof AuthenticatedSettingsRoute
+  '/api/delete-account': typeof ApiDeleteAccountRoute
   '/api/generate-ai': typeof ApiGenerateAiRoute
   '/auth/callback': typeof AuthCallbackRoute
   '/auth/login': typeof AuthLoginRoute
@@ -239,6 +272,9 @@ export interface FileRoutesById {
   '/_authenticated/tools/landing-copy': typeof AuthenticatedToolsLandingCopyRoute
   '/_authenticated/tools/sales-email': typeof AuthenticatedToolsSalesEmailRoute
   '/_authenticated/tools/social-pack': typeof AuthenticatedToolsSocialPackRoute
+  '/api/billing/checkout': typeof ApiBillingCheckoutRoute
+  '/api/billing/portal': typeof ApiBillingPortalRoute
+  '/api/billing/webhook': typeof ApiBillingWebhookRoute
   '/_authenticated/tools/': typeof AuthenticatedToolsIndexRoute
 }
 export interface FileRouteTypes {
@@ -251,6 +287,7 @@ export interface FileRouteTypes {
     | '/marketplace'
     | '/onboarding'
     | '/settings'
+    | '/api/delete-account'
     | '/api/generate-ai'
     | '/auth/callback'
     | '/auth/login'
@@ -266,6 +303,9 @@ export interface FileRouteTypes {
     | '/tools/landing-copy'
     | '/tools/sales-email'
     | '/tools/social-pack'
+    | '/api/billing/checkout'
+    | '/api/billing/portal'
+    | '/api/billing/webhook'
     | '/tools/'
   fileRoutesByTo: FileRoutesByTo
   to:
@@ -276,6 +316,7 @@ export interface FileRouteTypes {
     | '/marketplace'
     | '/onboarding'
     | '/settings'
+    | '/api/delete-account'
     | '/api/generate-ai'
     | '/auth/callback'
     | '/auth/login'
@@ -291,6 +332,9 @@ export interface FileRouteTypes {
     | '/tools/landing-copy'
     | '/tools/sales-email'
     | '/tools/social-pack'
+    | '/api/billing/checkout'
+    | '/api/billing/portal'
+    | '/api/billing/webhook'
     | '/tools'
   id:
     | '__root__'
@@ -302,6 +346,7 @@ export interface FileRouteTypes {
     | '/_authenticated/marketplace'
     | '/_authenticated/onboarding'
     | '/_authenticated/settings'
+    | '/api/delete-account'
     | '/api/generate-ai'
     | '/auth/callback'
     | '/auth/login'
@@ -317,18 +362,25 @@ export interface FileRouteTypes {
     | '/_authenticated/tools/landing-copy'
     | '/_authenticated/tools/sales-email'
     | '/_authenticated/tools/social-pack'
+    | '/api/billing/checkout'
+    | '/api/billing/portal'
+    | '/api/billing/webhook'
     | '/_authenticated/tools/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   AuthenticatedRouteRoute: typeof AuthenticatedRouteRouteWithChildren
+  ApiDeleteAccountRoute: typeof ApiDeleteAccountRoute
   ApiGenerateAiRoute: typeof ApiGenerateAiRoute
   AuthCallbackRoute: typeof AuthCallbackRoute
   AuthLoginRoute: typeof AuthLoginRoute
   AuthRegisterRoute: typeof AuthRegisterRoute
   AuthResetPasswordRoute: typeof AuthResetPasswordRoute
   RefCodeRoute: typeof RefCodeRoute
+  ApiBillingCheckoutRoute: typeof ApiBillingCheckoutRoute
+  ApiBillingPortalRoute: typeof ApiBillingPortalRoute
+  ApiBillingWebhookRoute: typeof ApiBillingWebhookRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -389,6 +441,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiGenerateAiRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/delete-account': {
+      id: '/api/delete-account'
+      path: '/api/delete-account'
+      fullPath: '/api/delete-account'
+      preLoaderRoute: typeof ApiDeleteAccountRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/_authenticated/settings': {
       id: '/_authenticated/settings'
       path: '/settings'
@@ -437,6 +496,27 @@ declare module '@tanstack/react-router' {
       fullPath: '/tools/'
       preLoaderRoute: typeof AuthenticatedToolsIndexRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/api/billing/webhook': {
+      id: '/api/billing/webhook'
+      path: '/api/billing/webhook'
+      fullPath: '/api/billing/webhook'
+      preLoaderRoute: typeof ApiBillingWebhookRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/billing/portal': {
+      id: '/api/billing/portal'
+      path: '/api/billing/portal'
+      fullPath: '/api/billing/portal'
+      preLoaderRoute: typeof ApiBillingPortalRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/billing/checkout': {
+      id: '/api/billing/checkout'
+      path: '/api/billing/checkout'
+      fullPath: '/api/billing/checkout'
+      preLoaderRoute: typeof ApiBillingCheckoutRouteImport
+      parentRoute: typeof rootRouteImport
     }
     '/_authenticated/tools/social-pack': {
       id: '/_authenticated/tools/social-pack'
@@ -561,12 +641,16 @@ const AuthenticatedRouteRouteWithChildren =
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AuthenticatedRouteRoute: AuthenticatedRouteRouteWithChildren,
+  ApiDeleteAccountRoute: ApiDeleteAccountRoute,
   ApiGenerateAiRoute: ApiGenerateAiRoute,
   AuthCallbackRoute: AuthCallbackRoute,
   AuthLoginRoute: AuthLoginRoute,
   AuthRegisterRoute: AuthRegisterRoute,
   AuthResetPasswordRoute: AuthResetPasswordRoute,
   RefCodeRoute: RefCodeRoute,
+  ApiBillingCheckoutRoute: ApiBillingCheckoutRoute,
+  ApiBillingPortalRoute: ApiBillingPortalRoute,
+  ApiBillingWebhookRoute: ApiBillingWebhookRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
