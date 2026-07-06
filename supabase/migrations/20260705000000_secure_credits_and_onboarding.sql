@@ -5,6 +5,12 @@
 -- their plan or grant themselves unlimited credits. Lock those columns down
 -- and move all credit/plan mutations server-side into SECURITY DEFINER RPCs.
 
+-- Dedicated idempotency flag for the onboarding welcome bonus. Kept separate
+-- from onboarding_completed (which stays freely editable) so the bonus can
+-- never be re-claimed by toggling that flag. Added before the policy below
+-- so the policy's WITH CHECK can reference it.
+ALTER TABLE public.users ADD COLUMN IF NOT EXISTS onboarding_bonus_claimed BOOLEAN NOT NULL DEFAULT FALSE;
+
 DROP POLICY IF EXISTS "Users update own profile" ON public.users;
 CREATE POLICY "Users update own profile" ON public.users FOR UPDATE TO authenticated
   USING (auth.uid() = id)
@@ -17,11 +23,6 @@ CREATE POLICY "Users update own profile" ON public.users FOR UPDATE TO authentic
     AND affiliate_code = (SELECT affiliate_code FROM public.users WHERE id = auth.uid())
     AND onboarding_bonus_claimed = (SELECT onboarding_bonus_claimed FROM public.users WHERE id = auth.uid())
   );
-
--- Dedicated idempotency flag for the onboarding welcome bonus. Kept separate
--- from onboarding_completed (which stays freely editable) so the bonus can
--- never be re-claimed by toggling that flag.
-ALTER TABLE public.users ADD COLUMN IF NOT EXISTS onboarding_bonus_claimed BOOLEAN NOT NULL DEFAULT FALSE;
 
 -- Atomically reserve credits for the current user. The overspend guard lives
 -- in the UPDATE...WHERE clause itself, so concurrent requests can't both
