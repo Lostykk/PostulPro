@@ -30,6 +30,8 @@ import { Route as AuthenticatedToolsEmailSequencesRouteImport } from './routes/_
 import { Route as AuthenticatedToolsCopywriterRouteImport } from './routes/_authenticated/tools.copywriter'
 import { Route as AuthenticatedToolsConsultantRouteImport } from './routes/_authenticated/tools.consultant'
 import { Route as AuthenticatedToolsBusinessPlanRouteImport } from './routes/_authenticated/tools.business-plan'
+import { Route as AuthenticatedMarketplaceSellRouteImport } from './routes/_authenticated/marketplace.sell'
+import { Route as AuthenticatedMarketplaceProductIdRouteImport } from './routes/_authenticated/marketplace.$productId'
 
 const AuthenticatedRouteRoute = AuthenticatedRouteRouteImport.update({
   id: '/_authenticated',
@@ -143,13 +145,25 @@ const AuthenticatedToolsBusinessPlanRoute =
     path: '/tools/business-plan',
     getParentRoute: () => AuthenticatedRouteRoute,
   } as any)
+const AuthenticatedMarketplaceSellRoute =
+  AuthenticatedMarketplaceSellRouteImport.update({
+    id: '/sell',
+    path: '/sell',
+    getParentRoute: () => AuthenticatedMarketplaceRoute,
+  } as any)
+const AuthenticatedMarketplaceProductIdRoute =
+  AuthenticatedMarketplaceProductIdRouteImport.update({
+    id: '/$productId',
+    path: '/$productId',
+    getParentRoute: () => AuthenticatedMarketplaceRoute,
+  } as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/affiliates': typeof AuthenticatedAffiliatesRoute
   '/dashboard': typeof AuthenticatedDashboardRoute
   '/library': typeof AuthenticatedLibraryRoute
-  '/marketplace': typeof AuthenticatedMarketplaceRoute
+  '/marketplace': typeof AuthenticatedMarketplaceRouteWithChildren
   '/onboarding': typeof AuthenticatedOnboardingRoute
   '/settings': typeof AuthenticatedSettingsRoute
   '/api/generate-ai': typeof ApiGenerateAiRoute
@@ -157,6 +171,8 @@ export interface FileRoutesByFullPath {
   '/auth/login': typeof AuthLoginRoute
   '/auth/register': typeof AuthRegisterRoute
   '/auth/reset-password': typeof AuthResetPasswordRoute
+  '/marketplace/$productId': typeof AuthenticatedMarketplaceProductIdRoute
+  '/marketplace/sell': typeof AuthenticatedMarketplaceSellRoute
   '/tools/business-plan': typeof AuthenticatedToolsBusinessPlanRoute
   '/tools/consultant': typeof AuthenticatedToolsConsultantRoute
   '/tools/copywriter': typeof AuthenticatedToolsCopywriterRoute
@@ -171,7 +187,7 @@ export interface FileRoutesByTo {
   '/affiliates': typeof AuthenticatedAffiliatesRoute
   '/dashboard': typeof AuthenticatedDashboardRoute
   '/library': typeof AuthenticatedLibraryRoute
-  '/marketplace': typeof AuthenticatedMarketplaceRoute
+  '/marketplace': typeof AuthenticatedMarketplaceRouteWithChildren
   '/onboarding': typeof AuthenticatedOnboardingRoute
   '/settings': typeof AuthenticatedSettingsRoute
   '/api/generate-ai': typeof ApiGenerateAiRoute
@@ -179,6 +195,8 @@ export interface FileRoutesByTo {
   '/auth/login': typeof AuthLoginRoute
   '/auth/register': typeof AuthRegisterRoute
   '/auth/reset-password': typeof AuthResetPasswordRoute
+  '/marketplace/$productId': typeof AuthenticatedMarketplaceProductIdRoute
+  '/marketplace/sell': typeof AuthenticatedMarketplaceSellRoute
   '/tools/business-plan': typeof AuthenticatedToolsBusinessPlanRoute
   '/tools/consultant': typeof AuthenticatedToolsConsultantRoute
   '/tools/copywriter': typeof AuthenticatedToolsCopywriterRoute
@@ -195,7 +213,7 @@ export interface FileRoutesById {
   '/_authenticated/affiliates': typeof AuthenticatedAffiliatesRoute
   '/_authenticated/dashboard': typeof AuthenticatedDashboardRoute
   '/_authenticated/library': typeof AuthenticatedLibraryRoute
-  '/_authenticated/marketplace': typeof AuthenticatedMarketplaceRoute
+  '/_authenticated/marketplace': typeof AuthenticatedMarketplaceRouteWithChildren
   '/_authenticated/onboarding': typeof AuthenticatedOnboardingRoute
   '/_authenticated/settings': typeof AuthenticatedSettingsRoute
   '/api/generate-ai': typeof ApiGenerateAiRoute
@@ -203,6 +221,8 @@ export interface FileRoutesById {
   '/auth/login': typeof AuthLoginRoute
   '/auth/register': typeof AuthRegisterRoute
   '/auth/reset-password': typeof AuthResetPasswordRoute
+  '/_authenticated/marketplace/$productId': typeof AuthenticatedMarketplaceProductIdRoute
+  '/_authenticated/marketplace/sell': typeof AuthenticatedMarketplaceSellRoute
   '/_authenticated/tools/business-plan': typeof AuthenticatedToolsBusinessPlanRoute
   '/_authenticated/tools/consultant': typeof AuthenticatedToolsConsultantRoute
   '/_authenticated/tools/copywriter': typeof AuthenticatedToolsCopywriterRoute
@@ -227,6 +247,8 @@ export interface FileRouteTypes {
     | '/auth/login'
     | '/auth/register'
     | '/auth/reset-password'
+    | '/marketplace/$productId'
+    | '/marketplace/sell'
     | '/tools/business-plan'
     | '/tools/consultant'
     | '/tools/copywriter'
@@ -249,6 +271,8 @@ export interface FileRouteTypes {
     | '/auth/login'
     | '/auth/register'
     | '/auth/reset-password'
+    | '/marketplace/$productId'
+    | '/marketplace/sell'
     | '/tools/business-plan'
     | '/tools/consultant'
     | '/tools/copywriter'
@@ -272,6 +296,8 @@ export interface FileRouteTypes {
     | '/auth/login'
     | '/auth/register'
     | '/auth/reset-password'
+    | '/_authenticated/marketplace/$productId'
+    | '/_authenticated/marketplace/sell'
     | '/_authenticated/tools/business-plan'
     | '/_authenticated/tools/consultant'
     | '/_authenticated/tools/copywriter'
@@ -441,14 +467,45 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedToolsBusinessPlanRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
+    '/_authenticated/marketplace/sell': {
+      id: '/_authenticated/marketplace/sell'
+      path: '/sell'
+      fullPath: '/marketplace/sell'
+      preLoaderRoute: typeof AuthenticatedMarketplaceSellRouteImport
+      parentRoute: typeof AuthenticatedMarketplaceRoute
+    }
+    '/_authenticated/marketplace/$productId': {
+      id: '/_authenticated/marketplace/$productId'
+      path: '/$productId'
+      fullPath: '/marketplace/$productId'
+      preLoaderRoute: typeof AuthenticatedMarketplaceProductIdRouteImport
+      parentRoute: typeof AuthenticatedMarketplaceRoute
+    }
   }
 }
+
+interface AuthenticatedMarketplaceRouteChildren {
+  AuthenticatedMarketplaceProductIdRoute: typeof AuthenticatedMarketplaceProductIdRoute
+  AuthenticatedMarketplaceSellRoute: typeof AuthenticatedMarketplaceSellRoute
+}
+
+const AuthenticatedMarketplaceRouteChildren: AuthenticatedMarketplaceRouteChildren =
+  {
+    AuthenticatedMarketplaceProductIdRoute:
+      AuthenticatedMarketplaceProductIdRoute,
+    AuthenticatedMarketplaceSellRoute: AuthenticatedMarketplaceSellRoute,
+  }
+
+const AuthenticatedMarketplaceRouteWithChildren =
+  AuthenticatedMarketplaceRoute._addFileChildren(
+    AuthenticatedMarketplaceRouteChildren,
+  )
 
 interface AuthenticatedRouteRouteChildren {
   AuthenticatedAffiliatesRoute: typeof AuthenticatedAffiliatesRoute
   AuthenticatedDashboardRoute: typeof AuthenticatedDashboardRoute
   AuthenticatedLibraryRoute: typeof AuthenticatedLibraryRoute
-  AuthenticatedMarketplaceRoute: typeof AuthenticatedMarketplaceRoute
+  AuthenticatedMarketplaceRoute: typeof AuthenticatedMarketplaceRouteWithChildren
   AuthenticatedOnboardingRoute: typeof AuthenticatedOnboardingRoute
   AuthenticatedSettingsRoute: typeof AuthenticatedSettingsRoute
   AuthenticatedToolsBusinessPlanRoute: typeof AuthenticatedToolsBusinessPlanRoute
@@ -465,7 +522,7 @@ const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
   AuthenticatedAffiliatesRoute: AuthenticatedAffiliatesRoute,
   AuthenticatedDashboardRoute: AuthenticatedDashboardRoute,
   AuthenticatedLibraryRoute: AuthenticatedLibraryRoute,
-  AuthenticatedMarketplaceRoute: AuthenticatedMarketplaceRoute,
+  AuthenticatedMarketplaceRoute: AuthenticatedMarketplaceRouteWithChildren,
   AuthenticatedOnboardingRoute: AuthenticatedOnboardingRoute,
   AuthenticatedSettingsRoute: AuthenticatedSettingsRoute,
   AuthenticatedToolsBusinessPlanRoute: AuthenticatedToolsBusinessPlanRoute,
@@ -493,3 +550,13 @@ const rootRouteChildren: RootRouteChildren = {
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
   ._addFileTypes<FileRouteTypes>()
+
+import type { getRouter } from './router.tsx'
+import type { startInstance } from './start.ts'
+declare module '@tanstack/react-start' {
+  interface Register {
+    ssr: true
+    router: Awaited<ReturnType<typeof getRouter>>
+    config: Awaited<ReturnType<typeof startInstance.getOptions>>
+  }
+}
