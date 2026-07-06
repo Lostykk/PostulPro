@@ -19,12 +19,12 @@ type ToolCard = {
 
 const TOOLS: ToolCard[] = [
   { id: "copywriter", to: "/tools/copywriter", icon: "✍️", name: "Copywriter IA", desc: "Emails, posts, anuncios y más en segundos.", gate: "free", available: true },
-  { id: "social-pack", to: "/tools/social-pack", icon: "📱", name: "Social Pack", desc: "LinkedIn, X, Instagram, FB y YouTube en un click.", gate: "free", available: false },
-  { id: "sales-email", to: "/tools/sales-email", icon: "✉️", name: "Sales Email", desc: "Secuencias de 5 emails outbound listos para enviar.", gate: "free", available: false },
-  { id: "landing-copy", to: "/tools/landing-copy", icon: "🎯", name: "Landing Copy", desc: "Headlines, features, FAQ y CTA de conversión.", gate: "free", available: false },
-  { id: "email-sequences", to: "/tools/email-sequences", icon: "📬", name: "Email Sequences", desc: "Bienvenida, nurture, carrito, re-engagement.", gate: "pro", available: false },
-  { id: "business-plan", to: "/tools/business-plan", icon: "📊", name: "Business Plan", desc: "Plan de negocios completo en 5 pasos.", gate: "pro", available: false },
-  { id: "consultant", to: "/tools/consultant", icon: "🧠", name: "Consultor IA", desc: "Chat con estratega de negocios élite.", gate: "pro", available: false },
+  { id: "social-pack", to: "/tools/social-pack", icon: "📱", name: "Social Pack", desc: "LinkedIn, X, Instagram, FB y YouTube en un click.", gate: "free", available: true },
+  { id: "sales-email", to: "/tools/sales-email", icon: "✉️", name: "Sales Email", desc: "Secuencias de 5 emails outbound listos para enviar.", gate: "free", available: true },
+  { id: "landing-copy", to: "/tools/landing-copy", icon: "🎯", name: "Landing Copy", desc: "Headlines, features, FAQ y CTA de conversión.", gate: "free", available: true },
+  { id: "email-sequences", to: "/tools/email-sequences", icon: "📬", name: "Email Sequences", desc: "Bienvenida, nurture, carrito, re-engagement.", gate: "pro", available: true },
+  { id: "business-plan", to: "/tools/business-plan", icon: "📊", name: "Business Plan", desc: "Plan de negocios completo en 5 pasos.", gate: "pro", available: true },
+  { id: "consultant", to: "/tools/consultant", icon: "🧠", name: "Consultor IA", desc: "Chat con estratega de negocios élite.", gate: "pro", available: true },
   { id: "api", to: "/tools", icon: "🔌", name: "API Access", desc: "Integra PostulPro en tu stack.", gate: "business", available: false },
 ];
 

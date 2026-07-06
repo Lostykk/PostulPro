@@ -1,8 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useRef, useState } from "react";
+import { useState } from "react";
 import { Zap, Copy, RefreshCw, Download, Save, Loader2 } from "lucide-react";
-import { supabase } from "@/integrations/supabase/client";
-import { useProfile } from "@/hooks/use-profile";
+import { useAiStream, downloadTxt } from "@/hooks/use-ai-stream";
 import { toast } from "sonner";
 
 export const Route = createFileRoute("/_authenticated/tools/copywriter")({
@@ -27,7 +26,7 @@ const LENGTHS = ["Corto", "Medio", "Largo"];
 const LANGS = ["Español", "English", "Português", "Français", "Deutsch", "Italiano", "日本語", "中文", "Русский", "العربية"];
 
 function CopywriterPage() {
-  const { refresh } = useProfile();
+  const { output, streaming, generationId, saved, generate, save } = useAiStream("copywriter");
   const [contentType, setContentType] = useState(CONTENT_TYPES[0]);
   const [product, setProduct] = useState("");
   const [audience, setAudience] = useState("");
@@ -35,11 +34,6 @@ function CopywriterPage() {
   const [length, setLength] = useState(LENGTHS[1]);
   const [language, setLanguage] = useState(LANGS[0]);
   const [context, setContext] = useState("");
-  const [output, setOutput] = useState("");
-  const [streaming, setStreaming] = useState(false);
-  const [generationId, setGenerationId] = useState<string | null>(null);
-  const [saved, setSaved] = useState(false);
-  const abortRef = useRef<AbortController | null>(null);
 
   const words = output.trim() ? output.trim().split(/\s+/).length : 0;
 
@@ -48,11 +42,6 @@ function CopywriterPage() {
       toast.error("Completa producto y audiencia");
       return;
     }
-    setOutput("");
-    setGenerationId(null);
-    setSaved(false);
-    setStreaming(true);
-
     const prompt = `Escribe un ${contentType} en ${language}.
 Producto/servicio: ${product}
 Audiencia objetivo: ${audience}
@@ -61,105 +50,15 @@ Longitud: ${length}
 ${context ? `Contexto adicional: ${context}` : ""}
 
 Devuelve solo el copy final, sin comentarios ni explicaciones.`;
-
-    try {
-      const { data: sess } = await supabase.auth.getSession();
-      const token = sess.session?.access_token;
-      if (!token) throw new Error("Sesión no válida");
-
-      const ctrl = new AbortController();
-      abortRef.current = ctrl;
-
-      const res = await fetch("/api/generate-ai", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({
-          tool: "copywriter",
-          prompt,
-          title: `${contentType} · ${product.slice(0, 40)}`,
-        }),
-        signal: ctrl.signal,
-      });
-
-      if (!res.ok) {
-        const err = (await res.json().catch(() => ({}))) as { error?: string };
-        throw new Error(err.error ?? `Error ${res.status}`);
-      }
-      if (!res.body) throw new Error("Sin stream de respuesta");
-
-      const reader = res.body.getReader();
-      const decoder = new TextDecoder();
-      let buf = "";
-      for (;;) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        buf += decoder.decode(value, { stream: true });
-        let idx: number;
-        while ((idx = buf.indexOf("\n\n")) !== -1) {
-          const raw = buf.slice(0, idx);
-          buf = buf.slice(idx + 2);
-          if (!raw.startsWith("data:")) continue;
-          try {
-            const evt = JSON.parse(raw.slice(5).trim()) as {
-              type: string;
-              text?: string;
-              message?: string;
-              creditsRemaining?: number;
-              generationId?: string;
-            };
-            if (evt.type === "delta" && evt.text) {
-              setOutput((prev) => prev + evt.text);
-            } else if (evt.type === "error") {
-              throw new Error(evt.message ?? "Error del modelo");
-            } else if (evt.type === "done") {
-              if (evt.generationId) setGenerationId(evt.generationId);
-              toast.success(
-                typeof evt.creditsRemaining === "number"
-                  ? `Listo · ${evt.creditsRemaining} créditos restantes`
-                  : "Listo",
-              );
-              void refresh();
-            }
-          } catch (e) {
-            if (e instanceof SyntaxError) continue;
-            throw e;
-          }
-        }
-      }
-    } catch (err) {
-      if ((err as Error).name === "AbortError") return;
-      toast.error((err as Error).message);
-    } finally {
-      setStreaming(false);
-      abortRef.current = null;
-    }
+    await generate(prompt, { title: `${contentType} · ${product.slice(0, 40)}` });
   }
 
   async function handleCopy() {
     await navigator.clipboard.writeText(output);
     toast.success("Copiado");
   }
-  async function handleSave() {
-    if (!generationId) return;
-    const { error } = await supabase
-      .from("generations")
-      .update({ is_favorite: true })
-      .eq("id", generationId);
-    if (error) return toast.error(error.message);
-    setSaved(true);
-    toast.success("Guardado en favoritos de tu biblioteca");
-  }
   function handleDownload() {
-    const blob = new Blob([output], { type: "text/plain;charset=utf-8" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `postulpro-${Date.now()}.txt`;
-    a.click();
-    URL.revokeObjectURL(url);
+    downloadTxt(output, `postulpro-${Date.now()}.txt`);
   }
 
   return (
@@ -237,7 +136,7 @@ Devuelve solo el copy final, sin comentarios ni explicaciones.`;
               <ToolbarBtn onClick={handleCopy} disabled={!output} icon={<Copy className="w-3.5 h-3.5" />} label="Copiar" />
               <ToolbarBtn onClick={handleGenerate} disabled={streaming || !product} icon={<RefreshCw className="w-3.5 h-3.5" />} label="Regenerar" />
               <ToolbarBtn onClick={handleDownload} disabled={!output} icon={<Download className="w-3.5 h-3.5" />} label="TXT" />
-              <ToolbarBtn onClick={handleSave} disabled={!generationId || streaming || saved} icon={<Save className="w-3.5 h-3.5" />} label={saved ? "Guardado" : "Guardar"} />
+              <ToolbarBtn onClick={save} disabled={!generationId || streaming || saved} icon={<Save className="w-3.5 h-3.5" />} label={saved ? "Guardado" : "Guardar"} />
             </div>
           </div>
           <div className="flex-1 p-6 overflow-auto">

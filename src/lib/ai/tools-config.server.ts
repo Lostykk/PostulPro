@@ -41,9 +41,9 @@ export const TOOLS: Record<ToolId, ToolConfig> = {
     provider: "openai",
     model: GPT4O,
     credits: 3,
-    maxTokens: 2500,
+    maxTokens: 4000,
     systemPrompt:
-      "Eres un estratega de contenido social. Generas paquetes multicanal (LinkedIn, X, Instagram, Facebook, YouTube) con la voz correcta para cada plataforma.",
+      "Eres un estratega de contenido social. Generas paquetes multicanal (LinkedIn, X, Instagram, Facebook, YouTube) con la voz correcta para cada plataforma. Sigues EXACTAMENTE el formato de bloques ===TITULO=== que te pide el usuario, sin agregar texto fuera de ellos.",
   },
   "business-plan": {
     provider: "anthropic",
@@ -66,25 +66,25 @@ export const TOOLS: Record<ToolId, ToolConfig> = {
     provider: "openai",
     model: GPT4O,
     credits: 2,
-    maxTokens: 2500,
+    maxTokens: 4000,
     systemPrompt:
-      "Eres un experto en outbound B2B. Escribes secuencias de email frías y de nurture con asuntos altos-CTR y llamados a la acción claros.",
+      "Eres un experto en outbound B2B. Escribes secuencias de email frías y de nurture con asuntos altos-CTR y llamados a la acción claros. Sigues EXACTAMENTE el formato de bloques ===TITULO=== que te pide el usuario, sin agregar texto fuera de ellos.",
   },
   "landing-copy": {
     provider: "openai",
     model: GPT4O,
     credits: 2,
-    maxTokens: 2000,
+    maxTokens: 2500,
     systemPrompt:
-      "Eres un copywriter de conversión para landing pages SaaS/infoproducto. Devuelves headlines, subheadline, features, social proof, FAQ y CTA en JSON estructurado cuando se pida.",
+      "Eres un copywriter de conversión para landing pages SaaS/infoproducto. Devuelves ÚNICAMENTE un objeto JSON válido con headlines, subheadline, hero, features, social_proof, faq, cta, meta_title y meta_description, sin markdown ni texto adicional fuera del JSON.",
   },
   "email-sequences": {
     provider: "openai",
     model: GPT4O,
     credits: 3,
-    maxTokens: 3500,
+    maxTokens: 6000,
     systemPrompt:
-      "Eres un email marketer. Diseñas secuencias completas (bienvenida, nurture, carrito, re-engagement, lanzamiento) con asunto, preview y cuerpo por email.",
+      "Eres un email marketer. Diseñas secuencias completas (bienvenida, nurture, carrito, re-engagement, lanzamiento) con asunto, preview y cuerpo por email. Sigues EXACTAMENTE el formato de bloques ===TITULO=== que te pide el usuario, sin agregar texto fuera de ellos.",
   },
 };
 
