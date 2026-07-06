@@ -14,10 +14,10 @@ export type Database = {
   }
   public: {
     Tables: {
-      stripe_events: {
-        Row: { id: string; processed_at: string }
-        Insert: { id: string; processed_at?: string }
-        Update: { id?: string; processed_at?: string }
+      lemon_squeezy_events: {
+        Row: { id: string; event_name: string; processed_at: string }
+        Insert: { id: string; event_name: string; processed_at?: string }
+        Update: { id?: string; event_name?: string; processed_at?: string }
         Relationships: []
       }
       api_keys: {
@@ -426,34 +426,55 @@ export type Database = {
       }
       subscriptions: {
         Row: {
+          billing_interval: string | null
+          cancelled: boolean
           created_at: string
-          current_period_end: string | null
+          ends_at: string | null
           id: string
           plan: string | null
+          product_id: string | null
+          provider: string
+          provider_customer_id: string | null
+          provider_subscription_id: string | null
+          renews_at: string | null
           status: string | null
-          stripe_customer_id: string | null
-          stripe_subscription_id: string | null
+          trial_ends_at: string | null
           user_id: string
+          variant_id: string | null
         }
         Insert: {
+          billing_interval?: string | null
+          cancelled?: boolean
           created_at?: string
-          current_period_end?: string | null
+          ends_at?: string | null
           id?: string
           plan?: string | null
+          product_id?: string | null
+          provider?: string
+          provider_customer_id?: string | null
+          provider_subscription_id?: string | null
+          renews_at?: string | null
           status?: string | null
-          stripe_customer_id?: string | null
-          stripe_subscription_id?: string | null
+          trial_ends_at?: string | null
           user_id: string
+          variant_id?: string | null
         }
         Update: {
+          billing_interval?: string | null
+          cancelled?: boolean
           created_at?: string
-          current_period_end?: string | null
+          ends_at?: string | null
           id?: string
           plan?: string | null
+          product_id?: string | null
+          provider?: string
+          provider_customer_id?: string | null
+          provider_subscription_id?: string | null
+          renews_at?: string | null
           status?: string | null
-          stripe_customer_id?: string | null
-          stripe_subscription_id?: string | null
+          trial_ends_at?: string | null
           user_id?: string
+          variant_id?: string | null
         }
         Relationships: [
           {
