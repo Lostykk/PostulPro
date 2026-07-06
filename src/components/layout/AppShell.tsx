@@ -12,6 +12,7 @@ import {
   Bell,
   Search,
   ArrowUpRight,
+  ShieldCheck,
 } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
 import { ProfileProvider, useProfile } from "@/hooks/use-profile";
@@ -121,6 +122,16 @@ function Sidebar() {
               </Link>
             )}
           </div>
+        )}
+        {profile?.role === "admin" && (
+          <Link
+            to="/admin"
+            className={`flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-medium transition ${
+              pathname.startsWith("/admin") ? "bg-white/10 text-foreground" : "text-muted-foreground hover:text-foreground hover:bg-white/5"
+            }`}
+          >
+            <ShieldCheck className="w-3.5 h-3.5" /> Admin
+          </Link>
         )}
       </div>
     </aside>

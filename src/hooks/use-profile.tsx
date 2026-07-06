@@ -8,6 +8,7 @@ export type Profile = {
   email: string;
   avatar_url: string | null;
   bio: string | null;
+  role: "user" | "admin";
   plan: "free" | "pro" | "business";
   credits_used: number;
   credits_limit: number;
@@ -40,7 +41,7 @@ export function ProfileProvider({ children }: { children: ReactNode }) {
     const { data } = await supabase
       .from("users")
       .select(
-        "id,name,email,avatar_url,bio,plan,credits_used,credits_limit,affiliate_code,onboarding_completed,notify_email,notify_push,created_at",
+        "id,name,email,avatar_url,bio,role,plan,credits_used,credits_limit,affiliate_code,onboarding_completed,notify_email,notify_push,created_at",
       )
       .eq("id", user.id)
       .maybeSingle();
