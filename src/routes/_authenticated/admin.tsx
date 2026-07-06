@@ -199,7 +199,7 @@ function AdminDashboard() {
               <div className="h-48 grid place-items-center text-sm text-muted-foreground text-center">
                 Sin datos históricos aún.
                 <br />
-                Vamos a empezar a registrar esto cuando Stripe esté conectado.
+                Vamos a empezar a registrar esto cuando el billing esté conectado.
               </div>
             </div>
           </div>

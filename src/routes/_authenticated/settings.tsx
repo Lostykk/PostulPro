@@ -270,8 +270,8 @@ function BillingTab() {
         </button>
       </div>
       <p className="text-[11px] text-muted-foreground">
-        Los pagos con Stripe todavía se están configurando (test mode). Estos botones no van a completar un pago real
-        hasta que esté configurado.
+        Los pagos con Lemon Squeezy todavía se están configurando (test mode). Estos botones no van a completar un
+        pago real hasta que esté configurado.
       </p>
     </Card>
   );

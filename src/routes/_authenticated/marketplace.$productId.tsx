@@ -67,12 +67,14 @@ function ProductDetailPage() {
 
   async function handleBuy() {
     setCheckingOut(true);
-    // Checkout abstraction placeholder: Stripe isn't connected yet (Fase 5).
-    // We deliberately do NOT create a purchase record or grant access here —
-    // only a real, verified payment may do that.
+    // Checkout abstraction placeholder: marketplace one-time purchases aren't
+    // wired to a payment provider yet (separate from the subscriptions/
+    // credits billing flow, which does use Lemon Squeezy). We deliberately
+    // do NOT create a purchase record or grant access here — only a real,
+    // verified payment may do that.
     await new Promise((r) => setTimeout(r, 400));
     setCheckingOut(false);
-    toast.info("Los pagos se habilitan en la próxima fase (Stripe en configuración). Todavía no se realizó ningún cargo.");
+    toast.info("Los pagos del marketplace se habilitan en una próxima fase. Todavía no se realizó ningún cargo.");
   }
 
   if (product === undefined) {
@@ -183,7 +185,7 @@ function ProductDetailPage() {
               Comprar ahora
             </button>
           )}
-          <p className="text-[11px] text-muted-foreground text-center">Pagos con Stripe — próximamente.</p>
+          <p className="text-[11px] text-muted-foreground text-center">Pagos del marketplace — próximamente.</p>
         </aside>
       </div>
     </div>

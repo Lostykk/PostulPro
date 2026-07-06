@@ -30,7 +30,7 @@ const shell = (title: string, body: string) => `
   </div>
 </div>`;
 
-// idempotencyKey: pass a stable id (e.g. a Stripe event id) so a retried
+// idempotencyKey: pass a stable id (e.g. a billing webhook event id) so a retried
 // webhook delivery can't send the same email twice — Resend deduplicates
 // requests sharing an Idempotency-Key within its retention window.
 async function sendEmail(to: string, subject: string, html: string, idempotencyKey?: string) {

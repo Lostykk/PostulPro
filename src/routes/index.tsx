@@ -344,7 +344,7 @@ function ParticleField() {
 
 /* ---------- Social Proof ---------- */
 function SocialProof() {
-  const stack = ["Claude", "OpenAI", "Stripe", "Supabase", "Vercel"];
+  const stack = ["Claude", "OpenAI", "Lemon Squeezy", "Supabase", "Vercel"];
   return (
     <section className="border-y border-white/5 bg-surface-1/50">
       <div className="mx-auto max-w-7xl px-4 py-10 sm:px-6 lg:px-8">
@@ -950,7 +950,7 @@ function AffiliateTeaser() {
                   <Check className="h-4 w-4 text-success" /> Cookies de 60 días
                 </li>
                 <li className="flex items-center gap-2">
-                  <Check className="h-4 w-4 text-success" /> Pagos mensuales por Stripe
+                  <Check className="h-4 w-4 text-success" /> Pagos mensuales por Lemon Squeezy
                 </li>
                 <li className="flex items-center gap-2">
                   <Check className="h-4 w-4 text-success" /> Dashboard con métricas en vivo
