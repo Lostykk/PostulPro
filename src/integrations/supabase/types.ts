@@ -14,11 +14,68 @@ export type Database = {
   }
   public: {
     Tables: {
-      stripe_events: {
-        Row: { id: string; processed_at: string }
-        Insert: { id: string; processed_at?: string }
-        Update: { id?: string; processed_at?: string }
+      affiliate_clicks: {
+        Row: {
+          affiliate_code: string
+          created_at: string
+          id: string
+        }
+        Insert: {
+          affiliate_code: string
+          created_at?: string
+          id?: string
+        }
+        Update: {
+          affiliate_code?: string
+          created_at?: string
+          id?: string
+        }
         Relationships: []
+      }
+      affiliate_referrals: {
+        Row: {
+          commission_amount: number | null
+          commission_rate: number | null
+          created_at: string
+          id: string
+          referred_user_id: string
+          referrer_id: string
+          status: string
+        }
+        Insert: {
+          commission_amount?: number | null
+          commission_rate?: number | null
+          created_at?: string
+          id?: string
+          referred_user_id: string
+          referrer_id: string
+          status?: string
+        }
+        Update: {
+          commission_amount?: number | null
+          commission_rate?: number | null
+          created_at?: string
+          id?: string
+          referred_user_id?: string
+          referrer_id?: string
+          status?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "affiliate_referrals_referred_user_id_fkey"
+            columns: ["referred_user_id"]
+            isOneToOne: false
+            referencedRelation: "users"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "affiliate_referrals_referrer_id_fkey"
+            columns: ["referrer_id"]
+            isOneToOne: false
+            referencedRelation: "users"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       api_keys: {
         Row: {
@@ -61,21 +118,21 @@ export type Database = {
           },
         ]
       }
-      affiliate_clicks: {
+      billing_rpc_config: {
         Row: {
-          affiliate_code: string
-          created_at: string
-          id: string
+          id: boolean
+          secret_hash: string
+          updated_at: string
         }
         Insert: {
-          affiliate_code: string
-          created_at?: string
-          id?: string
+          id?: boolean
+          secret_hash: string
+          updated_at?: string
         }
         Update: {
-          affiliate_code?: string
-          created_at?: string
-          id?: string
+          id?: boolean
+          secret_hash?: string
+          updated_at?: string
         }
         Relationships: []
       }
@@ -139,51 +196,6 @@ export type Database = {
             columns: ["conversation_id"]
             isOneToOne: false
             referencedRelation: "consultant_conversations"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
-      affiliate_referrals: {
-        Row: {
-          commission_amount: number | null
-          commission_rate: number | null
-          created_at: string
-          id: string
-          referred_user_id: string
-          referrer_id: string
-          status: string
-        }
-        Insert: {
-          commission_amount?: number | null
-          commission_rate?: number | null
-          created_at?: string
-          id?: string
-          referred_user_id: string
-          referrer_id: string
-          status?: string
-        }
-        Update: {
-          commission_amount?: number | null
-          commission_rate?: number | null
-          created_at?: string
-          id?: string
-          referred_user_id?: string
-          referrer_id?: string
-          status?: string
-        }
-        Relationships: [
-          {
-            foreignKeyName: "affiliate_referrals_referred_user_id_fkey"
-            columns: ["referred_user_id"]
-            isOneToOne: false
-            referencedRelation: "users"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "affiliate_referrals_referrer_id_fkey"
-            columns: ["referrer_id"]
-            isOneToOne: false
-            referencedRelation: "users"
             referencedColumns: ["id"]
           },
         ]
@@ -283,6 +295,24 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      lemon_squeezy_events: {
+        Row: {
+          event_name: string
+          id: string
+          processed_at: string
+        }
+        Insert: {
+          event_name: string
+          id: string
+          processed_at?: string
+        }
+        Update: {
+          event_name?: string
+          id?: string
+          processed_at?: string
+        }
+        Relationships: []
       }
       products: {
         Row: {
@@ -426,34 +456,55 @@ export type Database = {
       }
       subscriptions: {
         Row: {
+          billing_interval: string | null
+          cancelled: boolean
           created_at: string
-          current_period_end: string | null
+          ends_at: string | null
           id: string
           plan: string | null
+          product_id: string | null
+          provider: string
+          provider_customer_id: string | null
+          provider_subscription_id: string | null
+          renews_at: string | null
           status: string | null
-          stripe_customer_id: string | null
-          stripe_subscription_id: string | null
+          trial_ends_at: string | null
           user_id: string
+          variant_id: string | null
         }
         Insert: {
+          billing_interval?: string | null
+          cancelled?: boolean
           created_at?: string
-          current_period_end?: string | null
+          ends_at?: string | null
           id?: string
           plan?: string | null
+          product_id?: string | null
+          provider?: string
+          provider_customer_id?: string | null
+          provider_subscription_id?: string | null
+          renews_at?: string | null
           status?: string | null
-          stripe_customer_id?: string | null
-          stripe_subscription_id?: string | null
+          trial_ends_at?: string | null
           user_id: string
+          variant_id?: string | null
         }
         Update: {
+          billing_interval?: string | null
+          cancelled?: boolean
           created_at?: string
-          current_period_end?: string | null
+          ends_at?: string | null
           id?: string
           plan?: string | null
+          product_id?: string | null
+          provider?: string
+          provider_customer_id?: string | null
+          provider_subscription_id?: string | null
+          renews_at?: string | null
           status?: string | null
-          stripe_customer_id?: string | null
-          stripe_subscription_id?: string | null
+          trial_ends_at?: string | null
           user_id?: string
+          variant_id?: string | null
         }
         Relationships: [
           {
@@ -556,7 +607,12 @@ export type Database = {
       generate_affiliate_code: { Args: never; Returns: string }
       generate_api_key: {
         Args: { p_name: string }
-        Returns: { created_at: string; id: string; key_prefix: string; plaintext_key: string }[]
+        Returns: {
+          created_at: string
+          id: string
+          key_prefix: string
+          plaintext_key: string
+        }[]
       }
       has_role: {
         Args: {
@@ -565,13 +621,43 @@ export type Database = {
         }
         Returns: boolean
       }
+      process_lemon_squeezy_event: {
+        Args: {
+          p_cancelled: boolean
+          p_customer_id: string
+          p_ends_at: string
+          p_event_id: string
+          p_event_name: string
+          p_invoice_total: number
+          p_order_paid: boolean
+          p_product_id: string
+          p_provider_subscription_id: string
+          p_renews_at: string
+          p_secret: string
+          p_status: string
+          p_trial_ends_at: string
+          p_user_id: string
+          p_variant_id: string
+        }
+        Returns: {
+          message: string
+          ok: boolean
+        }[]
+      }
       refund_credits: {
         Args: { p_cost: number }
-        Returns: { credits_limit: number; credits_used: number }[]
+        Returns: {
+          credits_limit: number
+          credits_used: number
+        }[]
       }
       reserve_credits: {
         Args: { p_cost: number }
-        Returns: { credits_limit: number; credits_used: number; ok: boolean }[]
+        Returns: {
+          credits_limit: number
+          credits_used: number
+          ok: boolean
+        }[]
       }
     }
     Enums: {
