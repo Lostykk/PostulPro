@@ -93,20 +93,47 @@ export const Route = createFileRoute("/api/generate-ai")({
           );
         }
 
-        // Build stream
+        // Build stream. An AbortController threads through to the upstream
+        // model fetch so that if the client disconnects mid-generation, the
+        // request to Anthropic/OpenAI actually stops (no wasted provider
+        // tokens) and — since the abort surfaces as a rejected promise in
+        // callModel — falls through to the same catch/refund path below as
+        // any other failure. Without this, a closed tab mid-stream would
+        // silently keep the reserved credit charged forever.
         const encoder = new TextEncoder();
+        const abortController = new AbortController();
+        let refunded = false;
+        const refundOnce = async () => {
+          if (refunded) return;
+          refunded = true;
+          try {
+            await supabase.rpc("refund_credits", { p_cost: tool.credits });
+          } catch {
+            /* best-effort — nothing else to do if the refund call itself fails */
+          }
+        };
+
         const stream = new ReadableStream({
           async start(controller) {
             const send = (obj: unknown) => {
-              controller.enqueue(encoder.encode(`data: ${JSON.stringify(obj)}\n\n`));
+              try {
+                controller.enqueue(encoder.encode(`data: ${JSON.stringify(obj)}\n\n`));
+              } catch {
+                /* controller already closed (client gone) — nothing to send to */
+              }
             };
 
             let full = "";
             try {
-              await callModel(tool, prompt, (delta) => {
-                full += delta;
-                send({ type: "delta", text: delta });
-              });
+              await callModel(
+                tool,
+                prompt,
+                (delta) => {
+                  full += delta;
+                  send({ type: "delta", text: delta });
+                },
+                abortController.signal,
+              );
 
               // Persist generation
               const title = (body.title ?? prompt.slice(0, 60)).slice(0, 200);
@@ -136,16 +163,33 @@ export const Route = createFileRoute("/api/generate-ai")({
                   ? refreshed.credits_limit - refreshed.credits_used
                   : null,
               });
-              controller.close();
+              try {
+                controller.close();
+              } catch {
+                /* already closed */
+              }
             } catch (err) {
-              // Refund on error (atomic decrement, floored at 0)
-              await supabase.rpc("refund_credits", { p_cost: tool.credits });
+              // Refund on error (atomic decrement, floored at 0) — also
+              // covers the abort-on-disconnect path via cancel() below.
+              await refundOnce();
               send({
                 type: "error",
                 message: err instanceof Error ? err.message : "Model call failed",
               });
-              controller.close();
+              try {
+                controller.close();
+              } catch {
+                /* already closed */
+              }
             }
+          },
+          cancel(reason) {
+            // Client disconnected mid-stream: stop the upstream model call
+            // and refund. The abort makes callModel's fetch reject, which
+            // the start() catch block above also handles — refundOnce()
+            // guards against double-refunding if both paths fire.
+            abortController.abort(reason);
+            void refundOnce();
           },
         });
 
@@ -172,6 +216,7 @@ async function callModel(
   tool: ToolConfig,
   prompt: string,
   onDelta: (text: string) => void,
+  signal?: AbortSignal,
 ): Promise<void> {
   if (tool.provider === "anthropic") {
     const key = process.env.ANTHROPIC_API_KEY;
@@ -190,6 +235,7 @@ async function callModel(
         stream: true,
         messages: [{ role: "user", content: prompt }],
       }),
+      signal,
     });
     if (!res.ok || !res.body) {
       const t = await res.text().catch(() => "");
@@ -221,6 +267,7 @@ async function callModel(
         { role: "user", content: prompt },
       ],
     }),
+    signal,
   });
   if (!res.ok || !res.body) {
     const t = await res.text().catch(() => "");
