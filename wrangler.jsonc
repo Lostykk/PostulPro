@@ -1,0 +1,8 @@
+{
+  // Merged automatically by Nitro's cloudflare-module preset into the
+  // generated .output/server/wrangler.json on every build. Keeps the
+  // workers.dev subdomain disabled across redeploys now that the app is
+  // served from the custom domains (postulpro.com / www.postulpro.com) —
+  // without this, `wrangler deploy` re-enables workers.dev by default.
+  "workers_dev": false
+}
