@@ -47,6 +47,34 @@ export const Route = createFileRoute("/api/billing/checkout")({
         const mapping = VARIANT_PLAN_MAP[priceKey];
         if (kind !== mapping.kind) return json({ error: "priceKey does not match kind" }, 400);
 
+        // A new subscription checkout always creates a brand-new Lemon
+        // Squeezy subscription object — it never modifies an existing one.
+        // Without this guard, a user who already has an active/paused/
+        // past_due/cancelled-but-not-yet-ended subscription and clicks
+        // another plan button ends up with two live subscriptions and gets
+        // billed twice. Lemon Squeezy's customer portal already supports
+        // switching plans on an existing subscription, so we route there
+        // instead of ever creating a second one.
+        if (kind === "subscription") {
+          const { data: existing } = await supabase
+            .from("subscriptions")
+            .select("id")
+            .eq("user_id", user.id)
+            .neq("status", "expired")
+            .not("provider_subscription_id", "is", null)
+            .limit(1)
+            .maybeSingle();
+          if (existing) {
+            return json(
+              {
+                error: "Ya tenés una suscripción activa. Usá \"Gestionar suscripción\" para cambiar de plan.",
+                code: "subscription_exists",
+              },
+              409,
+            );
+          }
+        }
+
         try {
           const variantId = resolveVariantId(priceKey);
           const origin = new URL(request.url).origin;

@@ -28,12 +28,19 @@ export const Route = createFileRoute("/api/billing/portal")({
         const { data: userData, error: userErr } = await supabase.auth.getUser(token);
         if (userErr || !userData?.user) return json({ error: "Unauthorized" }, 401);
 
+        // .maybeSingle() errors out (returning null data) if more than one
+        // row matches, so this must narrow to exactly one candidate row
+        // itself via status + limit(1) rather than relying on maybeSingle
+        // to enforce cardinality — a user can have multiple historical
+        // subscription rows (e.g. expired + active after a resubscribe).
         const { data: sub } = await supabase
           .from("subscriptions")
           .select("provider_subscription_id")
           .eq("user_id", userData.user.id)
+          .neq("status", "expired")
           .not("provider_subscription_id", "is", null)
           .order("created_at", { ascending: false })
+          .limit(1)
           .maybeSingle();
 
         if (!sub?.provider_subscription_id) {

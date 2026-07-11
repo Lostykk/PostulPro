@@ -180,9 +180,50 @@ const PLAN_OPTIONS = [
   { key: "business_annual", label: "BUSINESS anual", price: "$948/año" },
 ] as const;
 
+type SubscriptionRow = {
+  status: string;
+  cancelled: boolean;
+  renews_at: string | null;
+  ends_at: string | null;
+  billing_interval: string | null;
+};
+
+const STATUS_LABEL: Record<string, string> = {
+  active: "Activa",
+  on_trial: "En prueba",
+  paused: "Pausada",
+  past_due: "Pago pendiente",
+  unpaid: "Impaga",
+  cancelled: "Cancelada",
+  expired: "Vencida",
+};
+
+function formatDate(iso: string | null) {
+  if (!iso) return null;
+  return new Date(iso).toLocaleDateString("es-AR", { year: "numeric", month: "long", day: "numeric" });
+}
+
 function BillingTab() {
   const { profile } = useProfile();
   const [loading, setLoading] = useState<string | null>(null);
+  const [sub, setSub] = useState<SubscriptionRow | null>(null);
+  const [subLoading, setSubLoading] = useState(true);
+
+  useEffect(() => {
+    if (!profile) return;
+    supabase
+      .from("subscriptions")
+      .select("status,cancelled,renews_at,ends_at,billing_interval")
+      .eq("user_id", profile.id)
+      .neq("status", "expired")
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle()
+      .then(({ data }) => {
+        setSub((data as SubscriptionRow | null) ?? null);
+        setSubLoading(false);
+      });
+  }, [profile]);
 
   async function callCheckout(kind: "subscription" | "credits", priceKey: string) {
     setLoading(priceKey);
@@ -194,11 +235,11 @@ function BillingTab() {
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
         body: JSON.stringify({ kind, priceKey }),
       });
-      const body = (await res.json().catch(() => ({}))) as { url?: string; error?: string };
+      const body = (await res.json().catch(() => ({}))) as { url?: string; error?: string; code?: string };
       if (!res.ok) throw new Error(body.error ?? "No se pudo iniciar el checkout");
       window.location.href = body.url!;
     } catch (err) {
-      toast.info((err as Error).message);
+      toast.error((err as Error).message);
     } finally {
       setLoading(null);
     }
@@ -217,11 +258,13 @@ function BillingTab() {
       if (!res.ok) throw new Error(body.error ?? "No se pudo abrir el portal de facturación");
       window.location.href = body.url!;
     } catch (err) {
-      toast.info((err as Error).message);
+      toast.error((err as Error).message);
     } finally {
       setLoading(null);
     }
   }
+
+  const hasActiveSub = !subLoading && sub !== null;
 
   return (
     <Card>
@@ -233,15 +276,34 @@ function BillingTab() {
         Créditos: {profile?.credits_used ?? 0} / {profile?.credits_limit ?? 0}
       </div>
 
+      {sub && (
+        <div className="rounded-lg border border-white/10 bg-white/5 px-4 py-3 text-sm space-y-1">
+          <div className="flex items-center gap-2">
+            <span className="text-muted-foreground text-xs">Estado:</span>
+            <span className="font-medium">{STATUS_LABEL[sub.status] ?? sub.status}</span>
+          </div>
+          {sub.cancelled && sub.ends_at ? (
+            <p className="text-xs text-amber-300">Cancelada — tenés acceso hasta el {formatDate(sub.ends_at)}.</p>
+          ) : sub.renews_at ? (
+            <p className="text-xs text-muted-foreground">Próxima renovación: {formatDate(sub.renews_at)}</p>
+          ) : null}
+        </div>
+      )}
+
       <div>
         <div className="text-xs text-muted-foreground mb-2">Cambiar de plan</div>
+        {hasActiveSub && (
+          <p className="text-xs text-muted-foreground mb-2">
+            Ya tenés una suscripción activa — usá &quot;Gestionar suscripción&quot; para cambiar de plan.
+          </p>
+        )}
         <div className="grid sm:grid-cols-2 gap-2">
           {PLAN_OPTIONS.map((p) => (
             <button
               key={p.key}
               type="button"
               onClick={() => callCheckout("subscription", p.key)}
-              disabled={loading !== null}
+              disabled={loading !== null || hasActiveSub}
               className="flex items-center justify-between rounded-lg border border-white/10 bg-white/5 px-4 h-11 text-sm hover:border-violet-500/40 transition disabled:opacity-50"
             >
               <span>{p.label}</span>
@@ -260,19 +322,17 @@ function BillingTab() {
         >
           {loading === "credits_100" && <Loader2 className="w-4 h-4 animate-spin" />} Comprar 100 créditos — $9
         </button>
-        <button
-          type="button"
-          onClick={handleManageBilling}
-          disabled={loading !== null}
-          className="inline-flex items-center gap-2 h-10 px-5 rounded-lg text-sm font-semibold bg-white/10 hover:bg-white/15 transition disabled:opacity-60"
-        >
-          {loading === "portal" && <Loader2 className="w-4 h-4 animate-spin" />} Gestionar suscripción
-        </button>
+        {hasActiveSub && (
+          <button
+            type="button"
+            onClick={handleManageBilling}
+            disabled={loading !== null}
+            className="inline-flex items-center gap-2 h-10 px-5 rounded-lg text-sm font-semibold bg-white/10 hover:bg-white/15 transition disabled:opacity-60"
+          >
+            {loading === "portal" && <Loader2 className="w-4 h-4 animate-spin" />} Gestionar suscripción
+          </button>
+        )}
       </div>
-      <p className="text-[11px] text-muted-foreground">
-        Los pagos con Lemon Squeezy todavía se están configurando (test mode). Estos botones no van a completar un
-        pago real hasta que esté configurado.
-      </p>
     </Card>
   );
 }
