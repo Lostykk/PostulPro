@@ -40,6 +40,7 @@ function Landing() {
       <main>
         <Hero />
         <SocialProof />
+        <ObjectiveSection />
         <Features />
         <HowItWorks />
         <Pricing />
@@ -197,7 +198,7 @@ function Hero() {
             className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-surface-2/70 px-4 py-1.5 text-xs font-medium text-text-secondary backdrop-blur"
           >
             <Sparkles className="h-3.5 w-3.5 text-brand-2" />
-            <span>Powered by Claude AI & GPT-4o</span>
+            <span>Tu equipo de IA, organizado en un solo lugar</span>
           </motion.div>
 
           <motion.h1
@@ -206,8 +207,8 @@ function Hero() {
             transition={{ duration: 0.6, delay: 0.05 }}
             className="mt-6 font-display text-4xl font-extrabold leading-[1.05] tracking-tight sm:text-5xl md:text-6xl lg:text-[64px]"
           >
-            Genera ingresos reales con IA.{" "}
-            <span className="text-gradient-brand">Sin tecnicismos.</span>
+            Describí tu idea.{" "}
+            <span className="text-gradient-brand">PostulPro construye el plan y los activos para lanzarla.</span>
           </motion.h1>
 
           <motion.p
@@ -216,8 +217,8 @@ function Hero() {
             transition={{ duration: 0.6, delay: 0.15 }}
             className="mx-auto mt-6 max-w-2xl text-lg text-text-secondary sm:text-xl"
           >
-            La plataforma todo-en-uno que convierte tu conocimiento y la IA en productos digitales
-            que venden solos.
+            En lugar de coordinar herramientas, prompts y tareas por separado, contanos qué querés lograr.
+            PostulPro organiza las capacidades de IA y transforma tu idea en un proyecto accionable.
           </motion.p>
 
           <motion.div
@@ -227,16 +228,16 @@ function Hero() {
             className="mt-8 flex flex-col items-center justify-center gap-3 sm:flex-row"
           >
             <a
-              href="/auth/register"
+              href="/build"
               className="btn-primary-gradient inline-flex items-center gap-2 text-base"
             >
-              Comenzar gratis — 0 tarjeta <ArrowRight className="h-4 w-4" />
+              Construir mi idea <ArrowRight className="h-4 w-4" />
             </a>
             <a
-              href="#como-funciona"
+              href="/demo"
               className="rounded-xl border border-white/10 px-6 py-3 text-sm font-medium text-foreground transition-colors hover:bg-surface-2"
             >
-              Ver cómo funciona →
+              Ver un proyecto de ejemplo →
             </a>
           </motion.div>
 
@@ -362,6 +363,41 @@ function SocialProof() {
   );
 }
 
+/* ---------- Objective / "no elegís herramientas" ---------- */
+const OBJECTIVE_STEPS = [
+  { n: "1", title: "Describí la idea", desc: "Contá qué querés construir, con tus propias palabras — sin elegir modelos ni prompts." },
+  { n: "2", title: "Revisá el plan", desc: "PostulPro arma un brief y elige las capacidades necesarias. Vos confirmás o editás antes de gastar un crédito." },
+  { n: "3", title: "Recibí los entregables", desc: "Cada resultado queda guardado y coordinado con los demás, en un mismo proyecto." },
+] as const;
+
+function ObjectiveSection() {
+  return (
+    <section className="relative py-24 sm:py-28">
+      <div className="mx-auto max-w-5xl px-4 sm:px-6 lg:px-8">
+        <SectionHeading
+          eyebrow="Construir con IA"
+          title="No elegís herramientas. Contás el objetivo."
+          subtitle="PostulPro interpreta tu idea, diseña el proyecto y coordina las capacidades de IA necesarias para entregarte los activos listos."
+        />
+        <div className="mt-14 grid gap-6 sm:grid-cols-3">
+          {OBJECTIVE_STEPS.map((s) => (
+            <div key={s.n} className="glass-card rounded-2xl p-6">
+              <span className="font-display text-3xl font-extrabold text-gradient-brand">{s.n}</span>
+              <h3 className="mt-3 font-display text-lg font-bold">{s.title}</h3>
+              <p className="mt-2 text-sm text-text-secondary">{s.desc}</p>
+            </div>
+          ))}
+        </div>
+        <div className="mt-10 text-center">
+          <a href="/build" className="btn-primary-gradient inline-flex items-center gap-2 text-sm">
+            Construir mi idea <ArrowRight className="h-4 w-4" />
+          </a>
+        </div>
+      </div>
+    </section>
+  );
+}
+
 /* ---------- Features ---------- */
 const FEATURES = [
   {
@@ -408,8 +444,8 @@ function Features() {
       <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
         <SectionHeading
           eyebrow="Herramientas"
-          title="¿Qué puedes hacer con PostulPro?"
-          subtitle="Un stack completo de herramientas de IA pensadas para creadores y negocios digitales."
+          title="Las capacidades que PostulPro coordina"
+          subtitle="Cuando construís un proyecto, PostulPro elige entre estas capacidades por vos. También podés usarlas una por una si ya sabés exactamente qué necesitás."
         />
 
         <div className="mt-14 grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
