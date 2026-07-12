@@ -17,10 +17,6 @@ import {
   Rocket,
   Wand2,
   FileCheck2,
-  Twitter,
-  Instagram,
-  Linkedin,
-  Youtube,
 } from "lucide-react";
 import {
   Accordion,
@@ -92,9 +88,9 @@ function Header() {
 
   const nav = [
     { href: "#herramientas", label: "Herramientas" },
+    { href: "#como-funciona", label: "Cómo funciona" },
     { href: "#precios", label: "Precios" },
     { href: "#afiliados", label: "Afiliados" },
-    { href: "#blog", label: "Blog" },
   ];
 
   return (
@@ -237,10 +233,10 @@ function Hero() {
               Comenzar gratis — 0 tarjeta <ArrowRight className="h-4 w-4" />
             </a>
             <a
-              href="#demo"
+              href="#como-funciona"
               className="rounded-xl border border-white/10 px-6 py-3 text-sm font-medium text-foreground transition-colors hover:bg-surface-2"
             >
-              Ver demo en vivo →
+              Ver cómo funciona →
             </a>
           </motion.div>
 
@@ -372,37 +368,43 @@ const FEATURES = [
     icon: PenLine,
     title: "Copywriter IA",
     desc: "Emails, posts, anuncios y guiones listos para publicar en segundos.",
+    href: "/tools/copywriter",
   },
   {
     icon: BarChart3,
     title: "Business Plan IA",
     desc: "Planes de negocio completos, estructurados y exportables en un clic.",
+    href: "/tools/business-plan",
   },
   {
     icon: Mail,
     title: "Email Marketing",
     desc: "Secuencias de ventas automatizadas que convierten mientras dormís.",
+    href: "/tools/email-sequences",
   },
   {
     icon: Share2,
     title: "Social Media Pack",
     desc: "Contenido para todas tus redes en simultáneo, con el tono de tu marca.",
+    href: "/tools/social-pack",
   },
   {
     icon: Bot,
     title: "Consultor IA",
     desc: "Tu estratega de negocios disponible 24/7 para tomar mejores decisiones.",
+    href: "/tools/consultant",
   },
   {
     icon: Store,
     title: "Marketplace",
     desc: "Comprá y vendé templates, prompts y guías premium creadas por la comunidad.",
+    href: "/marketplace",
   },
 ] as const;
 
 function Features() {
   return (
-    <section id="herramientas" className="relative py-24 sm:py-28">
+    <section id="herramientas" className="relative scroll-mt-20 py-24 sm:py-28">
       <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
         <SectionHeading
           eyebrow="Herramientas"
@@ -426,10 +428,10 @@ function Features() {
               <h3 className="mt-5 font-display text-xl font-bold">{f.title}</h3>
               <p className="mt-2 text-sm leading-relaxed text-text-secondary">{f.desc}</p>
               <a
-                href="#herramientas"
+                href={f.href}
                 className="mt-5 inline-flex items-center gap-1 text-sm font-medium text-[#a78bfa] transition-colors group-hover:text-[#c4b5fd]"
               >
-                Ver más <ArrowRight className="h-3.5 w-3.5" />
+                Probar ahora <ArrowRight className="h-3.5 w-3.5" />
               </a>
             </motion.article>
           ))}
@@ -463,7 +465,7 @@ function HowItWorks() {
   ];
 
   return (
-    <section className="relative py-24 sm:py-28">
+    <section id="como-funciona" className="relative scroll-mt-20 py-24 sm:py-28">
       <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
         <SectionHeading eyebrow="Cómo funciona" title="Así de simple" />
 
@@ -616,7 +618,7 @@ function Pricing() {
   const [openCompare, setOpenCompare] = useState(false);
 
   return (
-    <section id="precios" className="relative py-24 sm:py-28">
+    <section id="precios" className="relative scroll-mt-20 py-24 sm:py-28">
       <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
         <SectionHeading
           eyebrow="Precios"
@@ -898,7 +900,7 @@ function UseCases() {
 /* ---------- Affiliate teaser ---------- */
 function AffiliateTeaser() {
   return (
-    <section id="afiliados" className="relative py-24 sm:py-28">
+    <section id="afiliados" className="relative scroll-mt-20 py-24 sm:py-28">
       <div className="mx-auto max-w-6xl px-4 sm:px-6 lg:px-8">
         <div className="relative overflow-hidden rounded-3xl border border-white/10 bg-gradient-to-br from-brand/25 via-brand/10 to-brand-2/15 p-8 sm:p-14">
           <div
@@ -1039,40 +1041,43 @@ function FAQ() {
 
 /* ---------- Footer ---------- */
 function Footer() {
-  const cols = [
+  const cols: Array<{ title: string; links: Array<{ label: string; href: string }> }> = [
     {
       title: "Producto",
-      links: ["Herramientas", "Precios", "Marketplace", "Novedades"],
+      links: [
+        { label: "Herramientas", href: "#herramientas" },
+        { label: "Cómo funciona", href: "#como-funciona" },
+        { label: "Precios", href: "#precios" },
+        { label: "Marketplace", href: "/marketplace" },
+      ],
     },
-    { title: "Empresa", links: ["Sobre nosotros", "Blog", "Afiliados", "Contacto"] },
-    { title: "Legal", links: ["Términos", "Privacidad", "Cookies", "DMCA"] },
-    { title: "Recursos", links: ["Ayuda", "API docs", "Comunidad", "Estado"] },
+    {
+      title: "Empresa",
+      links: [
+        { label: "Programa de afiliados", href: "#afiliados" },
+        { label: "Iniciar sesión", href: "/auth/login" },
+        { label: "Crear cuenta", href: "/auth/register" },
+      ],
+    },
+    {
+      title: "Legal",
+      links: [
+        { label: "Términos de Servicio", href: "/legal#terminos" },
+        { label: "Privacidad", href: "/legal#privacidad" },
+        { label: "Cookies", href: "/legal#cookies" },
+      ],
+    },
   ];
 
   return (
     <footer className="relative border-t border-white/5 bg-surface-1">
       <div className="mx-auto max-w-7xl px-4 py-16 sm:px-6 lg:px-8">
         <div className="grid gap-10 lg:grid-cols-6">
-          <div className="lg:col-span-2">
+          <div className="lg:col-span-3">
             <Logo />
             <p className="mt-4 max-w-xs text-sm text-text-secondary">
               Convertí tu conocimiento y la IA en productos digitales que venden solos.
             </p>
-            <form
-              className="mt-6 flex max-w-sm gap-2"
-              onSubmit={(e) => e.preventDefault()}
-              aria-label="Suscribirse al newsletter"
-            >
-              <input
-                type="email"
-                required
-                placeholder="tu@email.com"
-                className="w-full rounded-lg border border-white/10 bg-surface-2 px-3 py-2 text-sm placeholder:text-text-muted focus:border-brand/50 focus:outline-none focus:ring-2 focus:ring-brand/30"
-              />
-              <button type="submit" className="btn-primary-gradient text-sm">
-                Suscribirme
-              </button>
-            </form>
           </div>
 
           {cols.map((c) => (
@@ -1082,12 +1087,12 @@ function Footer() {
               </h4>
               <ul className="mt-4 space-y-2">
                 {c.links.map((l) => (
-                  <li key={l}>
+                  <li key={l.label}>
                     <a
-                      href="#"
+                      href={l.href}
                       className="text-sm text-text-secondary transition-colors hover:text-foreground"
                     >
-                      {l}
+                      {l.label}
                     </a>
                   </li>
                 ))}
@@ -1098,20 +1103,8 @@ function Footer() {
 
         <div className="mt-12 flex flex-col items-center justify-between gap-4 border-t border-white/5 pt-8 sm:flex-row">
           <p className="text-xs text-text-muted">
-            © 2026 PostulPro — Hecho con IA en Argentina 🇦🇷
+            © {new Date().getFullYear()} PostulPro — Hecho con IA en Argentina 🇦🇷
           </p>
-          <div className="flex items-center gap-3">
-            {[Twitter, Instagram, Linkedin, Youtube].map((Icon, i) => (
-              <a
-                key={i}
-                href="#"
-                aria-label="Red social"
-                className="grid h-9 w-9 place-items-center rounded-lg border border-white/10 bg-surface-2 text-text-secondary transition-colors hover:text-foreground"
-              >
-                <Icon className="h-4 w-4" />
-              </a>
-            ))}
-          </div>
         </div>
       </div>
     </footer>

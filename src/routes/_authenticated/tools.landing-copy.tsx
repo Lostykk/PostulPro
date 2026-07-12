@@ -52,7 +52,11 @@ function LandingCopyPage() {
   useEffect(() => {
     if (!streaming && output) {
       const parsed = parseLandingJson(output);
-      if (parsed) setData(parsed);
+      if (parsed) {
+        setData(parsed);
+      } else {
+        toast.error("No pudimos interpretar la respuesta de la IA. Probá generar de nuevo.");
+      }
     }
   }, [streaming, output]);
 
@@ -225,6 +229,16 @@ Devuelve ÚNICAMENTE un objeto JSON válido (sin markdown, sin texto fuera del J
                 <div>
                   <Loader2 className="w-6 h-6 animate-spin mx-auto mb-3" />
                   <p className="text-sm">Generando copy…</p>
+                </div>
+              ) : output ? (
+                <div>
+                  <div className="text-4xl mb-3">⚠️</div>
+                  <p className="text-sm">
+                    No pudimos interpretar la respuesta.{" "}
+                    <button type="button" onClick={handleGenerate} className="text-foreground underline">
+                      Reintentar
+                    </button>
+                  </p>
                 </div>
               ) : (
                 <div>

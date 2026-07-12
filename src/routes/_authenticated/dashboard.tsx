@@ -15,6 +15,7 @@ import { useProfile } from "@/hooks/use-profile";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { toast } from "sonner";
+import { TOOL_META } from "@/lib/tool-meta";
 
 export const Route = createFileRoute("/_authenticated/dashboard")({
   head: () => ({ meta: [{ title: "Dashboard — PostulPro" }] }),
@@ -30,21 +31,12 @@ type Generation = {
   created_at: string;
 };
 
-const TOOL_META: Record<string, { label: string; icon: string }> = {
-  copywriter: { label: "Copywriter", icon: "✍️" },
-  "social-pack": { label: "Social Pack", icon: "📱" },
-  "business-plan": { label: "Business Plan", icon: "📊" },
-  consultant: { label: "Consultor", icon: "🧠" },
-  "sales-email": { label: "Sales Email", icon: "✉️" },
-  "landing-copy": { label: "Landing", icon: "🎯" },
-  "email-sequences": { label: "Secuencias", icon: "📬" },
-};
-
 function DashboardPage() {
   const navigate = useNavigate();
   const { profile, loading: profileLoading } = useProfile();
   const [gens, setGens] = useState<Generation[] | null>(null);
   const [chartMetric, setChartMetric] = useState<"count" | "tokens" | "time">("count");
+  const [revenueThisMonth, setRevenueThisMonth] = useState<number | null>(null);
 
   useEffect(() => {
     if (profile && !profile.onboarding_completed) {
@@ -61,6 +53,30 @@ function DashboardPage() {
       .order("created_at", { ascending: false })
       .limit(200)
       .then(({ data }) => setGens((data as Generation[] | null) ?? []));
+  }, [profile]);
+
+  useEffect(() => {
+    if (!profile) return;
+    (async () => {
+      const { data: products } = await supabase
+        .from("products")
+        .select("id")
+        .eq("seller_id", profile.id);
+      const ids = (products ?? []).map((p) => p.id);
+      if (ids.length === 0) {
+        setRevenueThisMonth(0);
+        return;
+      }
+      const startOfMonth = new Date();
+      startOfMonth.setDate(1);
+      startOfMonth.setHours(0, 0, 0, 0);
+      const { data: purchases } = await supabase
+        .from("purchases")
+        .select("amount")
+        .in("product_id", ids)
+        .gte("created_at", startOfMonth.toISOString());
+      setRevenueThisMonth((purchases ?? []).reduce((a, p) => a + (p.amount ?? 0), 0));
+    })();
   }, [profile]);
 
   const stats = useMemo(() => {
@@ -127,8 +143,8 @@ function DashboardPage() {
           <StatCard
             icon={<DollarSign className="w-4 h-4" />}
             label="Ingresos este mes"
-            value="$0"
-            hint="Sin ventas registradas"
+            value={revenueThisMonth !== null ? `$${revenueThisMonth.toFixed(2)}` : "—"}
+            hint={revenueThisMonth ? "Ventas en el marketplace" : "Sin ventas registradas"}
           />
           <StatCard
             icon={<Zap className="w-4 h-4" />}

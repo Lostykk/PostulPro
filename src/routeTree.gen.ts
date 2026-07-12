@@ -9,6 +9,7 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
+import { Route as LegalRouteImport } from './routes/legal'
 import { Route as AuthenticatedRouteRouteImport } from './routes/_authenticated/route'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as RefCodeRouteImport } from './routes/ref.$code'
@@ -40,6 +41,11 @@ import { Route as AuthenticatedToolsBusinessPlanRouteImport } from './routes/_au
 import { Route as AuthenticatedMarketplaceSellRouteImport } from './routes/_authenticated/marketplace.sell'
 import { Route as AuthenticatedMarketplaceProductIdRouteImport } from './routes/_authenticated/marketplace.$productId'
 
+const LegalRoute = LegalRouteImport.update({
+  id: '/legal',
+  path: '/legal',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const AuthenticatedRouteRoute = AuthenticatedRouteRouteImport.update({
   id: '/_authenticated',
   getParentRoute: () => rootRouteImport,
@@ -203,6 +209,7 @@ const AuthenticatedMarketplaceProductIdRoute =
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/legal': typeof LegalRoute
   '/admin': typeof AuthenticatedAdminRoute
   '/affiliates': typeof AuthenticatedAffiliatesRoute
   '/dashboard': typeof AuthenticatedDashboardRoute
@@ -234,6 +241,7 @@ export interface FileRoutesByFullPath {
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/legal': typeof LegalRoute
   '/admin': typeof AuthenticatedAdminRoute
   '/affiliates': typeof AuthenticatedAffiliatesRoute
   '/dashboard': typeof AuthenticatedDashboardRoute
@@ -266,6 +274,7 @@ export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/_authenticated': typeof AuthenticatedRouteRouteWithChildren
+  '/legal': typeof LegalRoute
   '/_authenticated/admin': typeof AuthenticatedAdminRoute
   '/_authenticated/affiliates': typeof AuthenticatedAffiliatesRoute
   '/_authenticated/dashboard': typeof AuthenticatedDashboardRoute
@@ -299,6 +308,7 @@ export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
+    | '/legal'
     | '/admin'
     | '/affiliates'
     | '/dashboard'
@@ -330,6 +340,7 @@ export interface FileRouteTypes {
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
+    | '/legal'
     | '/admin'
     | '/affiliates'
     | '/dashboard'
@@ -361,6 +372,7 @@ export interface FileRouteTypes {
     | '__root__'
     | '/'
     | '/_authenticated'
+    | '/legal'
     | '/_authenticated/admin'
     | '/_authenticated/affiliates'
     | '/_authenticated/dashboard'
@@ -394,6 +406,7 @@ export interface FileRouteTypes {
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   AuthenticatedRouteRoute: typeof AuthenticatedRouteRouteWithChildren
+  LegalRoute: typeof LegalRoute
   ApiDeleteAccountRoute: typeof ApiDeleteAccountRoute
   ApiGenerateAiRoute: typeof ApiGenerateAiRoute
   AuthCallbackRoute: typeof AuthCallbackRoute
@@ -408,6 +421,13 @@ export interface RootRouteChildren {
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
+    '/legal': {
+      id: '/legal'
+      path: '/legal'
+      fullPath: '/legal'
+      preLoaderRoute: typeof LegalRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/_authenticated': {
       id: '/_authenticated'
       path: ''
@@ -682,6 +702,7 @@ const AuthenticatedRouteRouteWithChildren =
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AuthenticatedRouteRoute: AuthenticatedRouteRouteWithChildren,
+  LegalRoute: LegalRoute,
   ApiDeleteAccountRoute: ApiDeleteAccountRoute,
   ApiGenerateAiRoute: ApiGenerateAiRoute,
   AuthCallbackRoute: AuthCallbackRoute,

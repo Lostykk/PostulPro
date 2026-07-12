@@ -1,8 +1,8 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useState } from "react";
-import { ArrowLeft, ArrowRight, FileDown, Loader2, Sparkles } from "lucide-react";
+import { ArrowLeft, ArrowRight, Copy, Download, FileDown, Loader2, Sparkles } from "lucide-react";
 import { toast } from "sonner";
-import { useAiStream } from "@/hooks/use-ai-stream";
+import { useAiStream, downloadTxt } from "@/hooks/use-ai-stream";
 import { exportReportPdf } from "@/lib/pdf-export";
 
 export const Route = createFileRoute("/_authenticated/tools/business-plan")({
@@ -125,12 +125,39 @@ function BusinessPlanPage() {
     exportReportPdf(`Business Plan — ${form.name || "PostulPro"}`, output);
   }
 
+  async function handleCopy() {
+    if (!output) return;
+    await navigator.clipboard.writeText(output);
+    toast.success("Copiado al portapapeles");
+  }
+
+  function handleDownload() {
+    if (!output) return;
+    downloadTxt(output, `business-plan-${(form.name || "postulpro").slice(0, 40).replace(/\s+/g, "-")}.txt`);
+  }
+
   if (output || streaming) {
     return (
       <div className="max-w-4xl mx-auto px-4 md:px-6 py-8">
         <div className="flex items-center justify-between mb-6">
           <h1 className="font-display text-2xl font-bold">📊 {form.name || "Tu Business Plan"}</h1>
           <div className="flex gap-2">
+            <button
+              type="button"
+              onClick={handleCopy}
+              disabled={!output || streaming}
+              className="inline-flex items-center gap-1.5 px-3 h-9 rounded-lg text-xs font-semibold bg-white/10 hover:bg-white/15 transition disabled:opacity-40"
+            >
+              <Copy className="w-3.5 h-3.5" /> Copiar
+            </button>
+            <button
+              type="button"
+              onClick={handleDownload}
+              disabled={!output || streaming}
+              className="inline-flex items-center gap-1.5 px-3 h-9 rounded-lg text-xs font-semibold bg-white/10 hover:bg-white/15 transition disabled:opacity-40"
+            >
+              <Download className="w-3.5 h-3.5" /> Descargar
+            </button>
             <button
               type="button"
               onClick={handleExportPdf}

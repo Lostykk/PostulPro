@@ -1,4 +1,4 @@
-import { type ReactNode } from "react";
+import { type ReactNode, type FormEvent, useState } from "react";
 import { Link, useNavigate, useRouterState } from "@tanstack/react-router";
 import {
   Home,
@@ -18,16 +18,25 @@ import { useAuth } from "@/hooks/use-auth";
 import { ProfileProvider, useProfile } from "@/hooks/use-profile";
 import { Progress } from "@/components/ui/progress";
 import { Skeleton } from "@/components/ui/skeleton";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 
-type NavItem = { to: string; label: string; icon: typeof Home };
+type NavItem = { to: string; label: string; shortLabel: string; icon: typeof Home };
 
 const NAV: NavItem[] = [
-  { to: "/dashboard", label: "Dashboard", icon: Home },
-  { to: "/tools", label: "Herramientas", icon: Zap },
-  { to: "/marketplace", label: "Marketplace", icon: ShoppingBag },
-  { to: "/library", label: "Biblioteca", icon: Library },
-  { to: "/affiliates", label: "Afiliados", icon: Handshake },
-  { to: "/settings", label: "Configuración", icon: Settings },
+  { to: "/dashboard", label: "Dashboard", shortLabel: "Inicio", icon: Home },
+  { to: "/tools", label: "Herramientas", shortLabel: "Tools", icon: Zap },
+  { to: "/marketplace", label: "Marketplace", shortLabel: "Market", icon: ShoppingBag },
+  { to: "/library", label: "Biblioteca", shortLabel: "Biblio", icon: Library },
+  { to: "/affiliates", label: "Afiliados", shortLabel: "Afiliados", icon: Handshake },
+  { to: "/settings", label: "Configuración", shortLabel: "Config", icon: Settings },
 ];
 
 export function AppShell({ children }: { children: ReactNode }) {
@@ -144,10 +153,17 @@ function TopBar() {
   const { profile } = useProfile();
   const pathname = useRouterState({ select: (s) => s.location.pathname });
   const crumbs = pathname.split("/").filter(Boolean);
+  const [query, setQuery] = useState("");
 
   async function handleSignOut() {
     await signOut();
     navigate({ to: "/auth/login", replace: true });
+  }
+
+  function handleSearch(e: FormEvent) {
+    e.preventDefault();
+    const q = query.trim();
+    navigate({ to: "/library", search: q ? { q } : {} });
   }
 
   const initials = (profile?.name ?? profile?.email ?? "?")
@@ -169,37 +185,59 @@ function TopBar() {
           ))}
         </div>
 
-        <div className="flex-1 max-w-md ml-auto md:ml-4 relative">
+        <form onSubmit={handleSearch} className="flex-1 max-w-md ml-auto md:ml-4 relative">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
           <input
             type="search"
-            aria-label="Buscar"
-            placeholder="Buscar generaciones, herramientas…"
+            aria-label="Buscar en tu biblioteca"
+            placeholder="Buscar en tu biblioteca…"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
             className="w-full h-9 pl-9 pr-3 rounded-lg bg-white/5 border border-white/10 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-violet-500/50"
           />
-        </div>
+        </form>
 
-        <button
-          type="button"
-          aria-label="Notificaciones"
-          className="hidden md:grid place-items-center w-9 h-9 rounded-lg hover:bg-white/5 text-muted-foreground hover:text-foreground"
-        >
-          <Bell className="w-4 h-4" />
-        </button>
+        <Popover>
+          <PopoverTrigger asChild>
+            <button
+              type="button"
+              aria-label="Notificaciones"
+              className="hidden md:grid place-items-center w-9 h-9 rounded-lg hover:bg-white/5 text-muted-foreground hover:text-foreground"
+            >
+              <Bell className="w-4 h-4" />
+            </button>
+          </PopoverTrigger>
+          <PopoverContent align="end" className="w-64 text-sm">
+            <p className="font-medium mb-1">Notificaciones</p>
+            <p className="text-muted-foreground text-xs">No tenés notificaciones nuevas por ahora.</p>
+          </PopoverContent>
+        </Popover>
 
-        <div className="flex items-center gap-2">
-          <div className="w-9 h-9 rounded-full bg-gradient-to-br from-violet-500 to-fuchsia-500 grid place-items-center text-xs font-semibold text-white">
-            {initials}
-          </div>
-          <button
-            type="button"
-            onClick={handleSignOut}
-            aria-label="Cerrar sesión"
-            className="hidden md:grid place-items-center w-9 h-9 rounded-lg hover:bg-white/5 text-muted-foreground hover:text-foreground"
-          >
-            <LogOut className="w-4 h-4" />
-          </button>
-        </div>
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <button
+              type="button"
+              aria-label="Menú de cuenta"
+              className="w-9 h-9 rounded-full bg-gradient-to-br from-violet-500 to-fuchsia-500 grid place-items-center text-xs font-semibold text-white"
+            >
+              {initials}
+            </button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="w-48">
+            <DropdownMenuLabel className="truncate">
+              {profile?.name ?? profile?.email ?? "Mi cuenta"}
+            </DropdownMenuLabel>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem asChild>
+              <Link to="/settings" className="flex items-center gap-2 cursor-pointer">
+                <Settings className="w-4 h-4" /> Configuración
+              </Link>
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={handleSignOut} className="flex items-center gap-2 cursor-pointer">
+              <LogOut className="w-4 h-4" /> Cerrar sesión
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
       </div>
     </header>
   );
@@ -209,20 +247,20 @@ function MobileTabs() {
   const pathname = useRouterState({ select: (s) => s.location.pathname });
   return (
     <nav className="md:hidden fixed bottom-0 inset-x-0 z-20 h-16 border-t border-white/5 bg-background/95 backdrop-blur">
-      <ul className="h-full grid grid-cols-5">
-        {NAV.slice(0, 5).map((item) => {
+      <ul className="h-full grid grid-cols-6">
+        {NAV.map((item) => {
           const active = pathname === item.to || pathname.startsWith(item.to + "/");
           const Icon = item.icon;
           return (
             <li key={item.to}>
               <Link
                 to={item.to}
-                className={`h-full flex flex-col items-center justify-center gap-1 text-[10px] ${
+                className={`h-full flex flex-col items-center justify-center gap-0.5 text-[9px] leading-tight ${
                   active ? "text-foreground" : "text-muted-foreground"
                 }`}
               >
-                <Icon className="w-5 h-5" />
-                <span>{item.label}</span>
+                <Icon className="w-4 h-4" />
+                <span className="truncate max-w-full px-0.5">{item.shortLabel}</span>
               </Link>
             </li>
           );

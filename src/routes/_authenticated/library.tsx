@@ -1,4 +1,4 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, Link } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
 import { Search, Star, Trash2, Copy, Download, Eye, FolderPlus, Folder as FolderIcon, Pencil, Check, X } from "lucide-react";
 import { toast } from "sonner";
@@ -6,9 +6,13 @@ import { supabase } from "@/integrations/supabase/client";
 import { useProfile } from "@/hooks/use-profile";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { downloadTxt } from "@/hooks/use-ai-stream";
+import { TOOL_META } from "@/lib/tool-meta";
 
 export const Route = createFileRoute("/_authenticated/library")({
   head: () => ({ meta: [{ title: "Biblioteca — PostulPro" }] }),
+  validateSearch: (search: Record<string, unknown>): { q?: string } => ({
+    q: typeof search.q === "string" ? search.q : undefined,
+  }),
   component: LibraryPage,
 });
 
@@ -23,23 +27,14 @@ type Generation = {
 };
 type FolderRow = { id: string; name: string | null; parent_id: string | null };
 
-const TOOL_META: Record<string, { label: string; icon: string }> = {
-  copywriter: { label: "Copywriter", icon: "✍️" },
-  "social-pack": { label: "Social Pack", icon: "📱" },
-  "business-plan": { label: "Business Plan", icon: "📊" },
-  consultant: { label: "Consultor", icon: "🧠" },
-  "sales-email": { label: "Sales Email", icon: "✉️" },
-  "landing-copy": { label: "Landing", icon: "🎯" },
-  "email-sequences": { label: "Secuencias", icon: "📬" },
-};
-
 const DATE_FILTERS = ["Todo", "Hoy", "7 días", "30 días"] as const;
 
 function LibraryPage() {
+  const { q } = Route.useSearch();
   const { profile } = useProfile();
   const [gens, setGens] = useState<Generation[] | null>(null);
   const [folders, setFolders] = useState<FolderRow[]>([]);
-  const [search, setSearch] = useState("");
+  const [search, setSearch] = useState(q ?? "");
   const [toolFilter, setToolFilter] = useState<string>("all");
   const [dateFilter, setDateFilter] = useState<(typeof DATE_FILTERS)[number]>("Todo");
   const [onlyFavorites, setOnlyFavorites] = useState(false);
@@ -303,8 +298,22 @@ function LibraryPage() {
               ))}
             </div>
           ) : filtered.length === 0 ? (
-            <div className="rounded-xl border border-dashed border-white/10 p-10 text-center text-muted-foreground text-sm">
-              No hay generaciones que coincidan con estos filtros.
+            <div className="rounded-xl border border-dashed border-white/10 p-10 text-center text-sm">
+              {gens.length === 0 ? (
+                <div className="flex flex-col items-center gap-3">
+                  <span className="text-muted-foreground">Todavía no generaste nada.</span>
+                  <Link
+                    to="/tools"
+                    className="inline-flex items-center gap-1 h-9 px-4 rounded-lg text-xs font-semibold bg-gradient-to-r from-violet-500 to-fuchsia-500 text-white hover:opacity-90 transition"
+                  >
+                    Crear la primera
+                  </Link>
+                </div>
+              ) : (
+                <span className="text-muted-foreground">
+                  Ningún resultado coincide con estos filtros.
+                </span>
+              )}
             </div>
           ) : (
             <div className="grid sm:grid-cols-2 xl:grid-cols-3 gap-3">

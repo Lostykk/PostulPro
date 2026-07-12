@@ -127,11 +127,21 @@ function RegisterPage() {
             />
             <span>
               Acepto los{" "}
-              <a href="#" className="text-violet-400 hover:text-violet-300">
+              <a
+                href="/legal#terminos"
+                target="_blank"
+                rel="noreferrer"
+                className="text-violet-400 hover:text-violet-300"
+              >
                 términos
               </a>{" "}
               y la{" "}
-              <a href="#" className="text-violet-400 hover:text-violet-300">
+              <a
+                href="/legal#privacidad"
+                target="_blank"
+                rel="noreferrer"
+                className="text-violet-400 hover:text-violet-300"
+              >
                 política de privacidad
               </a>
               .
