@@ -25,7 +25,10 @@ export type ToolConfig = {
 // Model ids — Anthropic latest Sonnet 4.5, OpenAI gpt-4o.
 // The user's spec named "claude-sonnet-4-6" which does not exist; using
 // the current Sonnet 4.5 stable id instead.
-const CLAUDE = "claude-sonnet-4-5-20250929";
+// Exported so the AI Project Builder's planner (which isn't itself one of
+// the user-selectable tools below) can reuse the same model id rather than
+// hardcoding a second copy of the string.
+export const CLAUDE = "claude-sonnet-4-5-20250929";
 const GPT4O = "gpt-4o";
 
 export const TOOLS: Record<ToolId, ToolConfig> = {

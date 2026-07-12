@@ -1,7 +1,8 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { createClient } from "@supabase/supabase-js";
 import type { Database } from "@/integrations/supabase/types";
-import { getTool, type ToolConfig } from "@/lib/ai/tools-config.server";
+import { getTool } from "@/lib/ai/tools-config.server";
+import { callModel } from "@/lib/ai/call-model.server";
 
 // Streaming proxy to Anthropic / OpenAI. API keys stay server-side.
 // Contract: POST /api/generate-ai with Bearer token + JSON:
@@ -210,104 +211,4 @@ function json(body: unknown, status = 200) {
     status,
     headers: { "Content-Type": "application/json" },
   });
-}
-
-async function callModel(
-  tool: ToolConfig,
-  prompt: string,
-  onDelta: (text: string) => void,
-  signal?: AbortSignal,
-): Promise<void> {
-  if (tool.provider === "anthropic") {
-    const key = process.env.ANTHROPIC_API_KEY;
-    if (!key) throw new Error("ANTHROPIC_API_KEY not configured");
-    const res = await fetch("https://api.anthropic.com/v1/messages", {
-      method: "POST",
-      headers: {
-        "x-api-key": key,
-        "anthropic-version": "2023-06-01",
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        model: tool.model,
-        max_tokens: tool.maxTokens,
-        system: tool.systemPrompt,
-        stream: true,
-        messages: [{ role: "user", content: prompt }],
-      }),
-      signal,
-    });
-    if (!res.ok || !res.body) {
-      const t = await res.text().catch(() => "");
-      throw new Error(`Anthropic ${res.status}: ${t.slice(0, 300)}`);
-    }
-    await readSSE(res.body, (evt) => {
-      if (evt.type === "content_block_delta" && evt.delta?.type === "text_delta") {
-        onDelta(evt.delta.text ?? "");
-      }
-    });
-    return;
-  }
-
-  // OpenAI
-  const key = process.env.OPENAI_API_KEY;
-  if (!key) throw new Error("OPENAI_API_KEY not configured");
-  const res = await fetch("https://api.openai.com/v1/chat/completions", {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${key}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      model: tool.model,
-      max_tokens: tool.maxTokens,
-      stream: true,
-      messages: [
-        { role: "system", content: tool.systemPrompt },
-        { role: "user", content: prompt },
-      ],
-    }),
-    signal,
-  });
-  if (!res.ok || !res.body) {
-    const t = await res.text().catch(() => "");
-    throw new Error(`OpenAI ${res.status}: ${t.slice(0, 300)}`);
-  }
-  await readSSE(res.body, (evt) => {
-    const delta = evt?.choices?.[0]?.delta?.content;
-    if (typeof delta === "string" && delta) onDelta(delta);
-  });
-}
-
-type SSEEvent = {
-  type?: string;
-  delta?: { type?: string; text?: string };
-  choices?: Array<{ delta?: { content?: string } }>;
-};
-
-async function readSSE(
-  body: ReadableStream<Uint8Array>,
-  onEvent: (evt: SSEEvent) => void,
-): Promise<void> {
-  const reader = body.getReader();
-  const decoder = new TextDecoder();
-  let buf = "";
-  for (;;) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    buf += decoder.decode(value, { stream: true });
-    let idx: number;
-    while ((idx = buf.indexOf("\n")) !== -1) {
-      const line = buf.slice(0, idx).trim();
-      buf = buf.slice(idx + 1);
-      if (!line.startsWith("data:")) continue;
-      const payload = line.slice(5).trim();
-      if (!payload || payload === "[DONE]") continue;
-      try {
-        onEvent(JSON.parse(payload) as SSEEvent);
-      } catch {
-        /* ignore malformed */
-      }
-    }
-  }
 }
