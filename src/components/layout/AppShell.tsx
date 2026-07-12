@@ -13,6 +13,8 @@ import {
   Search,
   ArrowUpRight,
   ShieldCheck,
+  FolderKanban,
+  Menu,
 } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
 import { ProfileProvider, useProfile } from "@/hooks/use-profile";
@@ -27,17 +29,28 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
 
 type NavItem = { to: string; label: string; shortLabel: string; icon: typeof Home };
 
+// "Construir" is the flagship entry point for this phase — it leads, both
+// in the desktop sidebar and as the 2nd mobile tab. The full list is too
+// long for a 6-column bottom bar without shrinking text into
+// unreadability, so mobile only shows the 5 most-used items directly and
+// tucks the rest behind a "Más" sheet (see MobileTabs) instead of hiding
+// them outright.
 const NAV: NavItem[] = [
   { to: "/dashboard", label: "Dashboard", shortLabel: "Inicio", icon: Home },
+  { to: "/build", label: "Construir con IA", shortLabel: "Construir", icon: Sparkles },
+  { to: "/projects", label: "Mis proyectos", shortLabel: "Proyectos", icon: FolderKanban },
   { to: "/tools", label: "Herramientas", shortLabel: "Tools", icon: Zap },
   { to: "/marketplace", label: "Marketplace", shortLabel: "Market", icon: ShoppingBag },
   { to: "/library", label: "Biblioteca", shortLabel: "Biblio", icon: Library },
   { to: "/affiliates", label: "Afiliados", shortLabel: "Afiliados", icon: Handshake },
   { to: "/settings", label: "Configuración", shortLabel: "Config", icon: Settings },
 ];
+
+const MOBILE_DIRECT = ["/dashboard", "/build", "/projects", "/marketplace", "/library"];
 
 export function AppShell({ children }: { children: ReactNode }) {
   return (
@@ -245,27 +258,72 @@ function TopBar() {
 
 function MobileTabs() {
   const pathname = useRouterState({ select: (s) => s.location.pathname });
+  const [moreOpen, setMoreOpen] = useState(false);
+  const direct = NAV.filter((item) => MOBILE_DIRECT.includes(item.to));
+  const overflow = NAV.filter((item) => !MOBILE_DIRECT.includes(item.to));
+  const overflowActive = overflow.some((item) => pathname === item.to || pathname.startsWith(item.to + "/"));
+
   return (
-    <nav className="md:hidden fixed bottom-0 inset-x-0 z-20 h-16 border-t border-white/5 bg-background/95 backdrop-blur">
-      <ul className="h-full grid grid-cols-6">
-        {NAV.map((item) => {
-          const active = pathname === item.to || pathname.startsWith(item.to + "/");
-          const Icon = item.icon;
-          return (
-            <li key={item.to}>
-              <Link
-                to={item.to}
-                className={`h-full flex flex-col items-center justify-center gap-0.5 text-[9px] leading-tight ${
-                  active ? "text-foreground" : "text-muted-foreground"
-                }`}
-              >
-                <Icon className="w-4 h-4" />
-                <span className="truncate max-w-full px-0.5">{item.shortLabel}</span>
-              </Link>
-            </li>
-          );
-        })}
-      </ul>
-    </nav>
+    <>
+      <nav className="md:hidden fixed bottom-0 inset-x-0 z-20 h-16 border-t border-white/5 bg-background/95 backdrop-blur">
+        <ul className="h-full grid grid-cols-6">
+          {direct.map((item) => {
+            const active = pathname === item.to || pathname.startsWith(item.to + "/");
+            const Icon = item.icon;
+            return (
+              <li key={item.to}>
+                <Link
+                  to={item.to}
+                  className={`h-full flex flex-col items-center justify-center gap-0.5 text-[9px] leading-tight ${
+                    active ? "text-foreground" : "text-muted-foreground"
+                  }`}
+                >
+                  <Icon className="w-4 h-4" />
+                  <span className="truncate max-w-full px-0.5">{item.shortLabel}</span>
+                </Link>
+              </li>
+            );
+          })}
+          <li>
+            <button
+              type="button"
+              onClick={() => setMoreOpen(true)}
+              aria-label="Más opciones"
+              className={`h-full w-full flex flex-col items-center justify-center gap-0.5 text-[9px] leading-tight ${
+                overflowActive ? "text-foreground" : "text-muted-foreground"
+              }`}
+            >
+              <Menu className="w-4 h-4" />
+              <span>Más</span>
+            </button>
+          </li>
+        </ul>
+      </nav>
+
+      <Sheet open={moreOpen} onOpenChange={setMoreOpen}>
+        <SheetContent side="bottom" className="rounded-t-2xl">
+          <SheetTitle className="sr-only">Más opciones</SheetTitle>
+          <div className="grid grid-cols-3 gap-3 pt-2 pb-4">
+            {overflow.map((item) => {
+              const active = pathname === item.to || pathname.startsWith(item.to + "/");
+              const Icon = item.icon;
+              return (
+                <Link
+                  key={item.to}
+                  to={item.to}
+                  onClick={() => setMoreOpen(false)}
+                  className={`flex flex-col items-center justify-center gap-1.5 p-4 rounded-xl border text-xs ${
+                    active ? "border-violet-500/50 bg-violet-500/10 text-foreground" : "border-white/10 bg-white/5 text-muted-foreground"
+                  }`}
+                >
+                  <Icon className="w-5 h-5" />
+                  {item.label}
+                </Link>
+              );
+            })}
+          </div>
+        </SheetContent>
+      </Sheet>
+    </>
   );
 }

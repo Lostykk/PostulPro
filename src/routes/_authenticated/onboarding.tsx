@@ -64,17 +64,22 @@ function OnboardingPage() {
     setSaving(true);
     // Server-side RPC: grants the +50 welcome bonus exactly once, guarded by
     // onboarding_bonus_claimed so this can't be replayed for infinite credits.
+    // goal/target/company are persisted as light personalization context for
+    // the AI Project Builder's planner — never surfaced as a promise of
+    // results, and target is entirely optional to skip.
     const { error } = await supabase.rpc("complete_onboarding", {
       p_name: name,
       p_country: country,
       p_bio: bio,
+      p_primary_goal: goal,
+      p_revenue_goal_6m: target > 0 ? target : null,
+      p_company_name: company || null,
     });
     setSaving(false);
     if (error) {
       toast.error(error.message);
       return;
     }
-    // Goal/target/company are used to personalize copy only; not persisted yet.
     setShowWelcome(true);
   }
 

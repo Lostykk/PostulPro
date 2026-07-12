@@ -23,9 +23,11 @@ type Generation = {
   output: string | null;
   is_favorite: boolean;
   folder_id: string | null;
+  project_id: string | null;
   created_at: string;
 };
 type FolderRow = { id: string; name: string | null; parent_id: string | null };
+type ProjectRef = { id: string; title: string | null };
 
 const DATE_FILTERS = ["Todo", "Hoy", "7 días", "30 días"] as const;
 
@@ -34,8 +36,10 @@ function LibraryPage() {
   const { profile } = useProfile();
   const [gens, setGens] = useState<Generation[] | null>(null);
   const [folders, setFolders] = useState<FolderRow[]>([]);
+  const [projects, setProjects] = useState<ProjectRef[]>([]);
   const [search, setSearch] = useState(q ?? "");
   const [toolFilter, setToolFilter] = useState<string>("all");
+  const [projectFilter, setProjectFilter] = useState<string>("all");
   const [dateFilter, setDateFilter] = useState<(typeof DATE_FILTERS)[number]>("Todo");
   const [onlyFavorites, setOnlyFavorites] = useState(false);
   const [activeFolder, setActiveFolder] = useState<string | null | "all">("all");
@@ -53,16 +57,18 @@ function LibraryPage() {
 
   async function loadAll() {
     if (!profile) return;
-    const [{ data: g }, { data: f }] = await Promise.all([
+    const [{ data: g }, { data: f }, { data: p }] = await Promise.all([
       supabase
         .from("generations")
-        .select("id,tool,title,output,is_favorite,folder_id,created_at")
+        .select("id,tool,title,output,is_favorite,folder_id,project_id,created_at")
         .eq("user_id", profile.id)
         .order("created_at", { ascending: false }),
       supabase.from("folders").select("id,name,parent_id").eq("user_id", profile.id).order("created_at", { ascending: true }),
+      supabase.from("ai_projects").select("id,title").eq("user_id", profile.id),
     ]);
     setGens((g as Generation[] | null) ?? []);
     setFolders(f ?? []);
+    setProjects(p ?? []);
   }
 
   const filtered = useMemo(() => {
@@ -72,6 +78,7 @@ function LibraryPage() {
       if (activeFolder !== "all" && g.folder_id !== activeFolder) return false;
       if (onlyFavorites && !g.is_favorite) return false;
       if (toolFilter !== "all" && g.tool !== toolFilter) return false;
+      if (projectFilter !== "all" && g.project_id !== projectFilter) return false;
       if (dateFilter !== "Todo") {
         const days = dateFilter === "Hoy" ? 1 : dateFilter === "7 días" ? 7 : 30;
         if (now - new Date(g.created_at).getTime() > days * 86400000) return false;
@@ -83,7 +90,13 @@ function LibraryPage() {
       }
       return true;
     });
-  }, [gens, activeFolder, onlyFavorites, toolFilter, dateFilter, search]);
+  }, [gens, activeFolder, onlyFavorites, toolFilter, projectFilter, dateFilter, search]);
+
+  const projectsWithGenerations = useMemo(() => {
+    if (!gens) return [];
+    const ids = new Set(gens.map((g) => g.project_id).filter((id): id is string => !!id));
+    return projects.filter((p) => ids.has(p.id));
+  }, [gens, projects]);
 
   async function toggleFavorite(g: Generation) {
     const { error } = await supabase.from("generations").update({ is_favorite: !g.is_favorite }).eq("id", g.id);
@@ -289,6 +302,16 @@ function LibraryPage() {
                 </option>
               ))}
             </select>
+            {projectsWithGenerations.length > 0 && (
+              <select className="input w-auto" value={projectFilter} onChange={(e) => setProjectFilter(e.target.value)}>
+                <option value="all">Todos los proyectos</option>
+                {projectsWithGenerations.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.title || "Proyecto sin título"}
+                  </option>
+                ))}
+              </select>
+            )}
           </div>
 
           {gens === null ? (
@@ -319,6 +342,7 @@ function LibraryPage() {
             <div className="grid sm:grid-cols-2 xl:grid-cols-3 gap-3">
               {filtered.map((g) => {
                 const meta = TOOL_META[g.tool] ?? { label: g.tool, icon: "⚡" };
+                const originProject = g.project_id ? projects.find((p) => p.id === g.project_id) : null;
                 return (
                   <div
                     key={g.id}
@@ -333,6 +357,15 @@ function LibraryPage() {
                       </button>
                     </div>
                     <div className="text-sm font-medium line-clamp-1">{g.title || meta.label}</div>
+                    {originProject && (
+                      <Link
+                        to="/projects/$id"
+                        params={{ id: originProject.id }}
+                        className="inline-flex w-fit items-center gap-1 text-[10px] font-medium px-2 py-0.5 rounded-full bg-violet-500/10 text-violet-300 hover:bg-violet-500/15 transition"
+                      >
+                        🧭 {originProject.title || "Proyecto"}
+                      </Link>
+                    )}
                     <div className="text-xs text-muted-foreground line-clamp-2 flex-1">{g.output?.slice(0, 120)}</div>
                     <div className="flex items-center gap-1 pt-1 border-t border-white/5 mt-1">
                       <IconBtn label="Ver" onClick={() => openView(g)}>

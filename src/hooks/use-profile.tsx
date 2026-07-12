@@ -16,6 +16,9 @@ export type Profile = {
   onboarding_completed: boolean;
   notify_email: boolean;
   notify_push: boolean;
+  primary_goal: string | null;
+  revenue_goal_6m: number | null;
+  company_name: string | null;
   created_at: string;
 };
 
@@ -41,7 +44,7 @@ export function ProfileProvider({ children }: { children: ReactNode }) {
     const { data } = await supabase
       .from("users")
       .select(
-        "id,name,email,avatar_url,bio,role,plan,credits_used,credits_limit,affiliate_code,onboarding_completed,notify_email,notify_push,created_at",
+        "id,name,email,avatar_url,bio,role,plan,credits_used,credits_limit,affiliate_code,onboarding_completed,notify_email,notify_push,primary_goal,revenue_goal_6m,company_name,created_at",
       )
       .eq("id", user.id)
       .maybeSingle();

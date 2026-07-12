@@ -71,11 +71,22 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
 
 /* ---------- Mi perfil ---------- */
 
+const SETTINGS_GOALS = [
+  { id: "passive_income", label: "Ingresos pasivos" },
+  { id: "grow_business", label: "Crecer mi negocio" },
+  { id: "better_content", label: "Mejor contenido" },
+  { id: "launch_startup", label: "Lanzar mi startup" },
+  { id: "learn_ai", label: "Aprender IA" },
+];
+
 function ProfileTab() {
   const { user } = useAuth();
   const { profile, refresh } = useProfile();
   const [name, setName] = useState("");
   const [bio, setBio] = useState("");
+  const [primaryGoal, setPrimaryGoal] = useState("");
+  const [companyName, setCompanyName] = useState("");
+  const [revenueGoal, setRevenueGoal] = useState("");
   const [saving, setSaving] = useState(false);
   const [newPassword, setNewPassword] = useState("");
   const [changingPassword, setChangingPassword] = useState(false);
@@ -85,13 +96,25 @@ function ProfileTab() {
     if (profile) {
       setName(profile.name ?? "");
       setBio(profile.bio ?? "");
+      setPrimaryGoal(profile.primary_goal ?? "");
+      setCompanyName(profile.company_name ?? "");
+      setRevenueGoal(profile.revenue_goal_6m ? String(profile.revenue_goal_6m) : "");
     }
   }, [profile]);
 
   async function handleSave() {
     if (!user) return;
     setSaving(true);
-    const { error } = await supabase.from("users").update({ name, bio }).eq("id", user.id);
+    const { error } = await supabase
+      .from("users")
+      .update({
+        name,
+        bio,
+        primary_goal: primaryGoal || null,
+        company_name: companyName || null,
+        revenue_goal_6m: revenueGoal ? Number(revenueGoal) : null,
+      })
+      .eq("id", user.id);
     setSaving(false);
     if (error) return toast.error(error.message);
     toast.success("Perfil actualizado");
@@ -145,6 +168,32 @@ function ProfileTab() {
       <Field label="Email">
         <input className="input opacity-60" value={profile?.email ?? ""} disabled />
       </Field>
+
+      <div className="pt-4 border-t border-white/5 space-y-4">
+        <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+          Contexto para Construir con IA
+        </p>
+        <div className="grid sm:grid-cols-2 gap-4">
+          <Field label="Objetivo principal">
+            <select className="input" value={primaryGoal} onChange={(e) => setPrimaryGoal(e.target.value)}>
+              <option value="" className="bg-background">Sin definir</option>
+              {SETTINGS_GOALS.map((g) => (
+                <option key={g.id} value={g.id} className="bg-background">{g.label}</option>
+              ))}
+            </select>
+          </Field>
+          <Field label="Empresa o proyecto (opcional)">
+            <input className="input" value={companyName} onChange={(e) => setCompanyName(e.target.value)} placeholder="Mi Startup" />
+          </Field>
+          <Field label="Meta a 6 meses en USD (opcional)">
+            <input className="input" type="number" min={0} value={revenueGoal} onChange={(e) => setRevenueGoal(e.target.value)} placeholder="Ej: 2000" />
+          </Field>
+        </div>
+        <p className="text-[11px] text-muted-foreground">
+          Este contexto solo se usa para personalizar el tono de tus proyectos — nunca es una promesa de resultado.
+        </p>
+      </div>
+
       <button
         type="button"
         onClick={handleSave}
