@@ -238,11 +238,14 @@ export type Database = {
       }
       generations: {
         Row: {
+          artifact_type: string | null
           created_at: string
           folder_id: string | null
           id: string
           is_favorite: boolean
           output: string | null
+          project_id: string | null
+          project_step_id: string | null
           prompt_json: Json | null
           title: string | null
           tokens_used: number | null
@@ -250,11 +253,14 @@ export type Database = {
           user_id: string
         }
         Insert: {
+          artifact_type?: string | null
           created_at?: string
           folder_id?: string | null
           id?: string
           is_favorite?: boolean
           output?: string | null
+          project_id?: string | null
+          project_step_id?: string | null
           prompt_json?: Json | null
           title?: string | null
           tokens_used?: number | null
@@ -262,11 +268,14 @@ export type Database = {
           user_id: string
         }
         Update: {
+          artifact_type?: string | null
           created_at?: string
           folder_id?: string | null
           id?: string
           is_favorite?: boolean
           output?: string | null
+          project_id?: string | null
+          project_step_id?: string | null
           prompt_json?: Json | null
           title?: string | null
           tokens_used?: number | null
@@ -282,7 +291,198 @@ export type Database = {
             referencedColumns: ["id"]
           },
           {
+            foreignKeyName: "generations_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "ai_projects"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "generations_project_step_id_fkey"
+            columns: ["project_step_id"]
+            isOneToOne: false
+            referencedRelation: "ai_project_steps"
+            referencedColumns: ["id"]
+          },
+          {
             foreignKeyName: "generations_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "users"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      ai_projects: {
+        Row: {
+          archived_at: string | null
+          assumptions_json: Json | null
+          brief_json: Json | null
+          completed_at: string | null
+          created_at: string
+          current_step_id: string | null
+          estimated_credits: number
+          execution_mode: string
+          id: string
+          language: string
+          last_error_code: string | null
+          objective: string | null
+          original_idea: string
+          plan_json: Json | null
+          plan_stale: boolean
+          progress_percent: number
+          project_type: string | null
+          spent_credits: number
+          status: string
+          target_audience: string | null
+          title: string | null
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          archived_at?: string | null
+          assumptions_json?: Json | null
+          brief_json?: Json | null
+          completed_at?: string | null
+          created_at?: string
+          current_step_id?: string | null
+          estimated_credits?: number
+          execution_mode?: string
+          id?: string
+          language?: string
+          last_error_code?: string | null
+          objective?: string | null
+          original_idea: string
+          plan_json?: Json | null
+          plan_stale?: boolean
+          progress_percent?: number
+          project_type?: string | null
+          spent_credits?: number
+          status?: string
+          target_audience?: string | null
+          title?: string | null
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          archived_at?: string | null
+          assumptions_json?: Json | null
+          brief_json?: Json | null
+          completed_at?: string | null
+          created_at?: string
+          current_step_id?: string | null
+          estimated_credits?: number
+          execution_mode?: string
+          id?: string
+          language?: string
+          last_error_code?: string | null
+          objective?: string | null
+          original_idea?: string
+          plan_json?: Json | null
+          plan_stale?: boolean
+          progress_percent?: number
+          project_type?: string | null
+          spent_credits?: number
+          status?: string
+          target_audience?: string | null
+          title?: string | null
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "ai_projects_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "users"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      ai_project_steps: {
+        Row: {
+          attempts: number
+          completed_at: string | null
+          created_at: string
+          credits_cost: number
+          credits_reserved: boolean
+          description: string | null
+          error_code: string | null
+          error_message_safe: string | null
+          id: string
+          idempotency_key: string
+          input_json: Json
+          output_generation_id: string | null
+          position: number
+          project_id: string
+          started_at: string | null
+          status: string
+          title: string
+          tool_key: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          attempts?: number
+          completed_at?: string | null
+          created_at?: string
+          credits_cost?: number
+          credits_reserved?: boolean
+          description?: string | null
+          error_code?: string | null
+          error_message_safe?: string | null
+          id?: string
+          idempotency_key: string
+          input_json?: Json
+          output_generation_id?: string | null
+          position: number
+          project_id: string
+          started_at?: string | null
+          status?: string
+          title: string
+          tool_key: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          attempts?: number
+          completed_at?: string | null
+          created_at?: string
+          credits_cost?: number
+          credits_reserved?: boolean
+          description?: string | null
+          error_code?: string | null
+          error_message_safe?: string | null
+          id?: string
+          idempotency_key?: string
+          input_json?: Json
+          output_generation_id?: string | null
+          position?: number
+          project_id?: string
+          started_at?: string | null
+          status?: string
+          title?: string
+          tool_key?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "ai_project_steps_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "ai_projects"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "ai_project_steps_output_generation_id_fkey"
+            columns: ["output_generation_id"]
+            isOneToOne: false
+            referencedRelation: "generations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "ai_project_steps_user_id_fkey"
             columns: ["user_id"]
             isOneToOne: false
             referencedRelation: "users"
@@ -515,6 +715,7 @@ export type Database = {
           affiliate_code: string | null
           avatar_url: string | null
           bio: string | null
+          company_name: string | null
           country: string | null
           created_at: string
           credits_limit: number
@@ -527,12 +728,15 @@ export type Database = {
           onboarding_bonus_claimed: boolean
           onboarding_completed: boolean
           plan: string
+          primary_goal: string | null
+          revenue_goal_6m: number | null
           role: string
         }
         Insert: {
           affiliate_code?: string | null
           avatar_url?: string | null
           bio?: string | null
+          company_name?: string | null
           country?: string | null
           created_at?: string
           credits_limit?: number
@@ -545,12 +749,15 @@ export type Database = {
           onboarding_bonus_claimed?: boolean
           onboarding_completed?: boolean
           plan?: string
+          primary_goal?: string | null
+          revenue_goal_6m?: number | null
           role?: string
         }
         Update: {
           affiliate_code?: string | null
           avatar_url?: string | null
           bio?: string | null
+          company_name?: string | null
           country?: string | null
           created_at?: string
           credits_limit?: number
@@ -563,6 +770,8 @@ export type Database = {
           onboarding_bonus_claimed?: boolean
           onboarding_completed?: boolean
           plan?: string
+          primary_goal?: string | null
+          revenue_goal_6m?: number | null
           role?: string
         }
         Relationships: []
@@ -573,7 +782,14 @@ export type Database = {
     }
     Functions: {
       complete_onboarding: {
-        Args: { p_bio: string; p_country: string; p_name: string }
+        Args: {
+          p_bio: string
+          p_company_name?: string | null
+          p_country: string
+          p_name: string
+          p_primary_goal?: string | null
+          p_revenue_goal_6m?: number | null
+        }
         Returns: {
           bonus_granted: boolean
           credits_limit: number
@@ -600,6 +816,64 @@ export type Database = {
         Args: { p_cost: number }
         Returns: { credits_limit: number; credits_used: number; ok: boolean }[]
       }
+      create_ai_project: {
+        Args: {
+          p_execution_mode?: string
+          p_language?: string
+          p_objective?: string | null
+          p_original_idea: string
+          p_target_audience?: string | null
+        }
+        Returns: string
+      }
+      save_ai_project_plan: {
+        Args: {
+          p_assumptions_json: Json
+          p_brief_json: Json
+          p_plan_json: Json
+          p_project_id: string
+          p_project_type: string | null
+          p_steps: Json
+          p_title: string | null
+          p_total_credits: number
+        }
+        Returns: undefined
+      }
+      update_ai_project_brief: {
+        Args: { p_brief_json: Json; p_project_id: string }
+        Returns: undefined
+      }
+      confirm_ai_project_plan: { Args: { p_project_id: string }; Returns: undefined }
+      claim_ai_project_step: {
+        Args: { p_project_id: string; p_step_id: string }
+        Returns: {
+          attempts: number | null
+          brief_json: Json | null
+          claimed: boolean
+          credits_cost: number | null
+          input_json: Json | null
+          reason: string
+          tool_key: string | null
+        }[]
+      }
+      mark_step_credits_reserved: { Args: { p_step_id: string }; Returns: undefined }
+      complete_ai_project_step: {
+        Args: { p_generation_id: string; p_step_id: string }
+        Returns: undefined
+      }
+      fail_ai_project_step: {
+        Args: {
+          p_error_code: string
+          p_error_message_safe: string
+          p_pause_project: boolean
+          p_step_id: string
+        }
+        Returns: undefined
+      }
+      skip_ai_project_step: { Args: { p_step_id: string }; Returns: undefined }
+      pause_ai_project: { Args: { p_project_id: string }; Returns: undefined }
+      resume_ai_project: { Args: { p_project_id: string }; Returns: undefined }
+      archive_ai_project: { Args: { p_project_id: string }; Returns: undefined }
     }
     Enums: {
       app_role: "user" | "admin"
