@@ -196,7 +196,10 @@ const STATUS_LABEL: Record<string, string> = {
   unpaid: "Impaga",
   cancelled: "Cancelada",
   expired: "Vencida",
+  refunded: "Reembolsada",
 };
+
+type BillingHistoryRow = { id: string; event_type: string; reason: string | null; created_at: string };
 
 function formatDate(iso: string | null) {
   if (!iso) return null;
@@ -208,6 +211,7 @@ function BillingTab() {
   const [loading, setLoading] = useState<string | null>(null);
   const [sub, setSub] = useState<SubscriptionRow | null>(null);
   const [subLoading, setSubLoading] = useState(true);
+  const [history, setHistory] = useState<BillingHistoryRow[]>([]);
 
   useEffect(() => {
     if (!profile) return;
@@ -215,7 +219,7 @@ function BillingTab() {
       .from("subscriptions")
       .select("status,cancelled,renews_at,ends_at,billing_interval")
       .eq("user_id", profile.id)
-      .neq("status", "expired")
+      .not("status", "in", "(expired,refunded)")
       .order("created_at", { ascending: false })
       .limit(1)
       .maybeSingle()
@@ -223,6 +227,13 @@ function BillingTab() {
         setSub((data as SubscriptionRow | null) ?? null);
         setSubLoading(false);
       });
+    supabase
+      .from("billing_history")
+      .select("id,event_type,reason,created_at")
+      .eq("user_id", profile.id)
+      .order("created_at", { ascending: false })
+      .limit(5)
+      .then(({ data }) => setHistory((data as BillingHistoryRow[] | null) ?? []));
   }, [profile]);
 
   async function callCheckout(kind: "subscription" | "credits", priceKey: string) {
@@ -333,6 +344,19 @@ function BillingTab() {
           </button>
         )}
       </div>
+
+      {history.length > 0 && (
+        <div className="pt-2 border-t border-white/5">
+          <div className="text-xs text-muted-foreground mb-2">Historial de billing</div>
+          <ul className="space-y-1.5">
+            {history.map((h) => (
+              <li key={h.id} className="text-xs text-muted-foreground">
+                <span className="text-foreground">{formatDate(h.created_at)}</span> — {h.reason ?? h.event_type}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
     </Card>
   );
 }

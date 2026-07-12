@@ -203,6 +203,15 @@ export const Route = createFileRoute("/api/billing/webhook")({
             rpcArgs.variantId = order.first_order_item ? String(order.first_order_item.variant_id) : undefined;
             break;
           }
+          case "order_refunded": {
+            // Order resources don't carry a subscription_id back-reference —
+            // the RPC resolves the affected subscription (if any) by user_id
+            // instead, relying on the invariant that a user has at most one
+            // non-expired/non-refunded subscription (enforced in checkout.ts).
+            const order = payload.data.attributes as OrderAttributes;
+            rpcArgs.variantId = order.first_order_item ? String(order.first_order_item.variant_id) : undefined;
+            break;
+          }
           case "subscription_created":
           case "subscription_updated":
           case "subscription_cancelled":
@@ -231,7 +240,8 @@ export const Route = createFileRoute("/api/billing/webhook")({
             break;
           }
           case "subscription_payment_success":
-          case "subscription_payment_failed": {
+          case "subscription_payment_failed":
+          case "subscription_payment_refunded": {
             const invoice = payload.data.attributes as SubscriptionInvoiceAttributes;
             rpcArgs.providerSubscriptionId = String(invoice.subscription_id);
             rpcArgs.invoiceTotal = invoice.total;

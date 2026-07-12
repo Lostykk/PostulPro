@@ -60,7 +60,7 @@ export const Route = createFileRoute("/api/billing/checkout")({
             .from("subscriptions")
             .select("id")
             .eq("user_id", user.id)
-            .neq("status", "expired")
+            .not("status", "in", "(expired,refunded)")
             .not("provider_subscription_id", "is", null)
             .limit(1)
             .maybeSingle();

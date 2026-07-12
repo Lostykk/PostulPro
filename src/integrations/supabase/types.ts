@@ -20,6 +20,12 @@ export type Database = {
         Update: { id?: string; event_name?: string; processed_at?: string }
         Relationships: []
       }
+      billing_history: {
+        Row: { id: string; user_id: string; event_type: string; reason: string | null; created_at: string }
+        Insert: { id?: string; user_id: string; event_type: string; reason?: string | null; created_at?: string }
+        Update: { id?: string; user_id?: string; event_type?: string; reason?: string | null; created_at?: string }
+        Relationships: []
+      }
       api_keys: {
         Row: {
           created_at: string

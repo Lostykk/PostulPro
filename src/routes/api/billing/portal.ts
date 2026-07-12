@@ -37,7 +37,7 @@ export const Route = createFileRoute("/api/billing/portal")({
           .from("subscriptions")
           .select("provider_subscription_id")
           .eq("user_id", userData.user.id)
-          .neq("status", "expired")
+          .not("status", "in", "(expired,refunded)")
           .not("provider_subscription_id", "is", null)
           .order("created_at", { ascending: false })
           .limit(1)
