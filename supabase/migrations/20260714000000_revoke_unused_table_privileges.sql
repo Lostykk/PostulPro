@@ -1,0 +1,25 @@
+-- Security hardening: the platform's default privileges grant anon and
+-- authenticated the full table-level privilege set (SELECT, INSERT,
+-- UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER) on every table in
+-- public — confirmed identical on tables from the very first migration
+-- (e.g. users) and on tables created today (ai_projects). RLS already
+-- neutralizes this for row access, but TRUNCATE/REFERENCES/TRIGGER are
+-- whole-table privileges RLS does not filter at all:
+--   - TRUNCATE would let any authenticated (or even anon, before RLS
+--     policies existed on a table) role empty an entire table in one
+--     statement, bypassing RLS and DELETE policies entirely.
+--   - REFERENCES/TRIGGER are needed only by schema-design operations
+--     (adding new FKs/triggers) and by extension/admin tooling — the
+--     application itself never needs a client role to hold them.
+-- Revoking these three from anon/authenticated removes real attack
+-- surface without touching SELECT/INSERT/UPDATE/DELETE, which RLS
+-- already gates correctly and which the application depends on.
+--
+-- Scoped to every table that exists in `public` right now — that schema
+-- contains only PostulPro's own application tables (auth/storage/
+-- realtime internals live in their own schemas and are untouched).
+-- Not implemented via ALTER DEFAULT PRIVILEGES, so future tables get
+-- their privileges reviewed explicitly rather than silently inheriting
+-- this narrower set — a deliberate choice to keep each grant auditable.
+
+REVOKE TRUNCATE, REFERENCES, TRIGGER ON ALL TABLES IN SCHEMA public FROM anon, authenticated;
