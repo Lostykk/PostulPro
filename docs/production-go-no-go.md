@@ -10,9 +10,9 @@ Leyenda: **PASS** (verificado, listo) · **FAIL** (verificado y roto) · **BLOCK
 | 2 | SMTP / emails transaccionales | **PARCIAL** | Confirmado: Supabase usa su servicio SMTP default (no custom). `RESEND_API_KEY` no configurada en ningún entorno — cero emails de marca se envían hoy. 3 de 6 funciones de email (`sendWelcomeEmail`, `sendLowCreditsEmail`, `sendWeeklySummaryEmail`) son código muerto sin call site. No bloqueante para un cutover técnico, pero si se espera volumen real de registros, es una brecha de producto conocida. |
 | 3 | Google OAuth / Lovable | **FAIL, sin fix mínimo seguro disponible** | Confirmado por click-through real: 404 en `/~oauth/initiate` porque depende de un proxy de borde exclusivo de `*.lovable.app`/`*.lovableproject.com`, ausente en un Worker de Cloudflare directo. Email/password no afectado. Corrección real requiere o restaurar el proxy de Lovable delante del Worker, o migrar a OAuth nativo de Supabase — ambas fuera de "corrección mínima segura" y requieren credenciales/decisión humana (`No crear OAuth Client nuevo sin intervención humana`). |
 | 4 | Lemon Squeezy Test Mode confirmado | **PASS** | Confirmado inequívocamente vía dashboard: badge "Test mode" junto al nombre de la tienda, más "Your application has been received and will be reviewed" — Live Mode ni siquiera está aprobado todavía, cero riesgo de cobro real accidental. |
-| 5 | Checkout Test Mode en preview | **BLOCKED** | Faltan `LEMON_SQUEEZY_API_KEY`, `LEMON_SQUEEZY_STORE_ID` y las 5 variant IDs en el Worker preview (sí están en producción). Ver `docs/production-environment-manifest.md`. |
-| 6 | Webhook Test Mode en preview | **BLOCKED** | El único webhook existente en Lemon Squeezy apunta a `postulpro.com` (producción) — crear uno nuevo Test-Mode-only para preview quedó bloqueado porque la sesión del navegador en Lemon Squeezy expiró a mitad de esta fase y no se puede re-autenticar sin la contraseña del usuario. `BILLING_RPC_SECRET` y `LEMON_SQUEEZY_WEBHOOK_SECRET` del lado preview: el primero ya se corrigió esta fase (placeholder → hash real), el segundo sigue faltando. |
-| 7 | Billing: créditos/idempotencia | **PASS** | 7 tests nuevos cubren firma HMAC, RPC con args correctos por tipo de evento, "already processed" sin duplicar notificación, error de RPC sin notificar, y que una entrega repetida bit-a-bit produce la misma idempotency key (`sha256(raw body)`) las dos veces. |
+| 5 | Checkout Test Mode en preview | **PASS** | Sesión de Lemon Squeezy re-autenticada por el usuario; credenciales Test Mode configuradas solo en preview (API key nueva creada exclusivamente para esto, store ID y 5 variant IDs verificados 1:1 contra el código). Checkout real generado vía `POST /api/billing/checkout` con el token de la cuenta QA — 200, URL de Test Mode correcta, producto/precio/moneda confirmados visualmente. Ver `docs/lemon-squeezy-test-validation.md`. |
+| 6 | Webhook Test Mode en preview | **PASS** | Webhook Test-Mode-only creado apuntando a la URL real de preview con los 12 eventos exactos que el handler procesa. Una transacción de prueba real (tarjeta 4242, $29.00 PRO Monthly) completada — 4 eventos entregados, los 4 con `200 ok`, procesados correctamente en el Supabase nuevo (plan, créditos, fila de suscripción). Webhook de producción sin tocar. |
+| 7 | Billing: créditos/idempotencia | **PASS**, con 1 bug real encontrado y corregido | 9 tests cubren firma HMAC, RPC con args correctos, "already processed", error de RPC sin notificar, e idempotencia de reintentos bit-a-bit. **Hallazgo real en vivo**: la función oficial "Resend" de Lemon Squeezy no produce un cuerpo byte-idéntico (URLs firmadas nuevas cada vez), lo que rompía la idempotencia basada en `sha256(raw body)` — confirmado viendo crecer `lemon_squeezy_events` en cada resend antes del fix. Corregido re-clave a `sha256(event_name + resource_id + updated_at)`; verificado en vivo que 3 resends consecutivos post-fix colapsan a una sola fila. |
 | 8 | Delete-account: auditoría | **PARCIAL, 1 fix crítico aplicado** | Fix real: cancelación de suscripción Lemon Squeezy antes de borrar (`fix(billing)` `9571f12`) — antes, borrar la cuenta dejaba una suscripción real cobrando indefinidamente. Gaps documentados sin corregir: sin re-autenticación antes de borrar, `billing_history` huérfano (podría ser intencional). No probable end-to-end en preview hoy por falta de `SUPABASE_SECRET_KEY`/`SUPABASE_SERVICE_ROLE_KEY`. |
 | 9 | Storage: buckets/políticas | **PASS**, con 1 fix aplicado | RLS ya era correcta (ownership vía `storage.foldername`, verificado no hay path traversal). Fix real: los 3 buckets no tenían `file_size_limit`/`allowed_mime_types` — vector de XSS almacenado real en los 2 buckets públicos, corregido vía migración. |
 | 10 | CSP / headers | **PASS**, con mejoras aplicadas | Cobertura confirmada global (todo pasa por `src/server.ts`, sin rutas excluidas). Se agregó recolección de reportes (antes Report-Only sin ningún `report-uri`, cero telemetría real) y las directivas `object-src`/`base-uri`/`form-action` que faltaban. Sigue en Report-Only, no enforcing — pasar a enforcing es una decisión de producto una vez que se junten reportes reales. |
@@ -29,19 +29,19 @@ Leyenda: **PASS** (verificado, listo) · **FAIL** (verificado y roto) · **BLOCK
 
 ## Resumen numérico
 
-- **PASS**: 10 (incluye 2 con mejoras/fixes reales aplicados y verificados)
-- **PARCIAL**: 4
+- **PASS**: 12 (incluye 4 con mejoras/fixes reales aplicados y verificados en vivo)
+- **PARCIAL**: 3
 - **FAIL**: 1 (Google OAuth — sin corrección mínima segura disponible)
-- **BLOCKED**: 3 (todos por falta de acceso/credencial, no por código roto)
+- **BLOCKED**: 1 (Supabase anterior — falta de acceso, no de código)
 - **HUMAN**: 1
 - **N/R**: 1
 
 ## Próximo gate único antes de un cutover real
 
-No hay un solo gate que domine a todos los demás esta vez — hay tres gates independientes y del mismo tamaño, cada uno bloqueado por una acción humana distinta y ninguna de ellas técnica:
+Con el checkout/webhook de Lemon Squeezy ahora validado end-to-end, queda un solo gate real bloqueando el cutover, y no es técnico:
 
-1. **Alguien con acceso a la organización del Supabase anterior** corre `SELECT count(*) FROM auth.users` (y el cruce contra suscripciones/compras) para poder elegir entre los Escenarios A/B/C.
-2. **Re-autenticar la pestaña de Lemon Squeezy** y crear un webhook Test-Mode-only para preview, más copiar las credenciales de Test Mode (no Live) a los secrets de preview.
-3. **Decidir conscientemente** qué hacer con Google OAuth (restaurar el proxy de Lovable vs. migrar a OAuth nativo de Supabase) — no es urgente para el cutover si email/password sigue siendo el flujo principal, pero debe quedar decidido, no olvidado.
+**Alguien con acceso a la organización del Supabase anterior** corre `SELECT count(*) FROM auth.users` (y el cruce contra suscripciones/compras) para poder elegir entre los Escenarios A/B/C de `docs/production-data-decision.md`.
 
-Ninguno de los tres requiere tocar producción para resolverse.
+Como nota secundaria, no bloqueante para el cutover si email/password sigue siendo el flujo principal: decidir conscientemente qué hacer con Google OAuth (restaurar el proxy de Lovable vs. migrar a OAuth nativo de Supabase) — no debe quedar olvidado, pero no es un gate duro.
+
+Ninguno de los dos requiere tocar producción para resolverse.
