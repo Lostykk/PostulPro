@@ -115,7 +115,7 @@ async function callPlannerModel(systemPrompt: string, userPrompt: string): Promi
   const startedAt = Date.now();
   try {
     const result = await callModelOnce(
-      { provider: "anthropic", model: CLAUDE, credits: 0, maxTokens: 3000, systemPrompt },
+      { provider: "anthropic", model: CLAUDE, credits: 0, maxTokens: 6000, systemPrompt },
       userPrompt,
       undefined,
       (usage) =>
