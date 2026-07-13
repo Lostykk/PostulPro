@@ -54,7 +54,18 @@ export async function runProjectStep(
     p_project_id: projectId,
     p_step_id: stepId,
   });
-  if (claimErr) return json({ error: "No se pudo iniciar el paso." }, 500);
+  if (claimErr) {
+    console.error(
+      JSON.stringify({
+        scope: "claim_ai_project_step",
+        code: claimErr.code,
+        message: claimErr.message,
+        details: claimErr.details,
+        hint: claimErr.hint,
+      }),
+    );
+    return json({ error: "No se pudo iniciar el paso." }, 500);
+  }
   const claim = (claimRows?.[0] as ClaimRow | undefined) ?? null;
   if (!claim || !claim.claimed) {
     const reason = claim?.reason ?? "unknown";
