@@ -151,6 +151,17 @@ export async function getSubscription(providerSubscriptionId: string): Promise<R
   return json.data;
 }
 
+// Cancels a subscription at Lemon Squeezy (DELETE /v1/subscriptions/{id}).
+// Per Lemon Squeezy's API this cancels at the end of the current billing
+// period (status -> 'cancelled', cancelled: true, ends_at set) rather than
+// an immediate/prorated stop — the same behavior as a user cancelling from
+// the customer portal. Callers that need to guarantee no further charges
+// before deleting local state (e.g. account deletion) must call this first
+// and must not proceed with local deletion if it throws.
+export async function cancelSubscription(providerSubscriptionId: string): Promise<void> {
+  await lsFetch(`/subscriptions/${providerSubscriptionId}`, { method: "DELETE" });
+}
+
 // Verifies the raw request body against the X-Signature header using the
 // signing secret, per Lemon Squeezy's documented mechanism: HMAC-SHA256 hex
 // digest of the raw body, compared with a constant-time comparison. Must be

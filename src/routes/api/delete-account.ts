@@ -1,13 +1,17 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { createClient } from "@supabase/supabase-js";
 import type { Database } from "@/integrations/supabase/types";
+import { cancelSubscription } from "@/lib/lemon-squeezy.server";
 
-// Deletes the authenticated user's account: their own Storage objects, then
-// the auth.users row via the service-role admin API. All DB rows referencing
-// users.id are declared ON DELETE CASCADE, so profile/generations/folders/
-// subscriptions/products/purchases/reviews/affiliate rows/api_keys/
-// conversations go with it. Never a frontend-only "delete" — this is the
-// only path that actually removes the account.
+// Deletes the authenticated user's account: cancels any active Lemon Squeezy
+// subscription first (so deleting the account can never leave a live
+// subscription billing a payment method nobody can access anymore), removes
+// their own Storage objects, then the auth.users row via the service-role
+// admin API. All DB rows referencing users.id are declared ON DELETE
+// CASCADE, so profile/generations/folders/subscriptions/products/purchases/
+// reviews/affiliate rows/api_keys/conversations go with it. Never a
+// frontend-only "delete" — this is the only path that actually removes the
+// account.
 
 export const Route = createFileRoute("/api/delete-account")({
   server: {
@@ -47,6 +51,24 @@ export const Route = createFileRoute("/api/delete-account")({
         });
 
         try {
+          // Cancel any active Lemon Squeezy subscription *before* touching
+          // any local state. If this fails, we deliberately abort the whole
+          // deletion rather than proceed — an account with no local
+          // subscription row but a still-live remote subscription would keep
+          // billing a payment method the (now-deleted) user can no longer
+          // manage or see.
+          const { data: activeSubs } = await admin
+            .from("subscriptions")
+            .select("provider_subscription_id, status")
+            .eq("user_id", userId)
+            .eq("provider", "lemon_squeezy")
+            .not("provider_subscription_id", "is", null)
+            .not("status", "in", "(cancelled,expired)");
+          for (const sub of activeSubs ?? []) {
+            if (!sub.provider_subscription_id) continue;
+            await cancelSubscription(sub.provider_subscription_id);
+          }
+
           const { data: avatarFiles } = await admin.storage.from("avatars").list(userId);
           if (avatarFiles?.length) {
             await admin.storage
