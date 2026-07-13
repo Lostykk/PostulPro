@@ -44,18 +44,46 @@ function isH3SwallowedErrorBody(body: string): boolean {
   }
 }
 
+// Report-Only, not enforcing: a wrong `connect-src`/`script-src` would break
+// Supabase, the Lemon Squeezy checkout redirect, or Google Fonts without a
+// full resource inventory first — Report-Only can't block anything (only log
+// to the browser console), so it's safe to ship ahead of that inventory.
+const CSP_REPORT_ONLY = [
+  "default-src 'self'",
+  "script-src 'self' 'unsafe-inline'",
+  "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
+  "font-src 'self' https://fonts.gstatic.com",
+  "img-src 'self' data: https://ccpejnklrfvgtwryqfrw.supabase.co",
+  "connect-src 'self' https://ccpejnklrfvgtwryqfrw.supabase.co",
+  "frame-ancestors 'none'",
+].join("; ");
+
+function withSecurityHeaders(response: Response): Response {
+  response.headers.set("X-Content-Type-Options", "nosniff");
+  response.headers.set("Referrer-Policy", "strict-origin-when-cross-origin");
+  response.headers.set("X-Frame-Options", "DENY");
+  response.headers.set(
+    "Permissions-Policy",
+    "camera=(), microphone=(), geolocation=(), payment=()",
+  );
+  response.headers.set("Content-Security-Policy-Report-Only", CSP_REPORT_ONLY);
+  return response;
+}
+
 export default {
   async fetch(request: Request, env: unknown, ctx: unknown) {
     try {
       const handler = await getServerEntry();
       const response = await handler.fetch(request, env, ctx);
-      return await normalizeCatastrophicSsrResponse(response);
+      return withSecurityHeaders(await normalizeCatastrophicSsrResponse(response));
     } catch (error) {
       console.error(error);
-      return new Response(renderErrorPage(), {
-        status: 500,
-        headers: { "content-type": "text/html; charset=utf-8" },
-      });
+      return withSecurityHeaders(
+        new Response(renderErrorPage(), {
+          status: 500,
+          headers: { "content-type": "text/html; charset=utf-8" },
+        }),
+      );
     }
   },
 };
