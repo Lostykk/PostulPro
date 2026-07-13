@@ -64,8 +64,8 @@ export const Route = createFileRoute("/api/projects/$id/plan")({
 
         const { error } = await supabase.rpc("save_ai_project_plan", {
           p_project_id: params.id,
-          p_title: project.title,
-          p_project_type: project.project_type,
+          p_title: project.title ?? "",
+          p_project_type: project.project_type ?? "",
           p_brief_json: project.brief_json as never,
           p_plan_json: updatedPlan as never,
           p_assumptions_json: project.assumptions_json as never,

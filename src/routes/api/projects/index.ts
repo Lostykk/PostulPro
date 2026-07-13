@@ -54,8 +54,8 @@ export const Route = createFileRoute("/api/projects/")({
 
         const { data: projectId, error } = await supabase.rpc("create_ai_project", {
           p_original_idea: parsed.data.idea,
-          p_objective: parsed.data.objective ?? null,
-          p_target_audience: parsed.data.targetAudience ?? null,
+          p_objective: parsed.data.objective ?? undefined,
+          p_target_audience: parsed.data.targetAudience ?? undefined,
           p_language: parsed.data.language,
           p_execution_mode: parsed.data.executionMode,
         });

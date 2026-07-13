@@ -12,19 +12,272 @@ export type Database = {
   __InternalSupabase: {
     PostgrestVersion: "14.5"
   }
+  graphql_public: {
+    Tables: {
+      [_ in never]: never
+    }
+    Views: {
+      [_ in never]: never
+    }
+    Functions: {
+      graphql: {
+        Args: {
+          extensions?: Json
+          operationName?: string
+          query?: string
+          variables?: Json
+        }
+        Returns: Json
+      }
+    }
+    Enums: {
+      [_ in never]: never
+    }
+    CompositeTypes: {
+      [_ in never]: never
+    }
+  }
   public: {
     Tables: {
-      lemon_squeezy_events: {
-        Row: { id: string; event_name: string; processed_at: string }
-        Insert: { id: string; event_name: string; processed_at?: string }
-        Update: { id?: string; event_name?: string; processed_at?: string }
+      affiliate_clicks: {
+        Row: {
+          affiliate_code: string
+          created_at: string
+          id: string
+        }
+        Insert: {
+          affiliate_code: string
+          created_at?: string
+          id?: string
+        }
+        Update: {
+          affiliate_code?: string
+          created_at?: string
+          id?: string
+        }
         Relationships: []
       }
-      billing_history: {
-        Row: { id: string; user_id: string; event_type: string; reason: string | null; created_at: string }
-        Insert: { id?: string; user_id: string; event_type: string; reason?: string | null; created_at?: string }
-        Update: { id?: string; user_id?: string; event_type?: string; reason?: string | null; created_at?: string }
-        Relationships: []
+      affiliate_referrals: {
+        Row: {
+          commission_amount: number | null
+          commission_rate: number | null
+          created_at: string
+          id: string
+          referred_user_id: string
+          referrer_id: string
+          status: string
+        }
+        Insert: {
+          commission_amount?: number | null
+          commission_rate?: number | null
+          created_at?: string
+          id?: string
+          referred_user_id: string
+          referrer_id: string
+          status?: string
+        }
+        Update: {
+          commission_amount?: number | null
+          commission_rate?: number | null
+          created_at?: string
+          id?: string
+          referred_user_id?: string
+          referrer_id?: string
+          status?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "affiliate_referrals_referred_user_id_fkey"
+            columns: ["referred_user_id"]
+            isOneToOne: false
+            referencedRelation: "users"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "affiliate_referrals_referrer_id_fkey"
+            columns: ["referrer_id"]
+            isOneToOne: false
+            referencedRelation: "users"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      ai_project_steps: {
+        Row: {
+          attempts: number
+          completed_at: string | null
+          created_at: string
+          credits_cost: number
+          credits_reserved: boolean
+          description: string | null
+          error_code: string | null
+          error_message_safe: string | null
+          id: string
+          idempotency_key: string
+          input_json: Json
+          output_generation_id: string | null
+          position: number
+          project_id: string
+          started_at: string | null
+          status: string
+          title: string
+          tool_key: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          attempts?: number
+          completed_at?: string | null
+          created_at?: string
+          credits_cost?: number
+          credits_reserved?: boolean
+          description?: string | null
+          error_code?: string | null
+          error_message_safe?: string | null
+          id?: string
+          idempotency_key: string
+          input_json?: Json
+          output_generation_id?: string | null
+          position: number
+          project_id: string
+          started_at?: string | null
+          status?: string
+          title: string
+          tool_key: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          attempts?: number
+          completed_at?: string | null
+          created_at?: string
+          credits_cost?: number
+          credits_reserved?: boolean
+          description?: string | null
+          error_code?: string | null
+          error_message_safe?: string | null
+          id?: string
+          idempotency_key?: string
+          input_json?: Json
+          output_generation_id?: string | null
+          position?: number
+          project_id?: string
+          started_at?: string | null
+          status?: string
+          title?: string
+          tool_key?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "ai_project_steps_output_generation_id_fkey"
+            columns: ["output_generation_id"]
+            isOneToOne: false
+            referencedRelation: "generations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "ai_project_steps_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "ai_projects"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "ai_project_steps_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "users"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      ai_projects: {
+        Row: {
+          archived_at: string | null
+          assumptions_json: Json | null
+          brief_json: Json | null
+          completed_at: string | null
+          created_at: string
+          current_step_id: string | null
+          estimated_credits: number
+          execution_mode: string
+          id: string
+          language: string
+          last_error_code: string | null
+          objective: string | null
+          original_idea: string
+          plan_json: Json | null
+          plan_stale: boolean
+          progress_percent: number
+          project_type: string | null
+          spent_credits: number
+          status: string
+          target_audience: string | null
+          title: string | null
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          archived_at?: string | null
+          assumptions_json?: Json | null
+          brief_json?: Json | null
+          completed_at?: string | null
+          created_at?: string
+          current_step_id?: string | null
+          estimated_credits?: number
+          execution_mode?: string
+          id?: string
+          language?: string
+          last_error_code?: string | null
+          objective?: string | null
+          original_idea: string
+          plan_json?: Json | null
+          plan_stale?: boolean
+          progress_percent?: number
+          project_type?: string | null
+          spent_credits?: number
+          status?: string
+          target_audience?: string | null
+          title?: string | null
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          archived_at?: string | null
+          assumptions_json?: Json | null
+          brief_json?: Json | null
+          completed_at?: string | null
+          created_at?: string
+          current_step_id?: string | null
+          estimated_credits?: number
+          execution_mode?: string
+          id?: string
+          language?: string
+          last_error_code?: string | null
+          objective?: string | null
+          original_idea?: string
+          plan_json?: Json | null
+          plan_stale?: boolean
+          progress_percent?: number
+          project_type?: string | null
+          spent_credits?: number
+          status?: string
+          target_audience?: string | null
+          title?: string | null
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "ai_projects_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "users"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       api_keys: {
         Row: {
@@ -67,21 +320,45 @@ export type Database = {
           },
         ]
       }
-      affiliate_clicks: {
+      billing_history: {
         Row: {
-          affiliate_code: string
           created_at: string
+          event_type: string
           id: string
+          reason: string | null
+          user_id: string
         }
         Insert: {
-          affiliate_code: string
           created_at?: string
+          event_type: string
           id?: string
+          reason?: string | null
+          user_id: string
         }
         Update: {
-          affiliate_code?: string
           created_at?: string
+          event_type?: string
           id?: string
+          reason?: string | null
+          user_id?: string
+        }
+        Relationships: []
+      }
+      billing_rpc_config: {
+        Row: {
+          id: boolean
+          secret_hash: string
+          updated_at: string
+        }
+        Insert: {
+          id?: boolean
+          secret_hash: string
+          updated_at?: string
+        }
+        Update: {
+          id?: boolean
+          secret_hash?: string
+          updated_at?: string
         }
         Relationships: []
       }
@@ -145,51 +422,6 @@ export type Database = {
             columns: ["conversation_id"]
             isOneToOne: false
             referencedRelation: "consultant_conversations"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
-      affiliate_referrals: {
-        Row: {
-          commission_amount: number | null
-          commission_rate: number | null
-          created_at: string
-          id: string
-          referred_user_id: string
-          referrer_id: string
-          status: string
-        }
-        Insert: {
-          commission_amount?: number | null
-          commission_rate?: number | null
-          created_at?: string
-          id?: string
-          referred_user_id: string
-          referrer_id: string
-          status?: string
-        }
-        Update: {
-          commission_amount?: number | null
-          commission_rate?: number | null
-          created_at?: string
-          id?: string
-          referred_user_id?: string
-          referrer_id?: string
-          status?: string
-        }
-        Relationships: [
-          {
-            foreignKeyName: "affiliate_referrals_referred_user_id_fkey"
-            columns: ["referred_user_id"]
-            isOneToOne: false
-            referencedRelation: "users"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "affiliate_referrals_referrer_id_fkey"
-            columns: ["referrer_id"]
-            isOneToOne: false
-            referencedRelation: "users"
             referencedColumns: ["id"]
           },
         ]
@@ -313,182 +545,23 @@ export type Database = {
           },
         ]
       }
-      ai_projects: {
+      lemon_squeezy_events: {
         Row: {
-          archived_at: string | null
-          assumptions_json: Json | null
-          brief_json: Json | null
-          completed_at: string | null
-          created_at: string
-          current_step_id: string | null
-          estimated_credits: number
-          execution_mode: string
+          event_name: string
           id: string
-          language: string
-          last_error_code: string | null
-          objective: string | null
-          original_idea: string
-          plan_json: Json | null
-          plan_stale: boolean
-          progress_percent: number
-          project_type: string | null
-          spent_credits: number
-          status: string
-          target_audience: string | null
-          title: string | null
-          updated_at: string
-          user_id: string
+          processed_at: string
         }
         Insert: {
-          archived_at?: string | null
-          assumptions_json?: Json | null
-          brief_json?: Json | null
-          completed_at?: string | null
-          created_at?: string
-          current_step_id?: string | null
-          estimated_credits?: number
-          execution_mode?: string
-          id?: string
-          language?: string
-          last_error_code?: string | null
-          objective?: string | null
-          original_idea: string
-          plan_json?: Json | null
-          plan_stale?: boolean
-          progress_percent?: number
-          project_type?: string | null
-          spent_credits?: number
-          status?: string
-          target_audience?: string | null
-          title?: string | null
-          updated_at?: string
-          user_id: string
-        }
-        Update: {
-          archived_at?: string | null
-          assumptions_json?: Json | null
-          brief_json?: Json | null
-          completed_at?: string | null
-          created_at?: string
-          current_step_id?: string | null
-          estimated_credits?: number
-          execution_mode?: string
-          id?: string
-          language?: string
-          last_error_code?: string | null
-          objective?: string | null
-          original_idea?: string
-          plan_json?: Json | null
-          plan_stale?: boolean
-          progress_percent?: number
-          project_type?: string | null
-          spent_credits?: number
-          status?: string
-          target_audience?: string | null
-          title?: string | null
-          updated_at?: string
-          user_id?: string
-        }
-        Relationships: [
-          {
-            foreignKeyName: "ai_projects_user_id_fkey"
-            columns: ["user_id"]
-            isOneToOne: false
-            referencedRelation: "users"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
-      ai_project_steps: {
-        Row: {
-          attempts: number
-          completed_at: string | null
-          created_at: string
-          credits_cost: number
-          credits_reserved: boolean
-          description: string | null
-          error_code: string | null
-          error_message_safe: string | null
+          event_name: string
           id: string
-          idempotency_key: string
-          input_json: Json
-          output_generation_id: string | null
-          position: number
-          project_id: string
-          started_at: string | null
-          status: string
-          title: string
-          tool_key: string
-          updated_at: string
-          user_id: string
-        }
-        Insert: {
-          attempts?: number
-          completed_at?: string | null
-          created_at?: string
-          credits_cost?: number
-          credits_reserved?: boolean
-          description?: string | null
-          error_code?: string | null
-          error_message_safe?: string | null
-          id?: string
-          idempotency_key: string
-          input_json?: Json
-          output_generation_id?: string | null
-          position: number
-          project_id: string
-          started_at?: string | null
-          status?: string
-          title: string
-          tool_key: string
-          updated_at?: string
-          user_id: string
+          processed_at?: string
         }
         Update: {
-          attempts?: number
-          completed_at?: string | null
-          created_at?: string
-          credits_cost?: number
-          credits_reserved?: boolean
-          description?: string | null
-          error_code?: string | null
-          error_message_safe?: string | null
+          event_name?: string
           id?: string
-          idempotency_key?: string
-          input_json?: Json
-          output_generation_id?: string | null
-          position?: number
-          project_id?: string
-          started_at?: string | null
-          status?: string
-          title?: string
-          tool_key?: string
-          updated_at?: string
-          user_id?: string
+          processed_at?: string
         }
-        Relationships: [
-          {
-            foreignKeyName: "ai_project_steps_project_id_fkey"
-            columns: ["project_id"]
-            isOneToOne: false
-            referencedRelation: "ai_projects"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "ai_project_steps_output_generation_id_fkey"
-            columns: ["output_generation_id"]
-            isOneToOne: false
-            referencedRelation: "generations"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "ai_project_steps_user_id_fkey"
-            columns: ["user_id"]
-            isOneToOne: false
-            referencedRelation: "users"
-            referencedColumns: ["id"]
-          },
-        ]
+        Relationships: []
       }
       products: {
         Row: {
@@ -642,6 +715,7 @@ export type Database = {
           provider: string
           provider_customer_id: string | null
           provider_subscription_id: string | null
+          provider_updated_at: string | null
           renews_at: string | null
           status: string | null
           trial_ends_at: string | null
@@ -659,6 +733,7 @@ export type Database = {
           provider?: string
           provider_customer_id?: string | null
           provider_subscription_id?: string | null
+          provider_updated_at?: string | null
           renews_at?: string | null
           status?: string | null
           trial_ends_at?: string | null
@@ -676,6 +751,7 @@ export type Database = {
           provider?: string
           provider_customer_id?: string | null
           provider_subscription_id?: string | null
+          provider_updated_at?: string | null
           renews_at?: string | null
           status?: string | null
           trial_ends_at?: string | null
@@ -715,6 +791,7 @@ export type Database = {
           affiliate_code: string | null
           avatar_url: string | null
           bio: string | null
+          bonus_credits: number
           company_name: string | null
           country: string | null
           created_at: string
@@ -736,6 +813,7 @@ export type Database = {
           affiliate_code?: string | null
           avatar_url?: string | null
           bio?: string | null
+          bonus_credits?: number
           company_name?: string | null
           country?: string | null
           created_at?: string
@@ -757,6 +835,7 @@ export type Database = {
           affiliate_code?: string | null
           avatar_url?: string | null
           bio?: string | null
+          bonus_credits?: number
           company_name?: string | null
           country?: string | null
           created_at?: string
@@ -781,14 +860,31 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      archive_ai_project: { Args: { p_project_id: string }; Returns: undefined }
+      claim_ai_project_step: {
+        Args: { p_project_id: string; p_step_id: string }
+        Returns: {
+          attempts: number
+          brief_json: Json
+          claimed: boolean
+          credits_cost: number
+          input_json: Json
+          reason: string
+          tool_key: string
+        }[]
+      }
+      complete_ai_project_step: {
+        Args: { p_generation_id: string; p_step_id: string }
+        Returns: undefined
+      }
       complete_onboarding: {
         Args: {
           p_bio: string
-          p_company_name?: string | null
+          p_company_name?: string
           p_country: string
           p_name: string
-          p_primary_goal?: string | null
-          p_revenue_goal_6m?: number | null
+          p_primary_goal?: string
+          p_revenue_goal_6m?: number
         }
         Returns: {
           bonus_granted: boolean
@@ -796,70 +892,19 @@ export type Database = {
           onboarding_completed: boolean
         }[]
       }
-      generate_affiliate_code: { Args: never; Returns: string }
-      generate_api_key: {
-        Args: { p_name: string }
-        Returns: { created_at: string; id: string; key_prefix: string; plaintext_key: string }[]
-      }
-      has_role: {
-        Args: {
-          _role: Database["public"]["Enums"]["app_role"]
-          _user_id: string
-        }
-        Returns: boolean
-      }
-      refund_credits: {
-        Args: { p_cost: number }
-        Returns: { credits_limit: number; credits_used: number }[]
-      }
-      reserve_credits: {
-        Args: { p_cost: number }
-        Returns: { credits_limit: number; credits_used: number; ok: boolean }[]
+      confirm_ai_project_plan: {
+        Args: { p_project_id: string }
+        Returns: undefined
       }
       create_ai_project: {
         Args: {
           p_execution_mode?: string
           p_language?: string
-          p_objective?: string | null
+          p_objective?: string
           p_original_idea: string
-          p_target_audience?: string | null
+          p_target_audience?: string
         }
         Returns: string
-      }
-      save_ai_project_plan: {
-        Args: {
-          p_assumptions_json: Json
-          p_brief_json: Json
-          p_plan_json: Json
-          p_project_id: string
-          p_project_type: string | null
-          p_steps: Json
-          p_title: string | null
-          p_total_credits: number
-        }
-        Returns: undefined
-      }
-      update_ai_project_brief: {
-        Args: { p_brief_json: Json; p_project_id: string }
-        Returns: undefined
-      }
-      confirm_ai_project_plan: { Args: { p_project_id: string }; Returns: undefined }
-      claim_ai_project_step: {
-        Args: { p_project_id: string; p_step_id: string }
-        Returns: {
-          attempts: number | null
-          brief_json: Json | null
-          claimed: boolean
-          credits_cost: number | null
-          input_json: Json | null
-          reason: string
-          tool_key: string | null
-        }[]
-      }
-      mark_step_credits_reserved: { Args: { p_step_id: string }; Returns: undefined }
-      complete_ai_project_step: {
-        Args: { p_generation_id: string; p_step_id: string }
-        Returns: undefined
       }
       fail_ai_project_step: {
         Args: {
@@ -870,10 +915,90 @@ export type Database = {
         }
         Returns: undefined
       }
-      skip_ai_project_step: { Args: { p_step_id: string }; Returns: undefined }
+      generate_affiliate_code: { Args: never; Returns: string }
+      generate_api_key: {
+        Args: { p_name: string }
+        Returns: {
+          created_at: string
+          id: string
+          key_prefix: string
+          plaintext_key: string
+        }[]
+      }
+      has_role: {
+        Args: {
+          _role: Database["public"]["Enums"]["app_role"]
+          _user_id: string
+        }
+        Returns: boolean
+      }
+      mark_step_credits_reserved: {
+        Args: { p_step_id: string }
+        Returns: undefined
+      }
       pause_ai_project: { Args: { p_project_id: string }; Returns: undefined }
+      process_lemon_squeezy_event: {
+        Args: {
+          p_cancelled: boolean
+          p_customer_id: string
+          p_ends_at: string
+          p_event_id: string
+          p_event_name: string
+          p_invoice_total: number
+          p_order_paid: boolean
+          p_product_id: string
+          p_provider_subscription_id: string
+          p_provider_updated_at?: string
+          p_renews_at: string
+          p_secret: string
+          p_status: string
+          p_trial_ends_at: string
+          p_user_id: string
+          p_variant_id: string
+        }
+        Returns: {
+          message: string
+          notify_commission: number
+          notify_email: string
+          notify_kind: string
+          notify_plan: string
+          ok: boolean
+        }[]
+      }
+      refund_credits: {
+        Args: { p_cost: number }
+        Returns: {
+          credits_limit: number
+          credits_used: number
+        }[]
+      }
+      reserve_credits: {
+        Args: { p_cost: number }
+        Returns: {
+          credits_limit: number
+          credits_used: number
+          ok: boolean
+        }[]
+      }
       resume_ai_project: { Args: { p_project_id: string }; Returns: undefined }
-      archive_ai_project: { Args: { p_project_id: string }; Returns: undefined }
+      save_ai_project_plan: {
+        Args: {
+          p_assumptions_json: Json
+          p_brief_json: Json
+          p_plan_json: Json
+          p_project_id: string
+          p_project_type: string
+          p_steps: Json
+          p_title: string
+          p_total_credits: number
+        }
+        Returns: undefined
+      }
+      skip_ai_project_step: { Args: { p_step_id: string }; Returns: undefined }
+      update_ai_project_brief: {
+        Args: { p_brief_json: Json; p_project_id: string }
+        Returns: undefined
+      }
     }
     Enums: {
       app_role: "user" | "admin"
@@ -1002,6 +1127,9 @@ export type CompositeTypes<
     : never
 
 export const Constants = {
+  graphql_public: {
+    Enums: {},
+  },
   public: {
     Enums: {
       app_role: ["user", "admin"],

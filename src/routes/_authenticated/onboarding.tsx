@@ -71,9 +71,9 @@ function OnboardingPage() {
       p_name: name,
       p_country: country,
       p_bio: bio,
-      p_primary_goal: goal,
-      p_revenue_goal_6m: target > 0 ? target : null,
-      p_company_name: company || null,
+      p_primary_goal: goal ?? undefined,
+      p_revenue_goal_6m: target > 0 ? target : undefined,
+      p_company_name: company || undefined,
     });
     setSaving(false);
     if (error) {
