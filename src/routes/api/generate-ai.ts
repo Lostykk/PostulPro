@@ -2,7 +2,8 @@ import { createFileRoute } from "@tanstack/react-router";
 import { createClient } from "@supabase/supabase-js";
 import type { Database } from "@/integrations/supabase/types";
 import { getTool } from "@/lib/ai/tools-config.server";
-import { callModel } from "@/lib/ai/call-model.server";
+import { callModel, logModelUsage, type ModelUsage } from "@/lib/ai/call-model.server";
+import { checkAiExecutionAllowed } from "@/lib/ai/preview-guard.server";
 
 // Streaming proxy to Anthropic / OpenAI. API keys stay server-side.
 // Contract: POST /api/generate-ai with Bearer token + JSON:
@@ -39,6 +40,10 @@ export const Route = createFileRoute("/api/generate-ai")({
         if (userErr || !userData?.user) return json({ error: "Unauthorized" }, 401);
         const userId = userData.user.id;
 
+        // Preview-only allowlist gate — no-op in production.
+        const guard = checkAiExecutionAllowed(userId);
+        if (!guard.allowed) return json({ error: guard.message, code: guard.code }, guard.status);
+
         let body: { tool?: string; prompt?: string; title?: string };
         try {
           body = (await request.json()) as typeof body;
@@ -66,7 +71,10 @@ export const Route = createFileRoute("/api/generate-ai")({
           const rank: Record<string, number> = { free: 0, pro: 1, business: 2 };
           if ((rank[profile.plan] ?? 0) < (rank[tool.planGate] ?? 0)) {
             return json(
-              { error: `Esta herramienta requiere plan ${tool.planGate.toUpperCase()} o superior.`, code: "plan_required" },
+              {
+                error: `Esta herramienta requiere plan ${tool.planGate.toUpperCase()} o superior.`,
+                code: "plan_required",
+              },
               403,
             );
           }
@@ -125,6 +133,8 @@ export const Route = createFileRoute("/api/generate-ai")({
             };
 
             let full = "";
+            let usage: ModelUsage = { inputTokens: null, outputTokens: null };
+            const startedAt = Date.now();
             try {
               await callModel(
                 tool,
@@ -134,7 +144,17 @@ export const Route = createFileRoute("/api/generate-ai")({
                   send({ type: "delta", text: delta });
                 },
                 abortController.signal,
+                (u) => (usage = u),
               );
+              logModelUsage({
+                provider: tool.provider,
+                model: tool.model,
+                operation: "single_tool",
+                toolKey: toolId,
+                usage,
+                durationMs: Date.now() - startedAt,
+                status: "success",
+              });
 
               // Persist generation
               const title = (body.title ?? prompt.slice(0, 60)).slice(0, 200);
@@ -146,7 +166,7 @@ export const Route = createFileRoute("/api/generate-ai")({
                   title,
                   output: full,
                   prompt_json: { prompt } as never,
-                  tokens_used: Math.ceil(full.length / 4),
+                  tokens_used: usage.outputTokens ?? Math.ceil(full.length / 4),
                 })
                 .select("id")
                 .maybeSingle();
@@ -170,6 +190,16 @@ export const Route = createFileRoute("/api/generate-ai")({
                 /* already closed */
               }
             } catch (err) {
+              logModelUsage({
+                provider: tool.provider,
+                model: tool.model,
+                operation: "single_tool",
+                toolKey: toolId,
+                usage,
+                durationMs: Date.now() - startedAt,
+                status: "error",
+                errorCode: "provider_error",
+              });
               // Refund on error (atomic decrement, floored at 0) — also
               // covers the abort-on-disconnect path via cancel() below.
               await refundOnce();

@@ -1,7 +1,16 @@
 import { CLAUDE } from "@/lib/ai/tools-config.server";
-import { callModelOnce } from "@/lib/ai/call-model.server";
-import { PLANNER_ALLOWLIST, listProjectCapabilities, realCreditsFor } from "@/lib/projects/capabilities.server";
-import { ProjectBriefSchema, ProjectPlanSchema, type ProjectBrief, type ProjectPlan } from "@/lib/projects/schema";
+import { callModelOnce, logModelUsage } from "@/lib/ai/call-model.server";
+import {
+  PLANNER_ALLOWLIST,
+  listProjectCapabilities,
+  realCreditsFor,
+} from "@/lib/projects/capabilities.server";
+import {
+  ProjectBriefSchema,
+  ProjectPlanSchema,
+  type ProjectBrief,
+  type ProjectPlan,
+} from "@/lib/projects/schema";
 import { z } from "zod";
 
 // The server-side planner: turns a free-text idea into a structured,
@@ -48,9 +57,7 @@ const EXAMPLE_MAPPINGS = `Ejemplos de combinaciones típicas (no son obligatoria
 Una idea de copy puntual (ej. "necesito un post para LinkedIn") puede necesitar un solo entregable con copywriter.`;
 
 function buildSystemPrompt(caps: ReturnType<typeof listProjectCapabilities>): string {
-  const toolList = caps
-    .map((c) => `- "${c.toolKey}": ${c.name} — ${c.description}`)
-    .join("\n");
+  const toolList = caps.map((c) => `- "${c.toolKey}": ${c.name} — ${c.description}`).join("\n");
 
   return `Sos el planner de PostulPro, una plataforma que convierte una idea de negocio en un plan de trabajo ejecutado con herramientas de IA reales.
 
@@ -87,30 +94,65 @@ function buildUserPrompt(input: PlannerInput): string {
   if (input.objective) lines.push(`Objetivo declarado: ${input.objective}`);
   if (input.targetAudience) lines.push(`Audiencia declarada: ${input.targetAudience}`);
   lines.push(`Idioma de respuesta: ${input.language}`);
-  if (input.userContext?.primaryGoal) lines.push(`Contexto del usuario (solo para personalizar tono, no para prometer resultados): objetivo general "${input.userContext.primaryGoal}"`);
-  if (input.userContext?.companyName) lines.push(`Nombre de su empresa/proyecto si aplica: ${input.userContext.companyName}`);
+  if (input.userContext?.primaryGoal)
+    lines.push(
+      `Contexto del usuario (solo para personalizar tono, no para prometer resultados): objetivo general "${input.userContext.primaryGoal}"`,
+    );
+  if (input.userContext?.companyName)
+    lines.push(`Nombre de su empresa/proyecto si aplica: ${input.userContext.companyName}`);
   return lines.join("\n");
 }
 
 function stripJsonFences(raw: string): string {
-  return raw.replace(/^```json\s*/i, "").replace(/^```\s*/i, "").replace(/```\s*$/i, "").trim();
+  return raw
+    .replace(/^```json\s*/i, "")
+    .replace(/^```\s*/i, "")
+    .replace(/```\s*$/i, "")
+    .trim();
 }
 
 async function callPlannerModel(systemPrompt: string, userPrompt: string): Promise<string> {
+  const startedAt = Date.now();
   try {
-    return await callModelOnce(
+    const result = await callModelOnce(
       { provider: "anthropic", model: CLAUDE, credits: 0, maxTokens: 3000, systemPrompt },
       userPrompt,
+      undefined,
+      (usage) =>
+        logModelUsage({
+          provider: "anthropic",
+          model: CLAUDE,
+          operation: "planner",
+          usage,
+          durationMs: Date.now() - startedAt,
+          status: "success",
+        }),
     );
+    return result;
   } catch (err) {
-    throw new PlannerError("provider_error", err instanceof Error ? err.message : "Planner model call failed");
+    logModelUsage({
+      provider: "anthropic",
+      model: CLAUDE,
+      operation: "planner",
+      usage: { inputTokens: null, outputTokens: null },
+      durationMs: Date.now() - startedAt,
+      status: "error",
+      errorCode: "provider_error",
+    });
+    throw new PlannerError(
+      "provider_error",
+      err instanceof Error ? err.message : "Planner model call failed",
+    );
   }
 }
 
 export async function generateProjectPlan(input: PlannerInput): Promise<PlannerResult> {
   const caps = listProjectCapabilities(input.plan);
   if (caps.length === 0) {
-    throw new PlannerError("no_valid_deliverables", "No hay herramientas disponibles para tu plan actual.");
+    throw new PlannerError(
+      "no_valid_deliverables",
+      "No hay herramientas disponibles para tu plan actual.",
+    );
   }
   const systemPrompt = buildSystemPrompt(caps);
   const userPrompt = buildUserPrompt(input);
@@ -128,7 +170,10 @@ export async function generateProjectPlan(input: PlannerInput): Promise<PlannerR
   }
 
   if (!parsed) {
-    throw new PlannerError("invalid_response", "No pudimos interpretar el plan generado. Probá reformular la idea.");
+    throw new PlannerError(
+      "invalid_response",
+      "No pudimos interpretar el plan generado. Probá reformular la idea.",
+    );
   }
 
   return sanitizePlannerResult(parsed);
@@ -156,7 +201,10 @@ function sanitizePlannerResult(result: PlannerResult): PlannerResult {
     .map((d) => ({ ...d, estimatedCredits: realCreditsFor(d.toolKey) }));
 
   if (validDeliverables.length === 0) {
-    throw new PlannerError("no_valid_deliverables", "El plan no propuso ninguna capacidad válida. Probá reformular la idea.");
+    throw new PlannerError(
+      "no_valid_deliverables",
+      "El plan no propuso ninguna capacidad válida. Probá reformular la idea.",
+    );
   }
 
   const totalEstimatedCredits = validDeliverables.reduce((sum, d) => sum + d.estimatedCredits, 0);

@@ -1,7 +1,8 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database } from "@/integrations/supabase/types";
 import { getTool } from "@/lib/ai/tools-config.server";
-import { callModel } from "@/lib/ai/call-model.server";
+import { callModel, logModelUsage, type ModelUsage } from "@/lib/ai/call-model.server";
+import { checkAiExecutionAllowed } from "@/lib/ai/preview-guard.server";
 import { buildStepPrompt } from "@/lib/projects/step-prompts.server";
 import { getCapabilityMeta } from "@/lib/projects/capabilities.server";
 import { ProjectBriefSchema } from "@/lib/projects/schema";
@@ -43,6 +44,12 @@ export async function runProjectStep(
   projectId: string,
   stepId: string,
 ): Promise<Response> {
+  // Preview-only allowlist gate — checked before the atomic claim so a
+  // disallowed caller never puts a step into "claimed" state. No-op in
+  // production.
+  const guard = checkAiExecutionAllowed(userId);
+  if (!guard.allowed) return json({ error: guard.message, code: guard.code }, guard.status);
+
   const { data: claimRows, error: claimErr } = await supabase.rpc("claim_ai_project_step", {
     p_project_id: projectId,
     p_step_id: stepId,
@@ -67,14 +74,21 @@ export async function runProjectStep(
       p_error_message_safe: "La capacidad seleccionada ya no está disponible.",
       p_pause_project: true,
     });
-    return json({ error: "La capacidad seleccionada ya no está disponible.", code: "invalid_tool" }, 500);
+    return json(
+      { error: "La capacidad seleccionada ya no está disponible.", code: "invalid_tool" },
+      500,
+    );
   }
 
   // Defense in depth: re-check the plan gate even though the planner
   // already filtered by plan, in case the user's plan changed between
   // planning and execution.
   if (tool.planGate) {
-    const { data: profile } = await supabase.from("users").select("plan").eq("id", userId).maybeSingle();
+    const { data: profile } = await supabase
+      .from("users")
+      .select("plan")
+      .eq("id", userId)
+      .maybeSingle();
     const rank: Record<string, number> = { free: 0, pro: 1, business: 2 };
     if ((rank[profile?.plan ?? "free"] ?? 0) < (rank[tool.planGate] ?? 0)) {
       await supabase.rpc("fail_ai_project_step", {
@@ -84,14 +98,19 @@ export async function runProjectStep(
         p_pause_project: true,
       });
       return json(
-        { error: `Este paso requiere plan ${tool.planGate.toUpperCase()} o superior.`, code: "plan_required" },
+        {
+          error: `Este paso requiere plan ${tool.planGate.toUpperCase()} o superior.`,
+          code: "plan_required",
+        },
         403,
       );
     }
   }
 
   const cost = claim.credits_cost ?? tool.credits;
-  const { data: reserveRows, error: reserveErr } = await supabase.rpc("reserve_credits", { p_cost: cost });
+  const { data: reserveRows, error: reserveErr } = await supabase.rpc("reserve_credits", {
+    p_cost: cost,
+  });
   const reserve = reserveRows?.[0];
   if (reserveErr || !reserve || !reserve.ok) {
     await supabase.rpc("fail_ai_project_step", {
@@ -102,7 +121,10 @@ export async function runProjectStep(
     });
     const remaining = reserve ? reserve.credits_limit - reserve.credits_used : 0;
     return json(
-      { error: `Créditos insuficientes. Necesitás ${cost}, tenés ${remaining}.`, code: "insufficient_credits" },
+      {
+        error: `Créditos insuficientes. Necesitás ${cost}, tenés ${remaining}.`,
+        code: "insufficient_credits",
+      },
       402,
     );
   }
@@ -147,6 +169,8 @@ export async function runProjectStep(
       };
 
       let full = "";
+      let usage: ModelUsage = { inputTokens: null, outputTokens: null };
+      const startedAt = Date.now();
       try {
         await callModel(
           tool,
@@ -156,7 +180,17 @@ export async function runProjectStep(
             send({ type: "delta", text: delta, stepId });
           },
           abortController.signal,
+          (u) => (usage = u),
         );
+        logModelUsage({
+          provider: tool.provider,
+          model: tool.model,
+          operation: "project_step",
+          toolKey,
+          usage,
+          durationMs: Date.now() - startedAt,
+          status: "success",
+        });
 
         const { data: gen } = await supabase
           .from("generations")
@@ -166,7 +200,7 @@ export async function runProjectStep(
             title: capability.name,
             output: full,
             prompt_json: { prompt } as never,
-            tokens_used: Math.ceil(full.length / 4),
+            tokens_used: usage.outputTokens ?? Math.ceil(full.length / 4),
             project_id: projectId,
             project_step_id: stepId,
             artifact_type: capability.deliverableType,
@@ -177,7 +211,10 @@ export async function runProjectStep(
         if (!gen?.id) throw new Error("No se pudo guardar el resultado.");
 
         settled = true;
-        await supabase.rpc("complete_ai_project_step", { p_step_id: stepId, p_generation_id: gen.id });
+        await supabase.rpc("complete_ai_project_step", {
+          p_step_id: stepId,
+          p_generation_id: gen.id,
+        });
 
         const { data: project } = await supabase
           .from("ai_projects")
@@ -205,8 +242,22 @@ export async function runProjectStep(
           /* already closed */
         }
       } catch (err) {
-        const message = err instanceof Error ? err.message : "El modelo falló al generar este paso.";
-        await settleFailure("provider_error", "El modelo falló al generar este paso. Podés reintentarlo.");
+        const message =
+          err instanceof Error ? err.message : "El modelo falló al generar este paso.";
+        logModelUsage({
+          provider: tool.provider,
+          model: tool.model,
+          operation: "project_step",
+          toolKey,
+          usage,
+          durationMs: Date.now() - startedAt,
+          status: "error",
+          errorCode: "provider_error",
+        });
+        await settleFailure(
+          "provider_error",
+          "El modelo falló al generar este paso. Podés reintentarlo.",
+        );
         send({ type: "error", message, stepId });
         try {
           controller.close();
@@ -217,7 +268,10 @@ export async function runProjectStep(
     },
     cancel(reason) {
       abortController.abort(reason);
-      void settleFailure("client_disconnected", "La conexión se interrumpió mientras se generaba este paso.");
+      void settleFailure(
+        "client_disconnected",
+        "La conexión se interrumpió mientras se generaba este paso.",
+      );
     },
   });
 
@@ -269,5 +323,8 @@ function describeClaimFailure(reason: string): string {
 }
 
 function json(body: unknown, status = 200) {
-  return new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { "Content-Type": "application/json" },
+  });
 }

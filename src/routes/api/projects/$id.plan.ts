@@ -4,6 +4,7 @@ import { generateProjectPlan, PlannerError } from "@/lib/projects/planner.server
 import { isProjectCapability, realCreditsFor } from "@/lib/projects/capabilities.server";
 import { PlanDeliverableSchema, MAX_DELIVERABLES } from "@/lib/projects/schema";
 import { claimPlanRateLimit, rateLimitHeaders } from "@/lib/rate-limit.server";
+import { checkAiExecutionAllowed } from "@/lib/ai/preview-guard.server";
 import { z } from "zod";
 
 // POST  /api/projects/:id/plan — run the planner against the project's
@@ -119,6 +120,13 @@ export const Route = createFileRoute("/api/projects/$id/plan")({
             },
             409,
           );
+        }
+
+        // Preview-only allowlist gate — checked before rate limiting/credits
+        // so a disallowed caller never even reaches those. No-op in production.
+        const guard = checkAiExecutionAllowed(userId);
+        if (!guard.allowed) {
+          return json({ error: guard.message, code: guard.code }, guard.status);
         }
 
         // Rate limit BEFORE calling the model — a rejected request never
