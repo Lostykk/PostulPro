@@ -619,6 +619,35 @@ export type Database = {
           },
         ]
       }
+      plan_rate_limit_events: {
+        Row: {
+          created_at: string
+          id: string
+          ip_hash: string | null
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          ip_hash?: string | null
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          ip_hash?: string | null
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "plan_rate_limit_events_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "users"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       purchases: {
         Row: {
           amount: number | null
@@ -871,6 +900,20 @@ export type Database = {
           input_json: Json
           reason: string
           tool_key: string
+        }[]
+      }
+      claim_plan_rate_limit: {
+        Args: {
+          p_daily_max: number
+          p_ip_hash?: string
+          p_max_requests: number
+          p_window_seconds: number
+        }
+        Returns: {
+          allowed: boolean
+          daily_remaining: number
+          remaining: number
+          reset_at: string
         }[]
       }
       complete_ai_project_step: {

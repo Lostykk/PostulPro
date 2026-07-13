@@ -32,6 +32,9 @@ export function isAuthedCtx(x: AuthedCtx | Response): x is AuthedCtx {
   return !(x instanceof Response);
 }
 
-export function json(body: unknown, status = 200) {
-  return new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
+export function json(body: unknown, status = 200, extraHeaders?: Record<string, string>) {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { "Content-Type": "application/json", ...extraHeaders },
+  });
 }

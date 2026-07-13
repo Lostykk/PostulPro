@@ -3,6 +3,7 @@ import { authenticate, isAuthedCtx, json } from "@/lib/api-auth.server";
 import { generateProjectPlan, PlannerError } from "@/lib/projects/planner.server";
 import { isProjectCapability, realCreditsFor } from "@/lib/projects/capabilities.server";
 import { PlanDeliverableSchema, MAX_DELIVERABLES } from "@/lib/projects/schema";
+import { claimPlanRateLimit, rateLimitHeaders } from "@/lib/rate-limit.server";
 import { z } from "zod";
 
 // POST  /api/projects/:id/plan — run the planner against the project's
@@ -14,7 +15,10 @@ import { z } from "zod";
 //       edit of a plan the server itself just generated.
 
 const PatchPlanSchema = z.object({
-  deliverables: z.array(PlanDeliverableSchema.omit({ estimatedCredits: true })).min(1).max(MAX_DELIVERABLES),
+  deliverables: z
+    .array(PlanDeliverableSchema.omit({ estimatedCredits: true }))
+    .min(1)
+    .max(MAX_DELIVERABLES),
 });
 
 export const Route = createFileRoute("/api/projects/$id/plan")({
@@ -33,12 +37,18 @@ export const Route = createFileRoute("/api/projects/$id/plan")({
         }
         const parsed = PatchPlanSchema.safeParse(body);
         if (!parsed.success) {
-          return json({ error: parsed.error.issues[0]?.message ?? "Plan inválido.", code: "invalid_input" }, 400);
+          return json(
+            { error: parsed.error.issues[0]?.message ?? "Plan inválido.", code: "invalid_input" },
+            400,
+          );
         }
 
         const invalidTool = parsed.data.deliverables.find((d) => !isProjectCapability(d.toolKey));
         if (invalidTool) {
-          return json({ error: `"${invalidTool.toolKey}" no es una capacidad válida.`, code: "invalid_tool" }, 400);
+          return json(
+            { error: `"${invalidTool.toolKey}" no es una capacidad válida.`, code: "invalid_tool" },
+            400,
+          );
         }
 
         const { data: project } = await supabase
@@ -49,7 +59,10 @@ export const Route = createFileRoute("/api/projects/$id/plan")({
           .maybeSingle();
         if (!project) return json({ error: "Proyecto no encontrado." }, 404);
 
-        const deliverables = parsed.data.deliverables.map((d) => ({ ...d, estimatedCredits: realCreditsFor(d.toolKey) }));
+        const deliverables = parsed.data.deliverables.map((d) => ({
+          ...d,
+          estimatedCredits: realCreditsFor(d.toolKey),
+        }));
         const totalCredits = deliverables.reduce((sum, d) => sum + d.estimatedCredits, 0);
         const steps = deliverables.map((d, i) => ({
           position: i + 1,
@@ -60,7 +73,11 @@ export const Route = createFileRoute("/api/projects/$id/plan")({
           credits_cost: d.estimatedCredits,
         }));
 
-        const updatedPlan = { ...(project.plan_json as Record<string, unknown>), deliverables, totalEstimatedCredits: totalCredits };
+        const updatedPlan = {
+          ...(project.plan_json as Record<string, unknown>),
+          deliverables,
+          totalEstimatedCredits: totalCredits,
+        };
 
         const { error } = await supabase.rpc("save_ai_project_plan", {
           p_project_id: params.id,
@@ -72,7 +89,11 @@ export const Route = createFileRoute("/api/projects/$id/plan")({
           p_total_credits: totalCredits,
           p_steps: steps as never,
         });
-        if (error) return json({ error: error.message.slice(0, 200) || "No se pudo actualizar el plan." }, 400);
+        if (error)
+          return json(
+            { error: error.message.slice(0, 200) || "No se pudo actualizar el plan." },
+            400,
+          );
 
         return json({ plan: updatedPlan });
       },
@@ -91,7 +112,38 @@ export const Route = createFileRoute("/api/projects/$id/plan")({
         if (loadErr) return json({ error: "No se pudo cargar el proyecto." }, 500);
         if (!project) return json({ error: "Proyecto no encontrado." }, 404);
         if (!["planning", "awaiting_confirmation"].includes(project.status)) {
-          return json({ error: `El proyecto no está en un estado planificable (${project.status}).`, code: "invalid_state" }, 409);
+          return json(
+            {
+              error: `El proyecto no está en un estado planificable (${project.status}).`,
+              code: "invalid_state",
+            },
+            409,
+          );
+        }
+
+        // Rate limit BEFORE calling the model — a rejected request never
+        // reaches the planner, so it can't cost anything or spend credits.
+        let rate;
+        try {
+          rate = await claimPlanRateLimit(supabase, request);
+        } catch {
+          return json(
+            {
+              error: "No se pudo verificar el límite de solicitudes. Probá de nuevo en un momento.",
+            },
+            503,
+          );
+        }
+        if (!rate.allowed) {
+          return json(
+            {
+              error:
+                "Alcanzaste el límite de planes que podés generar por ahora. Probá de nuevo más tarde.",
+              code: "rate_limited",
+            },
+            429,
+            rateLimitHeaders(rate),
+          );
         }
 
         const { data: profile } = await supabase
@@ -112,7 +164,10 @@ export const Route = createFileRoute("/api/projects/$id/plan")({
           });
         } catch (err) {
           if (err instanceof PlannerError) {
-            return json({ error: err.message, code: err.code }, err.code === "provider_error" ? 502 : 422);
+            return json(
+              { error: err.message, code: err.code },
+              err.code === "provider_error" ? 502 : 422,
+            );
           }
           return json({ error: "No se pudo generar el plan." }, 500);
         }
@@ -131,11 +186,18 @@ export const Route = createFileRoute("/api/projects/$id/plan")({
           p_project_type: result.plan.projectType,
           p_brief_json: result.brief as never,
           p_plan_json: result.plan as never,
-          p_assumptions_json: { assumptions: result.plan.assumptions, questionsOrWarnings: result.plan.questionsOrWarnings } as never,
+          p_assumptions_json: {
+            assumptions: result.plan.assumptions,
+            questionsOrWarnings: result.plan.questionsOrWarnings,
+          } as never,
           p_total_credits: result.plan.totalEstimatedCredits,
           p_steps: steps as never,
         });
-        if (saveErr) return json({ error: saveErr.message.slice(0, 200) || "No se pudo guardar el plan." }, 400);
+        if (saveErr)
+          return json(
+            { error: saveErr.message.slice(0, 200) || "No se pudo guardar el plan." },
+            400,
+          );
 
         return json({ brief: result.brief, plan: result.plan });
       },
