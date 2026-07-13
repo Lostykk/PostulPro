@@ -4,5 +4,18 @@
   // workers.dev subdomain disabled across redeploys now that the app is
   // served from the custom domains (postulpro.com / www.postulpro.com) —
   // without this, `wrangler deploy` re-enables workers.dev by default.
-  "workers_dev": false
+  "workers_dev": false,
+
+  // Isolated preview environment: a completely separate Worker
+  // (different name, so it can never collide with or overwrite the
+  // production Worker), with workers.dev explicitly re-enabled just for
+  // this environment since it has no Custom Domain and needs a public URL
+  // to smoke-test against. Deploy with `wrangler deploy --env preview` —
+  // plain `wrangler deploy` (no --env) always targets production above.
+  "env": {
+    "preview": {
+      "name": "lostykk-postulpro-preview",
+      "workers_dev": true
+    }
+  }
 }

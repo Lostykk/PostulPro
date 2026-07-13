@@ -23,6 +23,9 @@ dist-ssr
 # Supabase CLI local cache (project link state, pooler URL, version pins)
 supabase/.temp/
 
+# Synthetic QA credentials (never real user data, never committed)
+.qa.local.json
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json
