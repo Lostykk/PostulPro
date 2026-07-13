@@ -2,11 +2,15 @@
 
 Estado: **documentado, no ejecutado**. Este documento no autoriza ni dispara ningún cambio — es la referencia a seguir cuando el equipo decida promover.
 
+**Actualizado en Fase 5** (2026-07-13) — ver `docs/production-go-no-go.md` para el veredicto gate por gate completo, `docs/release-candidate.md` para el detalle de bugs corregidos esta fase, y `docs/production-data-decision.md` / `docs/production-environment-manifest.md` / `docs/cutover-rehearsal-report.md` para el resto de los deliverables de esta fase.
+
 Contexto al momento de escribir esto:
 
 - Preview: `lostykk-postulpro-preview` (workers.dev, sin Custom Domain), Supabase `ccpejnklrfvgtwryqfrw`.
 - Producción: `lostykk-postulpro` (`postulpro.com` / `www.postulpro.com`), Supabase **distinto** (ref confirmado vía el bundle público de producción, no vía credenciales) — producción **no** usa el proyecto Supabase nuevo todavía.
-- La prueba real de IA end-to-end en preview sigue **PENDIENTE** (sin `ANTHROPIC_API_KEY`/`OPENAI_API_KEY` autorizada) — es una precondición dura, no opcional, para el cutover.
+- La prueba real de IA end-to-end en preview **ya se validó** en una fase anterior (1 plan + 1 entregable real, créditos/idempotencia confirmados, sin doble cobro) — la precondición A.1 de abajo pasó a ✅.
+- Esta fase (Fase 5) corrigió 5 bugs reales adicionales (password reset roto de punta a punta, `BILLING_RPC_SECRET` nunca rotado del placeholder, borrar cuenta sin cancelar la suscripción real de Lemon Squeezy, CSP Report-Only sin recolección, Storage sin límites de tamaño/MIME) y ensayó un rollback real en preview (`wrangler rollback` en ambas direcciones, verificado por HTTP).
+- El gate que hoy bloquea el cutover no es técnico: son tres acciones humanas independientes (acceso al Supabase anterior, re-autenticación de Lemon Squeezy para probar Test Mode en preview, y una decisión consciente sobre Google OAuth) — ver `docs/production-go-no-go.md`, sección final.
 
 ---
 
@@ -16,21 +20,21 @@ Todas deben estar en `✅` antes de programar una ventana de corte.
 
 | # | Precondición | Estado actual |
 |---|---|---|
-| 1 | Al menos una generación real de IA (plan + un entregable) validada end-to-end en preview, con créditos/idempotencia/refund confirmados | ❌ PENDIENTE — falta API key autorizada |
+| 1 | Al menos una generación real de IA (plan + un entregable) validada end-to-end en preview, con créditos/idempotencia/refund confirmados | ✅ Validado en una fase anterior — 1 crédito cobrado, 1 generación persistida, cero doble cobro, confirmado tras refresh y logout/login completo |
 | 2 | Registro público funcionando sin rate-limit bloqueado | ⚠️ No reintentado esta fase — último estado conocido: bloqueado por rate limit de GoTrue |
-| 3 | SMTP de producción configurado (o decisión consciente de seguir con el servicio default de Supabase) | ⚠️ No auditado en el dashboard esta fase (asumido default, sin SMTP custom, basado en el historial de la migración) |
+| 3 | SMTP de producción configurado (o decisión consciente de seguir con el servicio default de Supabase) | ✅ Confirmado esta fase vía dashboard: servicio default de Supabase, sin SMTP custom. `RESEND_API_KEY` sigue sin configurar en ningún entorno — ver `docs/production-environment-manifest.md` |
 | 4 | Site URL / Redirect URLs listos para `postulpro.com` | ❌ Todavía no agregado — hoy el Site URL del proyecto nuevo apunta al preview |
-| 5 | OAuth (Google vía Lovable) con su propio redirect configurado para el dominio final | ⚠️ No auditado — vive fuera de Supabase Auth, en la integración Lovable |
-| 6 | Lemon Squeezy: variantes, webhook, secretos confirmados como Live Mode (no Test Mode) | ❌ No confirmado — las credenciales locales no tienen forma de distinguirse como test/live por el nombre |
-| 7 | Billing: checkout, webhook, RPC secret probados con Test Mode primero | ⚠️ Ver fase de billing anterior — no reprobado esta sesión |
-| 8 | Affiliates: flujo de comisión probado end-to-end | Sin auditar en esta fase |
-| 9 | Storage: buckets/políticas confirmados en el proyecto nuevo | ✅ Auditado en una fase anterior (limitación conocida de list/get documentada, no bloqueante) |
-| 10 | CSP: Report-Only sin violaciones en el click-through completo | ✅ Confirmado esta fase (9 páginas, 0 violaciones) — todavía Report-Only, no enforcing |
+| 5 | OAuth (Google vía Lovable) con su propio redirect configurado para el dominio final | ❌ Confirmado ROTO esta fase por click-through real (404 en `/~oauth/initiate` — depende de un proxy de borde exclusivo de dominios `*.lovable.app`, ausente en Cloudflare Workers). Email/password no afectado. Requiere decisión humana, no un fix de código — ver `docs/production-go-no-go.md` |
+| 6 | Lemon Squeezy: variantes, webhook, secretos confirmados como Live Mode (no Test Mode) | ✅ Confirmado esta fase que la tienda está inequívocamente en **Test Mode** (badge + aprobación de Live Mode todavía pendiente) — cero riesgo de cobro real hoy |
+| 7 | Billing: checkout, webhook, RPC secret probados con Test Mode primero | ⚠️ RPC secret corregido esta fase (era un placeholder nunca rotado — ver `docs/release-candidate.md`) y su idempotencia cubierta por 7 tests nuevos. Checkout/webhook Test Mode en preview siguen **BLOCKED** por falta de credenciales de Lemon Squeezy en preview y una sesión de navegador expirada — ver `docs/production-go-no-go.md` gates 5–6 |
+| 8 | Affiliates: flujo de comisión probado end-to-end | ⚠️ Auditado por código esta fase (no probado en vivo): guard de auto-referido solo bloquea el caso literal mismo-id, no dos cuentas de la misma persona — riesgo de abuso financiero documentado, sin fix (requiere decisión de producto sobre qué señal usar) |
+| 9 | Storage: buckets/políticas confirmados en el proyecto nuevo | ✅ RLS ya era correcta; esta fase agregó `file_size_limit`/`allowed_mime_types` a los 3 buckets (cerraba un XSS almacenado real en los 2 buckets públicos) |
+| 10 | CSP: Report-Only sin violaciones en el click-through completo | ✅ Cobertura global confirmada por código esta fase (sin rutas excluidas); se agregó `/api/csp-report` (antes Report-Only no recolectaba nada) y las directivas `object-src`/`base-uri`/`form-action` que faltaban. Sigue en Report-Only, no enforcing |
 | 11 | Monitoring: alguna forma de ver logs/errores de producción post-corte | Los logs del Worker productivo ya existen (Cloudflare); no se agregó nada nuevo específico para el corte |
-| 12 | Backups: snapshot de datos y configuración de producción antes de tocar nada | Pendiente de ejecutar el día del corte (ver sección C) |
-| 13 | Rollback: plan probado, no solo escrito | Documentado abajo (sección I), no ensayado en vivo |
+| 12 | Backups: snapshot de datos y configuración de producción antes de tocar nada | Manifests del proyecto **nuevo** generados esta fase (`.local-backups/`, ver su README) — el dump del Supabase **anterior** (producción) sigue pendiente de alguien con acceso a esa organización |
+| 13 | Rollback: plan probado, no solo escrito | ✅ Ensayado de verdad esta fase contra el Worker **preview** (`wrangler rollback` en ambas direcciones, verificado por HTTP) — ver `docs/cutover-rehearsal-report.md`. El mecanismo es idéntico contra producción (mismo comando, sin `--env`), pero no se ejecutó ahí |
 
-**No programar el corte hasta que 1–8 estén en ✅.** 9–13 son necesarias pero menos riesgosas de resolver el mismo día.
+**No programar el corte hasta que 1–8 estén en ✅.** 9–13 son necesarias pero menos riesgosas de resolver el mismo día. Ver `docs/production-go-no-go.md` para el detalle completo gate por gate, incluyendo los tres gates humanos (no técnicos) que hoy bloquean el resto.
 
 ---
 
@@ -149,4 +153,4 @@ Primeras 24–48 horas:
 
 ## Decisión recomendada
 
-**No programar el corte todavía.** El gate que bloquea todo lo demás es la precondición A.1 (prueba real de IA end-to-end) — sin eso, ni siquiera se puede validar que el flujo central del producto funciona con proveedores reales. El siguiente paso concreto es obtener una API key de desarrollo autorizada, exclusiva para preview, con límite de gasto controlado (ver informe final, sección Q).
+**No programar el corte todavía**, pero por una razón distinta a la de la fase anterior: A.1 (prueba real de IA end-to-end) ya está en ✅. Lo que bloquea hoy son tres acciones humanas independientes y no técnicas — ver `docs/production-go-no-go.md`, sección "Próximo gate único": (1) alguien con acceso a la organización del Supabase anterior corre un conteo de usuarios reales, (2) re-autenticar Lemon Squeezy y configurar credenciales de Test Mode en preview, (3) decidir conscientemente qué hacer con Google OAuth. Ninguna requiere tocar producción para resolverse.
