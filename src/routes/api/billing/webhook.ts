@@ -84,11 +84,14 @@ type RpcResult = {
 // SHA-256 hash of it — never persisted in plaintext anywhere.
 //
 // Idempotency: Lemon Squeezy doesn't hand out a stable per-delivery event id
-// in the payload the way Stripe does, so the ledger key is sha256(raw body)
-// — a genuine retry/duplicate delivery is byte-identical and hashes the
-// same, while any real state change (status, updated_at, etc.) hashes
-// differently. The RPC records it in lemon_squeezy_events before acting on
-// it (INSERT, unique violation = already processed) inside the same
+// in the payload the way Stripe does. sha256(raw body) was tried first but
+// does NOT survive Lemon Squeezy's own "Resend" feature -- confirmed live in
+// Fase 5 Test Mode testing, a manual resend re-wraps the same logical event
+// with freshly re-signed URLs, changing the raw body and defeating that
+// hash. The ledger key is instead sha256(event_name + resource id +
+// resource's own updated_at/created_at) -- see the eventId computation
+// below. The RPC records it in lemon_squeezy_events before acting on it
+// (INSERT, unique violation = already processed) inside the same
 // transaction as the rest of the event's mutations.
 
 async function callBillingRpc(payload: {
@@ -182,7 +185,25 @@ export const Route = createFileRoute("/api/billing/webhook")({
         const eventName = payload.meta?.event_name;
         if (!eventName) return new Response("Missing event_name", { status: 400 });
 
-        const eventId = createHash("sha256").update(rawBody).digest("hex");
+        // Idempotency key: NOT sha256(raw body). Lemon Squeezy's own "Resend"
+        // feature (Webhooks settings > delivery > Resend) re-wraps the same
+        // logical event in a fresh envelope -- observed empirically to embed
+        // freshly re-signed URLs (different `expires`/`signature` query
+        // params each time), so the raw body differs on every resend even
+        // though it's the same event. Keying on sha256(raw body) let a
+        // manual resend of e.g. order_created double-grant credits. Instead,
+        // key on the resource id + event name + the resource's own
+        // updated_at/created_at: identical for true retries/resends of the
+        // same state change, but different for a genuinely new event on the
+        // same resource (e.g. a second subscription_updated later in its
+        // lifecycle).
+        const resourceTimestamp =
+          (payload.data.attributes?.updated_at as string | undefined) ??
+          (payload.data.attributes?.created_at as string | undefined) ??
+          "";
+        const eventId = createHash("sha256")
+          .update(`${eventName}:${payload.data.id}:${resourceTimestamp}`)
+          .digest("hex");
         const userId = payload.meta.custom_data?.user_id;
         const providerSubscriptionId = payload.data.id;
 

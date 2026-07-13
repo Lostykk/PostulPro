@@ -171,4 +171,86 @@ describe("POST /api/billing/webhook", () => {
     expect(capturedIds[0]).toBe(capturedIds[1]);
     expect(capturedIds[0]).toHaveLength(64);
   });
+
+  it("a Lemon Squeezy 'Resend' (same event, different raw bytes) still hashes to the same idempotency key", async () => {
+    // Reproduces what was observed live against Lemon Squeezy Test Mode:
+    // clicking "Resend" on a delivered webhook re-wraps the identical
+    // logical event with freshly re-signed URLs, so the raw body is NOT
+    // byte-identical to the original delivery. Before this fix, that meant
+    // sha256(raw body) produced a different idempotency key and the RPC
+    // treated the resend as a brand-new event -- verified in Fase 5 by
+    // watching lemon_squeezy_events grow from 4 to 5 rows after a single
+    // Resend of an already-processed event. The fix keys on
+    // (event_name, resource id, resource's own updated_at), which is
+    // identical across a resend and only changes for a genuinely new event.
+    let capturedIds: string[] = [];
+    const fetchMock = vi.fn().mockImplementation(async (_url: string, init: RequestInit) => {
+      const parsed = JSON.parse(init.body as string);
+      capturedIds.push(parsed.p_event_id);
+      return { ok: true, json: async () => [{ ok: true, message: "ok", notify_email: null, notify_kind: null, notify_plan: null, notify_commission: null }] };
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const originalDelivery = JSON.stringify({
+      meta: { event_name: "subscription_payment_success", custom_data: { user_id: "user-1" } },
+      data: {
+        id: "7892199",
+        type: "subscription-invoices",
+        attributes: {
+          subscription_id: 2340162,
+          total: 2900,
+          status: "paid",
+          updated_at: "2026-07-13T17:46:45.000000Z",
+          urls: { invoice_url: "https://app.lemonsqueezy.com/my-orders/abc?expires=1783986405&signature=original-signature" },
+        },
+      },
+    });
+    const resendDelivery = JSON.stringify({
+      meta: { event_name: "subscription_payment_success", custom_data: { user_id: "user-1" } },
+      data: {
+        id: "7892199",
+        type: "subscription-invoices",
+        attributes: {
+          subscription_id: 2340162,
+          total: 2900,
+          status: "paid",
+          updated_at: "2026-07-13T17:46:45.000000Z",
+          // Different signed URL (fresh expires/signature), same resource id/event/updated_at.
+          urls: { invoice_url: "https://app.lemonsqueezy.com/my-orders/abc?expires=1799999999&signature=different-signature-on-resend" },
+        },
+      },
+    });
+    expect(originalDelivery).not.toBe(resendDelivery);
+
+    await handler({ request: makeRequest(originalDelivery) });
+    await handler({ request: makeRequest(resendDelivery) });
+
+    expect(capturedIds).toHaveLength(2);
+    expect(capturedIds[0]).toBe(capturedIds[1]);
+  });
+
+  it("a genuinely new event on the same resource (different updated_at) gets a different idempotency key", async () => {
+    let capturedIds: string[] = [];
+    const fetchMock = vi.fn().mockImplementation(async (_url: string, init: RequestInit) => {
+      const parsed = JSON.parse(init.body as string);
+      capturedIds.push(parsed.p_event_id);
+      return { ok: true, json: async () => [{ ok: true, message: "ok", notify_email: null, notify_kind: null, notify_plan: null, notify_commission: null }] };
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const firstUpdate = JSON.stringify({
+      meta: { event_name: "subscription_updated", custom_data: { user_id: "user-1" } },
+      data: { id: "sub_1", type: "subscriptions", attributes: { customer_id: 1, product_id: 1, variant_id: 1879841, status: "active", renews_at: null, ends_at: null, trial_ends_at: null, cancelled: false, updated_at: "2026-07-01T00:00:00Z" } },
+    });
+    const laterUpdate = JSON.stringify({
+      meta: { event_name: "subscription_updated", custom_data: { user_id: "user-1" } },
+      data: { id: "sub_1", type: "subscriptions", attributes: { customer_id: 1, product_id: 1, variant_id: 1879841, status: "past_due", renews_at: null, ends_at: null, trial_ends_at: null, cancelled: false, updated_at: "2026-08-01T00:00:00Z" } },
+    });
+
+    await handler({ request: makeRequest(firstUpdate) });
+    await handler({ request: makeRequest(laterUpdate) });
+
+    expect(capturedIds).toHaveLength(2);
+    expect(capturedIds[0]).not.toBe(capturedIds[1]);
+  });
 });
