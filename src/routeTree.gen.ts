@@ -20,6 +20,7 @@ import { Route as AuthLoginRouteImport } from './routes/auth.login'
 import { Route as AuthCallbackRouteImport } from './routes/auth.callback'
 import { Route as ApiGenerateAiRouteImport } from './routes/api/generate-ai'
 import { Route as ApiDeleteAccountRouteImport } from './routes/api/delete-account'
+import { Route as ApiCspReportRouteImport } from './routes/api/csp-report'
 import { Route as AuthenticatedSettingsRouteImport } from './routes/_authenticated/settings'
 import { Route as AuthenticatedOnboardingRouteImport } from './routes/_authenticated/onboarding'
 import { Route as AuthenticatedMarketplaceRouteImport } from './routes/_authenticated/marketplace'
@@ -110,6 +111,11 @@ const ApiGenerateAiRoute = ApiGenerateAiRouteImport.update({
 const ApiDeleteAccountRoute = ApiDeleteAccountRouteImport.update({
   id: '/api/delete-account',
   path: '/api/delete-account',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiCspReportRoute = ApiCspReportRouteImport.update({
+  id: '/api/csp-report',
+  path: '/api/csp-report',
   getParentRoute: () => rootRouteImport,
 } as any)
 const AuthenticatedSettingsRoute = AuthenticatedSettingsRouteImport.update({
@@ -325,6 +331,7 @@ export interface FileRoutesByFullPath {
   '/marketplace': typeof AuthenticatedMarketplaceRouteWithChildren
   '/onboarding': typeof AuthenticatedOnboardingRoute
   '/settings': typeof AuthenticatedSettingsRoute
+  '/api/csp-report': typeof ApiCspReportRoute
   '/api/delete-account': typeof ApiDeleteAccountRoute
   '/api/generate-ai': typeof ApiGenerateAiRoute
   '/auth/callback': typeof AuthCallbackRoute
@@ -373,6 +380,7 @@ export interface FileRoutesByTo {
   '/library': typeof AuthenticatedLibraryRoute
   '/onboarding': typeof AuthenticatedOnboardingRoute
   '/settings': typeof AuthenticatedSettingsRoute
+  '/api/csp-report': typeof ApiCspReportRoute
   '/api/delete-account': typeof ApiDeleteAccountRoute
   '/api/generate-ai': typeof ApiGenerateAiRoute
   '/auth/callback': typeof AuthCallbackRoute
@@ -424,6 +432,7 @@ export interface FileRoutesById {
   '/_authenticated/marketplace': typeof AuthenticatedMarketplaceRouteWithChildren
   '/_authenticated/onboarding': typeof AuthenticatedOnboardingRoute
   '/_authenticated/settings': typeof AuthenticatedSettingsRoute
+  '/api/csp-report': typeof ApiCspReportRoute
   '/api/delete-account': typeof ApiDeleteAccountRoute
   '/api/generate-ai': typeof ApiGenerateAiRoute
   '/auth/callback': typeof AuthCallbackRoute
@@ -475,6 +484,7 @@ export interface FileRouteTypes {
     | '/marketplace'
     | '/onboarding'
     | '/settings'
+    | '/api/csp-report'
     | '/api/delete-account'
     | '/api/generate-ai'
     | '/auth/callback'
@@ -523,6 +533,7 @@ export interface FileRouteTypes {
     | '/library'
     | '/onboarding'
     | '/settings'
+    | '/api/csp-report'
     | '/api/delete-account'
     | '/api/generate-ai'
     | '/auth/callback'
@@ -573,6 +584,7 @@ export interface FileRouteTypes {
     | '/_authenticated/marketplace'
     | '/_authenticated/onboarding'
     | '/_authenticated/settings'
+    | '/api/csp-report'
     | '/api/delete-account'
     | '/api/generate-ai'
     | '/auth/callback'
@@ -616,6 +628,7 @@ export interface RootRouteChildren {
   AuthenticatedRouteRoute: typeof AuthenticatedRouteRouteWithChildren
   DemoRoute: typeof DemoRoute
   LegalRoute: typeof LegalRoute
+  ApiCspReportRoute: typeof ApiCspReportRoute
   ApiDeleteAccountRoute: typeof ApiDeleteAccountRoute
   ApiGenerateAiRoute: typeof ApiGenerateAiRoute
   AuthCallbackRoute: typeof AuthCallbackRoute
@@ -708,6 +721,13 @@ declare module '@tanstack/react-router' {
       path: '/api/delete-account'
       fullPath: '/api/delete-account'
       preLoaderRoute: typeof ApiDeleteAccountRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/csp-report': {
+      id: '/api/csp-report'
+      path: '/api/csp-report'
+      fullPath: '/api/csp-report'
+      preLoaderRoute: typeof ApiCspReportRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/_authenticated/settings': {
@@ -1071,6 +1091,7 @@ const rootRouteChildren: RootRouteChildren = {
   AuthenticatedRouteRoute: AuthenticatedRouteRouteWithChildren,
   DemoRoute: DemoRoute,
   LegalRoute: LegalRoute,
+  ApiCspReportRoute: ApiCspReportRoute,
   ApiDeleteAccountRoute: ApiDeleteAccountRoute,
   ApiGenerateAiRoute: ApiGenerateAiRoute,
   AuthCallbackRoute: AuthCallbackRoute,

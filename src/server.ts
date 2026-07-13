@@ -48,6 +48,9 @@ function isH3SwallowedErrorBody(body: string): boolean {
 // Supabase, the Lemon Squeezy checkout redirect, or Google Fonts without a
 // full resource inventory first — Report-Only can't block anything (only log
 // to the browser console), so it's safe to ship ahead of that inventory.
+// Kept in sync manually with public/_headers, which Cloudflare applies
+// directly to static assets (they never reach this fetch handler). If you
+// change this, change that file too.
 const CSP_REPORT_ONLY = [
   "default-src 'self'",
   "script-src 'self' 'unsafe-inline'",
@@ -56,6 +59,10 @@ const CSP_REPORT_ONLY = [
   "img-src 'self' data: https://ccpejnklrfvgtwryqfrw.supabase.co",
   "connect-src 'self' https://ccpejnklrfvgtwryqfrw.supabase.co",
   "frame-ancestors 'none'",
+  "object-src 'none'",
+  "base-uri 'self'",
+  "form-action 'self'",
+  "report-uri /api/csp-report",
 ].join("; ");
 
 function withSecurityHeaders(response: Response): Response {
