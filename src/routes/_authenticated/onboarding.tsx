@@ -1,10 +1,28 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
-import { useEffect, useState } from "react";
-import { motion, AnimatePresence } from "motion/react";
+import { useEffect, useRef, useState } from "react";
+import { motion, AnimatePresence, useReducedMotion } from "motion/react";
 import { toast } from "sonner";
-import { DollarSign, TrendingUp, PenLine, Rocket, GraduationCap, Loader2, ArrowRight, ArrowLeft, Gift } from "lucide-react";
+import {
+  DollarSign,
+  TrendingUp,
+  PenLine,
+  Rocket,
+  GraduationCap,
+  Loader2,
+  ArrowRight,
+  ArrowLeft,
+  Gift,
+} from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/use-auth";
+import { useProfile } from "@/hooks/use-profile";
+import {
+  canAdvance,
+  runCompleteOnboarding,
+  shouldRedirectToDashboard,
+  stepLockDuration,
+  stepTransitionDuration,
+} from "@/lib/onboarding/wizard";
 
 export const Route = createFileRoute("/_authenticated/onboarding")({
   head: () => ({ meta: [{ title: "Configurá tu cuenta — PostulPro" }] }),
@@ -35,6 +53,13 @@ const COUNTRIES = [
 function OnboardingPage() {
   const navigate = useNavigate();
   const { user } = useAuth();
+  // Single source of truth for onboarding_completed: this is the same
+  // ProfileProvider instance AppShell mounts for the whole _authenticated
+  // layout, so it's what dashboard.tsx's redirect guard reads too. Using a
+  // separate ad-hoc query here (as before) let the two drift out of sync —
+  // dashboard would still see the pre-completion cached profile and bounce
+  // the user straight back to /onboarding after a successful completion.
+  const { profile, loading: profileLoading, refresh } = useProfile();
   const [step, setStep] = useState(1);
   const [goal, setGoal] = useState<string | null>(null);
   const [target, setTarget] = useState(2000);
@@ -44,66 +69,119 @@ function OnboardingPage() {
   const [bio, setBio] = useState("");
   const [saving, setSaving] = useState(false);
   const [showWelcome, setShowWelcome] = useState(false);
+  const [transitioning, setTransitioning] = useState(false);
+  const transitionTimeout = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const shouldReduceMotion = useReducedMotion();
+  // Set the instant complete() succeeds, before refresh() below updates the
+  // shared profile to onboarding_completed=true. That fresh profile is what
+  // stops dashboard's guard from bouncing us back here — but it would also
+  // satisfy *this* component's own redirect-if-already-done check further
+  // down. Without this flag, that effect would fire the moment refresh()
+  // resolves and yank the user straight to /dashboard, skipping the
+  // welcome/bonus modal entirely.
+  const justCompleted = useRef(false);
 
-  // If onboarding already completed, redirect to dashboard
+  // If onboarding was already completed before this visit (e.g. a user
+  // revisits /onboarding directly, or refreshes after completing), redirect
+  // to dashboard. Skipped once complete() has just finished in this visit,
+  // so the welcome modal gets a chance to show first.
   useEffect(() => {
-    if (!user) return;
-    supabase
-      .from("users")
-      .select("onboarding_completed, name")
-      .eq("id", user.id)
-      .maybeSingle()
-      .then(({ data }) => {
-        if (data?.onboarding_completed) navigate({ to: "/dashboard" });
-        if (data?.name) setName(data.name);
-      });
-  }, [user, navigate]);
+    if (!user || profileLoading) return;
+    if (shouldRedirectToDashboard(profile, justCompleted.current)) {
+      navigate({ to: "/dashboard" });
+      return;
+    }
+    if (profile?.name) setName(profile.name);
+  }, [user, profile, profileLoading, navigate]);
+
+  useEffect(() => {
+    return () => clearTimeout(transitionTimeout.current);
+  }, []);
+
+  // setTimeout (not rAF, which Framer Motion's own animation loop relies on
+  // and browsers throttle/pause in a backgrounded tab) so the nav buttons
+  // reliably unlock even if the crossfade itself is paused.
+  function goToStep(next: number) {
+    if (transitioning) return;
+    setTransitioning(true);
+    setStep(next);
+    transitionTimeout.current = setTimeout(
+      () => setTransitioning(false),
+      stepLockDuration(!!shouldReduceMotion),
+    );
+  }
 
   async function complete() {
-    if (!user) return;
+    if (!user || saving) return;
     setSaving(true);
     // Server-side RPC: grants the +50 welcome bonus exactly once, guarded by
     // onboarding_bonus_claimed so this can't be replayed for infinite credits.
     // goal/target/company are persisted as light personalization context for
     // the AI Project Builder's planner — never surfaced as a promise of
     // results, and target is entirely optional to skip.
-    const { error } = await supabase.rpc("complete_onboarding", {
-      p_name: name,
-      p_country: country,
-      p_bio: bio,
-      p_primary_goal: goal ?? undefined,
-      p_revenue_goal_6m: target > 0 ? target : undefined,
-      p_company_name: company || undefined,
+    const result = await runCompleteOnboarding({
+      rpc: () =>
+        supabase.rpc("complete_onboarding", {
+          p_name: name,
+          p_country: country,
+          p_bio: bio,
+          p_primary_goal: goal ?? undefined,
+          p_revenue_goal_6m: target > 0 ? target : undefined,
+          p_company_name: company || undefined,
+        }),
+      // Refresh the shared profile cache before showing the welcome modal
+      // so that by the time the user clicks through to /dashboard,
+      // onboarding_completed is already true there — no bounce-back.
+      refreshProfile: () => {
+        justCompleted.current = true;
+        return refresh();
+      },
     });
     setSaving(false);
-    if (error) {
-      toast.error(error.message);
+    if (!result.ok) {
+      toast.error(result.message);
       return;
     }
     setShowWelcome(true);
   }
 
-  const canNext =
-    (step === 1 && goal !== null) ||
-    (step === 2 && target > 0) ||
-    (step === 3 && name.trim().length >= 2);
+  const canNext = canAdvance(step as 1 | 2 | 3, { goal, target, name });
 
   return (
     <div className="min-h-screen bg-background text-foreground grid place-items-center px-4 py-10">
       <div className="w-full max-w-2xl">
         <ProgressBar step={step} total={3} />
 
-        <AnimatePresence mode="wait">
+        {/*
+          Deliberately not mode="wait": that keeps the outgoing step mounted
+          until its exit animation finishes before mounting the next one —
+          and Framer Motion's animation loop rides on requestAnimationFrame,
+          which browsers throttle/pause in a backgrounded tab. If the user
+          changed steps right before switching tabs, "wait" could leave the
+          exit stuck indefinitely, so the new step's content would never
+          mount — a genuine blank/stuck screen.
+          mode="popLayout" mounts the new step immediately in the same
+          render (so content is never blank/stuck on rAF state) while also
+          pulling the exiting step out of normal document flow via absolute
+          positioning, so it doesn't push the new step down the page while
+          both are briefly present — the default "sync" mode leaves both in
+          flow and stacks them, which reads as a big blank gap above the
+          real content during any rapid step change.
+        */}
+        <AnimatePresence mode="popLayout">
           <motion.div
             key={step}
-            initial={{ opacity: 0, y: 20 }}
+            initial={shouldReduceMotion ? false : { opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -20 }}
-            transition={{ duration: 0.25 }}
+            exit={shouldReduceMotion ? { opacity: 1 } : { opacity: 0, y: -20 }}
+            transition={{ duration: stepTransitionDuration(!!shouldReduceMotion) }}
             className="mt-10"
           >
             {step === 1 && (
-              <Step title="¿Cuál es tu principal objetivo?" subtitle="Elegí una opción — podés cambiarla después.">
+              <Step
+                title="¿Cuál es tu principal objetivo?"
+                subtitle="Elegí una opción — podés cambiarla después."
+              >
                 <div className="grid sm:grid-cols-2 gap-3">
                   {GOALS.map((g) => (
                     <button
@@ -134,7 +212,9 @@ function OnboardingPage() {
                       ${target.toLocaleString()}
                       {target >= 10000 && "+"}
                     </div>
-                    <p className="text-xs text-muted-foreground mt-2">USD en los próximos 6 meses</p>
+                    <p className="text-xs text-muted-foreground mt-2">
+                      USD en los próximos 6 meses
+                    </p>
                   </div>
                   <input
                     type="range"
@@ -166,8 +246,18 @@ function OnboardingPage() {
             {step === 3 && (
               <Step title="Contanos sobre vos" subtitle="Solo para personalizar tu experiencia.">
                 <div className="space-y-4">
-                  <Field label="Nombre completo *" value={name} onChange={setName} placeholder="María Pérez" />
-                  <Field label="Empresa o proyecto (opcional)" value={company} onChange={setCompany} placeholder="Mi Startup" />
+                  <Field
+                    label="Nombre completo *"
+                    value={name}
+                    onChange={setName}
+                    placeholder="María Pérez"
+                  />
+                  <Field
+                    label="Empresa o proyecto (opcional)"
+                    value={company}
+                    onChange={setCompany}
+                    placeholder="Mi Startup"
+                  />
                   <label className="block text-sm">
                     <span className="font-medium">País</span>
                     <select
@@ -202,16 +292,16 @@ function OnboardingPage() {
 
         <div className="mt-8 flex items-center justify-between">
           <button
-            onClick={() => setStep((s) => Math.max(1, s - 1))}
-            disabled={step === 1}
+            onClick={() => goToStep(Math.max(1, step - 1))}
+            disabled={step === 1 || transitioning}
             className="inline-flex items-center gap-2 h-11 px-4 rounded-lg text-sm font-medium text-muted-foreground hover:text-foreground disabled:opacity-30"
           >
             <ArrowLeft className="w-4 h-4" /> Atrás
           </button>
           {step < 3 ? (
             <button
-              onClick={() => setStep((s) => s + 1)}
-              disabled={!canNext}
+              onClick={() => goToStep(step + 1)}
+              disabled={!canNext || transitioning}
               className="inline-flex items-center gap-2 h-11 px-6 rounded-lg bg-gradient-to-r from-violet-500 to-fuchsia-500 text-white font-semibold text-sm hover:opacity-95 transition disabled:opacity-40"
             >
               Siguiente <ArrowRight className="w-4 h-4" />
@@ -247,7 +337,9 @@ function ProgressBar({ step, total }: { step: number; total: number }) {
   return (
     <div className="space-y-2">
       <div className="flex justify-between text-xs text-muted-foreground">
-        <span>Paso {step} de {total}</span>
+        <span>
+          Paso {step} de {total}
+        </span>
         <span>{Math.round((step / total) * 100)}%</span>
       </div>
       <div className="h-1.5 rounded-full bg-white/5 overflow-hidden">
@@ -262,7 +354,15 @@ function ProgressBar({ step, total }: { step: number; total: number }) {
   );
 }
 
-function Step({ title, subtitle, children }: { title: string; subtitle?: string; children: React.ReactNode }) {
+function Step({
+  title,
+  subtitle,
+  children,
+}: {
+  title: string;
+  subtitle?: string;
+  children: React.ReactNode;
+}) {
   return (
     <div>
       <h1 className="font-display text-2xl sm:text-3xl font-bold">{title}</h1>
@@ -317,7 +417,8 @@ function WelcomeModal({ onClose }: { onClose: () => void }) {
         </div>
         <h2 className="font-display text-2xl font-bold">¡Bienvenido a PostulPro!</h2>
         <p className="mt-3 text-sm text-muted-foreground">
-          Como regalo de bienvenida, te sumamos <strong className="text-foreground">50 créditos extra</strong> 🎁
+          Como regalo de bienvenida, te sumamos{" "}
+          <strong className="text-foreground">50 créditos extra</strong> 🎁
         </p>
         <button
           onClick={onClose}
