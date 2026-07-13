@@ -3,7 +3,7 @@ import { useState, type FormEvent } from "react";
 import { toast } from "sonner";
 import { Loader2 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
-import { lovable } from "@/integrations/lovable";
+import { googleOAuthOptions } from "@/lib/auth/google-oauth";
 import { AuthSplitLayout, GoogleButton } from "@/components/auth/AuthSplitLayout";
 
 export const Route = createFileRoute("/auth/login")({
@@ -37,11 +37,12 @@ function LoginPage() {
   }
 
   async function handleGoogle() {
+    if (gLoading) return;
     setGLoading(true);
-    const result = await lovable.auth.signInWithOAuth("google", {
-      redirect_uri: window.location.origin + "/auth/callback",
-    });
-    if (result.error) {
+    const { error } = await supabase.auth.signInWithOAuth(
+      googleOAuthOptions(window.location.origin),
+    );
+    if (error) {
       setGLoading(false);
       toast.error("No pudimos iniciar sesión con Google.");
     }
