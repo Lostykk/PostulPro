@@ -5,11 +5,18 @@ import type { ToolConfig } from "@/lib/ai/tools-config.server";
 // Project Builder's step executor use the exact same provider-calling
 // code — no behavior fork between the two callers.
 
+// Real token counts as reported by the provider itself — never derived
+// from output length. `onUsage` fires at most once, after the stream ends,
+// with whatever the provider actually reported (either field may be null
+// if a given provider/response never included it).
+export type ModelUsage = { inputTokens: number | null; outputTokens: number | null };
+
 export async function callModel(
   tool: ToolConfig,
   prompt: string,
   onDelta: (text: string) => void,
   signal?: AbortSignal,
+  onUsage?: (usage: ModelUsage) => void,
 ): Promise<void> {
   if (tool.provider === "anthropic") {
     const key = process.env.ANTHROPIC_API_KEY;
@@ -34,15 +41,24 @@ export async function callModel(
       const t = await res.text().catch(() => "");
       throw new Error(`Anthropic ${res.status}: ${t.slice(0, 300)}`);
     }
+    let inputTokens: number | null = null;
+    let outputTokens: number | null = null;
     await readSSE(res.body, (evt) => {
-      if (evt.type === "content_block_delta" && evt.delta?.type === "text_delta") {
+      if (evt.type === "message_start" && evt.message?.usage) {
+        inputTokens = evt.message.usage.input_tokens ?? null;
+        outputTokens = evt.message.usage.output_tokens ?? outputTokens;
+      } else if (evt.type === "message_delta" && evt.usage) {
+        outputTokens = evt.usage.output_tokens ?? outputTokens;
+      } else if (evt.type === "content_block_delta" && evt.delta?.type === "text_delta") {
         onDelta(evt.delta.text ?? "");
       }
     });
+    onUsage?.({ inputTokens, outputTokens });
     return;
   }
 
-  // OpenAI
+  // OpenAI — usage is only included in the stream when explicitly
+  // requested; the final chunk (empty choices array) then carries it.
   const key = process.env.OPENAI_API_KEY;
   if (!key) throw new Error("OPENAI_API_KEY not configured");
   const res = await fetch("https://api.openai.com/v1/chat/completions", {
@@ -55,6 +71,7 @@ export async function callModel(
       model: tool.model,
       max_tokens: tool.maxTokens,
       stream: true,
+      stream_options: { include_usage: true },
       messages: [
         { role: "system", content: tool.systemPrompt },
         { role: "user", content: prompt },
@@ -66,10 +83,17 @@ export async function callModel(
     const t = await res.text().catch(() => "");
     throw new Error(`OpenAI ${res.status}: ${t.slice(0, 300)}`);
   }
+  let inputTokens: number | null = null;
+  let outputTokens: number | null = null;
   await readSSE(res.body, (evt) => {
+    if (evt.usage) {
+      inputTokens = evt.usage.prompt_tokens ?? null;
+      outputTokens = evt.usage.completion_tokens ?? null;
+    }
     const delta = evt?.choices?.[0]?.delta?.content;
     if (typeof delta === "string" && delta) onDelta(delta);
   });
+  onUsage?.({ inputTokens, outputTokens });
 }
 
 // Non-streaming convenience wrapper (used by the planner, which needs the
@@ -79,16 +103,53 @@ export async function callModelOnce(
   tool: ToolConfig,
   prompt: string,
   signal?: AbortSignal,
+  onUsage?: (usage: ModelUsage) => void,
 ): Promise<string> {
   let full = "";
-  await callModel(tool, prompt, (delta) => (full += delta), signal);
+  await callModel(tool, prompt, (delta) => (full += delta), signal, onUsage);
   return full;
+}
+
+// Safe, structured telemetry for a single model call — never the prompt,
+// never the output, never a raw error message that might echo either.
+// Deliberately narrow: only what's needed to correlate cost/latency/failure
+// across the Worker's logs.
+export function logModelUsage(entry: {
+  provider: string;
+  model: string;
+  operation: "project_step" | "single_tool" | "planner";
+  toolKey?: string;
+  usage: ModelUsage;
+  durationMs: number;
+  status: "success" | "error";
+  errorCode?: string;
+}): void {
+  console.log(
+    JSON.stringify({
+      scope: "ai_model_call",
+      provider: entry.provider,
+      model: entry.model,
+      operation: entry.operation,
+      toolKey: entry.toolKey,
+      inputTokens: entry.usage.inputTokens,
+      outputTokens: entry.usage.outputTokens,
+      durationMs: entry.durationMs,
+      status: entry.status,
+      errorCode: entry.errorCode,
+    }),
+  );
 }
 
 type SSEEvent = {
   type?: string;
   delta?: { type?: string; text?: string };
   choices?: Array<{ delta?: { content?: string } }>;
+  message?: { usage?: { input_tokens?: number; output_tokens?: number } };
+  usage?: {
+    output_tokens?: number;
+    prompt_tokens?: number;
+    completion_tokens?: number;
+  };
 };
 
 async function readSSE(
