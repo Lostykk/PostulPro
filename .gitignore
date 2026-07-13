@@ -26,6 +26,11 @@ supabase/.temp/
 # Synthetic QA credentials (never real user data, never committed)
 .qa.local.json
 
+# Schema-only backups of the new Supabase project (Fase 5) -- local only,
+# never committed even though they contain no secrets/data, to avoid
+# accidental drift between what's backed up and what's in migrations.
+.local-backups/
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json
