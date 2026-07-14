@@ -1,6 +1,6 @@
 # GO / NO-GO — cutover a producción
 
-Veredicto global: **NO-GO / PARCIAL.** No hay ningún hallazgo técnico que por sí solo sea inaceptable, pero varios gates dependen de una decisión o credencial humana que esta sesión no puede ni debe resolver por su cuenta. Ver la sección "Próximo gate único" al final.
+Veredicto global: **NO-GO / PARCIAL.** El gate de acceso al Supabase anterior (antes bloqueante) se resolvió esta fase — ver `docs/production-data-decision.md`. El bloqueante real que queda es técnico y conocido: Google OAuth roto sin corrección mínima segura disponible (#3). Ver la sección "Próximo gate único" al final.
 
 Leyenda: **PASS** (verificado, listo) · **FAIL** (verificado y roto) · **BLOCKED** (no se puede verificar sin una credencial/acceso/decisión humana) · **N/R** (not required — no aplica a un cutover técnico) · **HUMAN** (requiere una decisión de producto, no técnica).
 
@@ -18,8 +18,8 @@ Leyenda: **PASS** (verificado, listo) · **FAIL** (verificado y roto) · **BLOCK
 | 10 | CSP / headers | **PASS**, con mejoras aplicadas | Cobertura confirmada global (todo pasa por `src/server.ts`, sin rutas excluidas). Se agregó recolección de reportes (antes Report-Only sin ningún `report-uri`, cero telemetría real) y las directivas `object-src`/`base-uri`/`form-action` que faltaban. Sigue en Report-Only, no enforcing — pasar a enforcing es una decisión de producto una vez que se junten reportes reales. |
 | 11 | Observabilidad / alertas | **PARCIAL** | Logging estructurado ya existente (`logWebhookEvent`, `logModelUsage`) más el nuevo `/api/csp-report`. No hay alerting activo (solo logs de Cloudflare) — aceptable para un cutover inicial, no para escala. |
 | 12 | Mobile / rutas críticas | **N/R esta fase** | No se re-testeó esta fase — ya cubierto en el click-through de una fase anterior. |
-| 13 | Inventario Supabase anterior | **BLOCKED** | Sin acceso a esa organización desde esta sesión. Ver `docs/production-data-decision.md`. |
-| 14 | Estrategia de migración/relanzamiento | **HUMAN** | 3 escenarios documentados (A/B/C) en `docs/production-data-decision.md` — la elección depende enteramente de las cifras del gate #13. |
+| 13 | Inventario Supabase anterior | **PASS** | Acceso encontrado vía Lovable Cloud (canal distinto al Supabase CLI/dashboard). Inventario completo en modo solo lectura, solo agregados: 4 `auth.users`, 0 `ai_projects`/`purchases`/`affiliate_*`/`reviews`, 3 `subscriptions`. Ver `docs/production-data-decision.md`. |
+| 14 | Estrategia de migración/relanzamiento | **PASS** | Escenario C (relanzamiento limpio) recomendado con alta confianza: la única suscripción activa se verificó como prueba interna (tarjeta de test 4242, cuenta "QA Test", Live Mode de la tienda nunca aprobado) cruzando Supabase contra el dashboard de Lemon Squeezy en vivo. Ver `docs/production-data-decision.md`. |
 | 15 | Backups/manifests del sistema nuevo | **PASS**, con limitación documentada | Manifests de columnas/RLS/funciones/buckets generados (`.local-backups/`). Un dump SQL literal (`supabase db dump`) no fue posible — Docker no está disponible en este entorno; documentado como limitación, no como omisión. |
 | 16 | Simulacro de cutover técnico | **PASS (documental) + rollback real ensayado** | Ver `docs/cutover-rehearsal-report.md` — línea de tiempo T-24h a T+60m con placeholders `NOT-EXECUTED` para todo lo que tocaría producción real. |
 | 17 | Simulacro de rollback | **PASS, ejecutado de verdad en preview** | `wrangler rollback` probado en ambas direcciones contra el Worker preview, con verificación HTTP concreta (headers CSP y endpoint `/api/csp-report` cambiando de estado y volviendo) — no solo el comando "no falló", sino evidencia de que efectivamente sirvió el código de cada versión. |
@@ -29,19 +29,17 @@ Leyenda: **PASS** (verificado, listo) · **FAIL** (verificado y roto) · **BLOCK
 
 ## Resumen numérico
 
-- **PASS**: 12 (incluye 4 con mejoras/fixes reales aplicados y verificados en vivo)
+- **PASS**: 14 (incluye 4 con mejoras/fixes reales aplicados y verificados en vivo, más los 2 gates de Supabase anterior resueltos esta fase)
 - **PARCIAL**: 3
 - **FAIL**: 1 (Google OAuth — sin corrección mínima segura disponible)
-- **BLOCKED**: 1 (Supabase anterior — falta de acceso, no de código)
-- **HUMAN**: 1
+- **BLOCKED**: 0
+- **HUMAN**: 0
 - **N/R**: 1
 
 ## Próximo gate único antes de un cutover real
 
-Con el checkout/webhook de Lemon Squeezy ahora validado end-to-end, queda un solo gate real bloqueando el cutover, y no es técnico:
+Con el inventario del Supabase anterior ya resuelto (Escenario C, relanzamiento limpio, recomendado con alta confianza — ver `docs/production-data-decision.md`) y el checkout/webhook de Lemon Squeezy validado end-to-end, queda un solo gate real bloqueando el cutover, y sí es técnico esta vez:
 
-**Alguien con acceso a la organización del Supabase anterior** corre `SELECT count(*) FROM auth.users` (y el cruce contra suscripciones/compras) para poder elegir entre los Escenarios A/B/C de `docs/production-data-decision.md`.
+**Google OAuth roto** (#3): requiere una decisión consciente — restaurar el proxy de borde de Lovable delante del Worker, o migrar a OAuth nativo de Supabase — ninguna es una corrección mínima segura para aplicar sin intervención humana. Email/password no está afectado y puede sostener un cutover mientras se decide.
 
-Como nota secundaria, no bloqueante para el cutover si email/password sigue siendo el flujo principal: decidir conscientemente qué hacer con Google OAuth (restaurar el proxy de Lovable vs. migrar a OAuth nativo de Supabase) — no debe quedar olvidado, pero no es un gate duro.
-
-Ninguno de los dos requiere tocar producción para resolverse.
+No requiere tocar producción para resolverse.

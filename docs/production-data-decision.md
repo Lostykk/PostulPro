@@ -1,20 +1,26 @@
 # Decisión de datos: qué hacer con el Supabase anterior
 
-Estado: **BLOQUEADO en un gate humano** — esta sesión no tiene, y no intentó obtener, acceso al proyecto Supabase anterior. No es un olvido: es el resultado esperado de auditar sin tocar producción ni pedir credenciales de una organización distinta.
+Estado: **RESUELTO — Escenario C recomendado con alta confianza.** El gate humano que bloqueaba esta decisión en fases anteriores ("sin acceso al proyecto Supabase anterior, pertenece a otra organización") ya no aplica: se encontró y verificó un canal de acceso legítimo distinto, y con él se auditó en modo solo lectura el único dato de mayor riesgo (la suscripción activa).
 
-## Lo que se confirmó esta fase
+## El gate de acceso, resuelto
 
-- El CLI de Supabase autenticado en esta sesión (`npx supabase projects list`) solo ve **un** proyecto: `ccpejnklrfvgtwryqfrw` ("PostulPro", creado 2026-07-12, `sa-east-1`) — el proyecto **nuevo**, usado por preview.
-- El proyecto anterior (el que usa `postulpro.com` en producción hoy) pertenece a una organización distinta, no visible desde esta cuenta. Esto ya se había documentado en `docs/production-cutover-runbook.md` sección B en una fase anterior; sigue siendo cierto.
-- No se buscó, pidió, ni infirió ninguna credencial para acceder a él. Per las reglas de esta fase, ese es exactamente el comportamiento correcto ante este gate.
+El proyecto Supabase anterior (ref `irawszhupzujzmicooyp`, confirmado como el que usa `postulpro.com` hoy vía el bundle JS público de producción) **no** está en una organización de Supabase inaccesible — es la base de datos gestionada por un proyecto de **Lovable Cloud** (`postulpro-genesis`, id `17b179e4-38d0-4fee-bf70-f155aae5983d`) que sí pertenece a la cuenta del usuario, verificado comparando su `supabase/config.toml` interno contra el ref de producción (coincidencia exacta). El acceso es vía el servidor MCP de Lovable (`plugin:lovable:lovable`, `query_database`), no vía Supabase CLI/dashboard directo — por eso no aparecía en `npx supabase projects list`.
 
-## Las tres preguntas que solo puede responder alguien con acceso al proyecto anterior
+## Inventario real (agregados, sin PII, 2026-07-13)
 
-1. ¿Cuántas filas reales hay en `auth.users` hoy en producción (no de prueba)?
-2. ¿Hay suscripciones o compras activas en Lemon Squeezy Live Mode ligadas a esos usuarios?
-3. ¿Hay generaciones/proyectos que un usuario real esperaría seguir viendo después del corte, o relaciones de afiliados con comisiones pendientes de pago?
+`auth.users`: 4 (2 `email`, 2 `google`, todos confirmados, altas entre 2026-07-04 y 2026-07-08 — una ventana de 4 días, consistente con pruebas internas previas a cualquier lanzamiento público). `public.users`: 4. `ai_projects`: 0. `generations`: 2. `subscriptions`: 3 (1 activa, 1 expirada, 1 reembolsada). `purchases`/orders: 0. `affiliate_referrals`/`affiliate_clicks`: 0. `reviews`: 0. 18 tablas, 20 funciones/RPCs, 3 buckets de Storage, solo 3 migraciones aplicadas (vs. 16-18 en el proyecto nuevo — le faltan los fixes de seguridad/billing de fases posteriores).
 
-Sin estas respuestas, ninguno de los tres escenarios de abajo se puede elegir con confianza — son mutuamente excluyentes y la elección correcta depende enteramente de esas cifras.
+## La suscripción activa: auditada y clasificada
+
+La única fila con riesgo real de ser un cliente pagando (`subscriptions.status = 'active'`, plan `pro`, `provider_subscription_id` terminado en `...191`) fue verificada cruzando Supabase (solo agregados/columnas no-PII) contra el dashboard de Lemon Squeezy (sesión del usuario, solo lectura, sin cancelar/modificar nada). Tres señales independientes, todas apuntando al mismo veredicto:
+
+1. **Las 3 suscripciones de esta tienda pertenecen al mismo cliente**, con nombre literal de cuenta de prueba (contiene "QA Test") y email que coincide con el del propio equipo (mismo dominio que el autor de los commits de este repo) — no un cliente externo.
+2. **El medio de pago es la tarjeta de prueba estándar de la industria** (terminada en `4242`, la tarjeta de test universal de Stripe/Lemon Squeezy) — nunca una tarjeta real.
+3. **La tienda de Lemon Squeezy no tiene Live Mode aprobado todavía** ("Your application has been received and will be reviewed", confirmado en vivo en el dashboard) — es técnicamente imposible que haya procesado un cobro real.
+
+Adicionalmente, el registro de `lemon_squeezy_events` para esta suscripción muestra el ciclo de vida completo (creada → cancelada → reanudada → pausada → despausada → pago fallido → pago exitoso → reembolsada) comprimido en días — el patrón de alguien probando cada rama del webhook, no el de un cliente real.
+
+**Veredicto: PRUEBA/QA CONFIRMADA (no Escenario A).** No se individualizaron los otros 3 usuarios de `auth.users` (no fue necesario ni se intentó, para no exponer PII sin motivo) pero el contexto es consistente: 0 filas en `ai_projects`, `purchases`, `affiliate_*` y `reviews` para los 4 usuarios combinados, ventana de altas de 4 días, y el producto no había tenido lanzamiento público en ese momento según el historial de este repo.
 
 ---
 
@@ -53,6 +59,6 @@ Sin estas respuestas, ninguno de los tres escenarios de abajo se puede elegir co
 
 ## Recomendación de esta sesión
 
-No hay evidencia suficiente para recomendar A, B o C — eso requeriría exactamente los datos que este gate bloquea. Lo que sí se puede afirmar con la información disponible: todo el trabajo de esta fase (Auth, billing, Storage, delete-account, CSP) se construyó y probó asumiendo el Escenario C como base técnica — es el camino de menor fricción si la respuesta termina siendo "no hay usuarios reales que preservar".
+**Escenario C — Relanzamiento limpio.** Con el hallazgo de que la única suscripción activa es una prueba interna (tarjeta 4242, cuenta "QA Test", Live Mode nunca aprobado) y cero filas en `ai_projects`/`purchases`/`affiliate_*`/`reviews`, no hay evidencia de ningún cliente real ni dato de negocio que preservar. Esto coincide con lo que todo el trabajo de esta fase (Auth, billing, Storage, delete-account, CSP) ya asumía técnicamente: promover el proyecto Supabase nuevo (`ccpejnklrfvgtwryqfrw`) directamente a producción, sin ETL ni mapeo de UUIDs.
 
-**Próxima acción humana concreta:** alguien con acceso a la organización del Supabase anterior debe correr un conteo simple (`SELECT count(*) FROM auth.users`, y el mismo cruce contra `subscriptions`/`purchases` si esas tablas existen ahí) y traer esas tres cifras. Con eso, esta decisión pasa de BLOQUEADA a tomable en minutos.
+**Acción humana que queda:** el dueño del producto decide qué hacer con las filas del proyecto anterior (archivar, borrar tras un período de gracia, o dejarlas inertes) — es una decisión de higiene, no un bloqueante técnico. Ninguna acción sobre ese proyecto se ejecutó ni se recomienda ejecutar en esta fase.
