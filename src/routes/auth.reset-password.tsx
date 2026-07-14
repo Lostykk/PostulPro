@@ -3,6 +3,7 @@ import { useEffect, useState, type FormEvent } from "react";
 import { toast } from "sonner";
 import { Loader2, ArrowLeft } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
+import { resetPasswordRedirectTo } from "@/lib/auth/reset-password";
 import { AuthSplitLayout } from "@/components/auth/AuthSplitLayout";
 
 export const Route = createFileRoute("/auth/reset-password")({
@@ -41,7 +42,7 @@ function ResetPage() {
     e.preventDefault();
     setLoading(true);
     const { error } = await supabase.auth.resetPasswordForEmail(email, {
-      redirectTo: window.location.origin + "/auth/reset-password",
+      redirectTo: resetPasswordRedirectTo(window.location.origin),
     });
     setLoading(false);
     if (error) {

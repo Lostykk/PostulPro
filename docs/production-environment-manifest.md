@@ -29,11 +29,20 @@ npx wrangler secret list --env preview --config .output/server/wrangler.json   #
 | `LEMON_SQUEEZY_STORE_ID` | `lib/lemon-squeezy.server.ts` (`createCheckout`) | ❌ ausente | ✅ configurada | |
 | `LEMON_SQUEEZY_WEBHOOK_SECRET` | `api/billing/webhook.ts` | ❌ ausente | ✅ configurada | Ver `docs/production-secret-cleanup.md` — bloqueado por la sesión de Lemon Squeezy que expiró a mitad de esta fase |
 | `LEMON_SQUEEZY_VARIANT_PRO_MONTHLY` / `_PRO_ANNUAL` / `_BUSINESS_MONTHLY` / `_BUSINESS_ANNUAL` / `_CREDITS_100` | `lib/lemon-squeezy.server.ts` (`resolveVariantId`, `findMappingByVariantId`) | ❌ ausentes (las 5) | ✅ configuradas (las 5) | Sin estas, ningún checkout puede iniciarse en preview |
-| `RESEND_API_KEY` | `lib/resend.server.ts` | ❌ ausente | ❌ ausente | **Ningún email transaccional se envía en ningún entorno hoy** — confirmado ya en fases anteriores, sigue igual |
+| `RESEND_API_KEY` | `lib/resend.server.ts` (código propio de la app: `sendWelcomeEmail`, `sendLowCreditsEmail`, `sendWeeklySummaryEmail`) | ❌ ausente | ❌ ausente | Sigue sin configurar en ningún entorno — esas 3 funciones siguen siendo código muerto sin call site. **No confundir con el Custom SMTP de Supabase Auth (ver abajo), que es un mecanismo distinto y ya está configurado y validado.** |
+
+## Custom SMTP de Supabase Auth (distinto de `RESEND_API_KEY` del Worker)
+
+No es una variable de entorno del Worker — es una configuración del proyecto Supabase nuevo (`ccpejnklrfvgtwryqfrw`, Auth → Emails → SMTP Settings), independiente del código de la app. Gobierna los emails que Supabase Auth envía directamente (confirmación de signup, recuperación de contraseña, magic link, etc.), no los que la app dispara por código.
+
+- **Estado: habilitado y validado end-to-end esta fase.** Sender `no-reply@auth.postulpro.com` (dominio `auth.postulpro.com` verificado en Resend), host `smtp.resend.com`, puerto 465, intervalo mínimo 60s por usuario.
+- Verificado con un registro real en preview con una cuenta de email QA controlada por el usuario: email de confirmación entregado (Resend: `Delivered`), enlace real clickeado, cuenta confirmada; luego un flujo de recuperación de contraseña completo (email entregado, enlace clickeado, contraseña nueva establecida y funcionando, la anterior ya no sirve). Ver `docs/production-go-no-go.md` gate #2.
+- Plantillas de "Confirm signup" y "Reset password" actualizadas con branding de PostulPro en español (antes eran el default de Supabase en inglés, sin marca) — cambio mínimo de `Subject`/`Body`, sin tocar las variables oficiales (`{{ .ConfirmationURL }}`).
+- Sigue sin tocarse: Site URL de producción (sigue apuntando a preview, no a `postulpro.com` — cambio pendiente para el día del corte).
 
 ## Hallazgo transversal
 
-Tres capacidades completas — **borrar cuenta**, **checkout/portal/cancelación de Lemon Squeezy**, y **emails transaccionales de marca** — están sin configurar en preview, y dos de ellas (`SUPABASE_SECRET_KEY`/`SERVICE_ROLE_KEY` y `RESEND_API_KEY`) tampoco están en producción. Esto no bloquea el resto de la auditoría (el código fail-closed correctamente: 501 explícito, nunca un 500 silencioso), pero sí bloquea poder decir "probado end-to-end" para billing (#131) y confirma que el hallazgo de `sendWelcomeEmail`/`sendLowCreditsEmail`/`sendWeeklySummaryEmail` nunca invocados (ver informe final, sección de SMTP) es consistente con que la clave ni siquiera existe todavía.
+Dos capacidades completas — **borrar cuenta** y **checkout/portal/cancelación de Lemon Squeezy** — siguen sin configurar en preview, y una de ellas (`SUPABASE_SECRET_KEY`/`SERVICE_ROLE_KEY`) tampoco está en producción. Esto no bloquea el resto de la auditoría (el código fail-closed correctamente: 501 explícito, nunca un 500 silencioso). El tercer punto que figuraba acá — emails transaccionales — se resolvió parcialmente esta fase: los emails de **Supabase Auth** (confirmación, reset) ya funcionan de punta a punta vía Custom SMTP; los emails de **marca propios de la app** (`sendWelcomeEmail` y similares) siguen siendo código muerto, sin `RESEND_API_KEY` configurada.
 
 ## Acción humana concreta
 
