@@ -1,6 +1,6 @@
 # GO / NO-GO — cutover a producción
 
-Veredicto global: **NO-GO / PARCIAL.** El gate de acceso al Supabase anterior (antes bloqueante) se resolvió esta fase — ver `docs/production-data-decision.md`. El bloqueante real que queda es técnico y conocido: Google OAuth roto sin corrección mínima segura disponible (#3). Ver la sección "Próximo gate único" al final.
+Veredicto global: **GO condicionado a acciones humanas no técnicas.** No queda ningún bloqueante técnico: el gate de acceso al Supabase anterior se resolvió en una fase previa (`docs/production-data-decision.md`) y Google OAuth nativo (#3), el último bloqueante técnico documentado, se verificó funcionando end-to-end esta fase mediante login real repetido contra preview. Ver la sección "Próximo gate único" al final para los gates humanos que quedan.
 
 Leyenda: **PASS** (verificado, listo) · **FAIL** (verificado y roto) · **BLOCKED** (no se puede verificar sin una credencial/acceso/decisión humana) · **N/R** (not required — no aplica a un cutover técnico) · **HUMAN** (requiere una decisión de producto, no técnica).
 
@@ -8,7 +8,7 @@ Leyenda: **PASS** (verificado, listo) · **FAIL** (verificado y roto) · **BLOCK
 |---|---|---|---|
 | 1 | Auth público (signup/login/logout/reset/enumeración) | **PASS**, con 1 fix aplicado | Password reset estaba completamente roto, corregido esta fase (`fix(auth)` `63306f6`) y verificado en vivo contra preview (request se envía correctamente; entrega del email de Supabase no se confirmó dentro de esta sesión por latencia del SMTP default — ver #2). Anti-enumeración correcta en el mensaje de "reset enviado". |
 | 2 | SMTP / emails transaccionales | **PARCIAL** | Confirmado: Supabase usa su servicio SMTP default (no custom). `RESEND_API_KEY` no configurada en ningún entorno — cero emails de marca se envían hoy. 3 de 6 funciones de email (`sendWelcomeEmail`, `sendLowCreditsEmail`, `sendWeeklySummaryEmail`) son código muerto sin call site. No bloqueante para un cutover técnico, pero si se espera volumen real de registros, es una brecha de producto conocida. |
-| 3 | Google OAuth / Lovable | **FAIL, sin fix mínimo seguro disponible** | Confirmado por click-through real: 404 en `/~oauth/initiate` porque depende de un proxy de borde exclusivo de `*.lovable.app`/`*.lovableproject.com`, ausente en un Worker de Cloudflare directo. Email/password no afectado. Corrección real requiere o restaurar el proxy de Lovable delante del Worker, o migrar a OAuth nativo de Supabase — ambas fuera de "corrección mínima segura" y requieren credenciales/decisión humana (`No crear OAuth Client nuevo sin intervención humana`). |
+| 3 | Google OAuth nativo | **PASS** | El hallazgo `FAIL` anterior (404 en `/~oauth/initiate`, dependiente del proxy de borde de Lovable) quedó obsoleto: el commit `feat(auth)` `b2e7e06` migró el botón de Google a OAuth nativo de Supabase (`signInWithOAuth({provider:'google'})` + `/auth/callback` propio) *después* de que ese hallazgo se documentara, pero nunca se había verificado con un login real. Esta fase lo hizo: click-through completo contra preview con la cuenta autorizada — botón → selector de cuenta de Google → callback de Supabase → `/dashboard`, sesión persistente tras refresh, ruta protegida (`/settings`) accesible, logout limpio (redirect a `/auth/login`), ruta protegida bloqueada tras logout, y un segundo login completo. Verificado por SQL contra `auth.users`/`auth.identities`: exactamente 1 fila / 1 identidad para la cuenta usada — el relogin no duplicó nada. Cero requests a dominios `*.lovable.app`/`*.lovableproject.com` en todo el flujo (confirmado por red). Un intento intermedio quedó colgado en el callback de Supabase; coincidió con un incidente de plataforma reconocido por el propio Supabase (banner "We are investigating a technical issue" + 500s intermitentes en su dashboard) y se resolvió solo al reintentar, sin cambios de código — no se consideró parte del comportamiento de la app. No se requirió ningún cambio de código ni de configuración remota: Site URL, Redirect URLs, provider Google y su Client ID/Secret en Supabase ya estaban correctos. |
 | 4 | Lemon Squeezy Test Mode confirmado | **PASS** | Confirmado inequívocamente vía dashboard: badge "Test mode" junto al nombre de la tienda, más "Your application has been received and will be reviewed" — Live Mode ni siquiera está aprobado todavía, cero riesgo de cobro real accidental. |
 | 5 | Checkout Test Mode en preview | **PASS** | Sesión de Lemon Squeezy re-autenticada por el usuario; credenciales Test Mode configuradas solo en preview (API key nueva creada exclusivamente para esto, store ID y 5 variant IDs verificados 1:1 contra el código). Checkout real generado vía `POST /api/billing/checkout` con el token de la cuenta QA — 200, URL de Test Mode correcta, producto/precio/moneda confirmados visualmente. Ver `docs/lemon-squeezy-test-validation.md`. |
 | 6 | Webhook Test Mode en preview | **PASS** | Webhook Test-Mode-only creado apuntando a la URL real de preview con los 12 eventos exactos que el handler procesa. Una transacción de prueba real (tarjeta 4242, $29.00 PRO Monthly) completada — 4 eventos entregados, los 4 con `200 ok`, procesados correctamente en el Supabase nuevo (plan, créditos, fila de suscripción). Webhook de producción sin tocar. |
@@ -29,17 +29,15 @@ Leyenda: **PASS** (verificado, listo) · **FAIL** (verificado y roto) · **BLOCK
 
 ## Resumen numérico
 
-- **PASS**: 14 (incluye 4 con mejoras/fixes reales aplicados y verificados en vivo, más los 2 gates de Supabase anterior resueltos esta fase)
+- **PASS**: 16 (incluye Google OAuth, verificado end-to-end en vivo esta fase, y los 2 gates de Supabase anterior resueltos en una fase previa)
 - **PARCIAL**: 3
-- **FAIL**: 1 (Google OAuth — sin corrección mínima segura disponible)
+- **FAIL**: 0
 - **BLOCKED**: 0
 - **HUMAN**: 0
 - **N/R**: 1
 
 ## Próximo gate único antes de un cutover real
 
-Con el inventario del Supabase anterior ya resuelto (Escenario C, relanzamiento limpio, recomendado con alta confianza — ver `docs/production-data-decision.md`) y el checkout/webhook de Lemon Squeezy validado end-to-end, queda un solo gate real bloqueando el cutover, y sí es técnico esta vez:
+**No queda ningún bloqueante técnico.** Con el inventario del Supabase anterior resuelto (Escenario C, relanzamiento limpio — ver `docs/production-data-decision.md`), el checkout/webhook de Lemon Squeezy validado end-to-end, y Google OAuth nativo confirmado funcionando por click-through real esta fase, todos los gates 1–20 son PASS o PARCIAL no bloqueante (SMTP de marca, observabilidad, delete-account end-to-end en preview — brechas conocidas, ninguna impide un cutover inicial).
 
-**Google OAuth roto** (#3): requiere una decisión consciente — restaurar el proxy de borde de Lovable delante del Worker, o migrar a OAuth nativo de Supabase — ninguna es una corrección mínima segura para aplicar sin intervención humana. Email/password no está afectado y puede sostener un cutover mientras se decide.
-
-No requiere tocar producción para resolverse.
+Lo que queda son acciones humanas de producto, no técnicas: decidir si el SMTP default de Supabase alcanza para el volumen esperado de registros (#2), y programar la ventana de corte en sí (`docs/production-cutover-runbook.md`, sección H). Ninguna requiere tocar producción para resolverse.
