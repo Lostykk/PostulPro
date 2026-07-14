@@ -35,6 +35,8 @@ import { Route as AuthenticatedProjectsIndexRouteImport } from './routes/_authen
 import { Route as AuthenticatedMarketplaceIndexRouteImport } from './routes/_authenticated/marketplace.index'
 import { Route as ApiProjectsCapabilitiesRouteImport } from './routes/api/projects/capabilities'
 import { Route as ApiProjectsIdRouteImport } from './routes/api/projects/$id'
+import { Route as ApiNotificationsWelcomeRouteImport } from './routes/api/notifications/welcome'
+import { Route as ApiNotificationsWeeklySummaryQaRouteImport } from './routes/api/notifications/weekly-summary-qa'
 import { Route as ApiBillingWebhookRouteImport } from './routes/api/billing/webhook'
 import { Route as ApiBillingPortalRouteImport } from './routes/api/billing/portal'
 import { Route as ApiBillingCheckoutRouteImport } from './routes/api/billing/checkout'
@@ -191,6 +193,17 @@ const ApiProjectsIdRoute = ApiProjectsIdRouteImport.update({
   path: '/api/projects/$id',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiNotificationsWelcomeRoute = ApiNotificationsWelcomeRouteImport.update({
+  id: '/api/notifications/welcome',
+  path: '/api/notifications/welcome',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiNotificationsWeeklySummaryQaRoute =
+  ApiNotificationsWeeklySummaryQaRouteImport.update({
+    id: '/api/notifications/weekly-summary-qa',
+    path: '/api/notifications/weekly-summary-qa',
+    getParentRoute: () => rootRouteImport,
+  } as any)
 const ApiBillingWebhookRoute = ApiBillingWebhookRouteImport.update({
   id: '/api/billing/webhook',
   path: '/api/billing/webhook',
@@ -352,6 +365,8 @@ export interface FileRoutesByFullPath {
   '/api/billing/checkout': typeof ApiBillingCheckoutRoute
   '/api/billing/portal': typeof ApiBillingPortalRoute
   '/api/billing/webhook': typeof ApiBillingWebhookRoute
+  '/api/notifications/weekly-summary-qa': typeof ApiNotificationsWeeklySummaryQaRoute
+  '/api/notifications/welcome': typeof ApiNotificationsWelcomeRoute
   '/api/projects/$id': typeof ApiProjectsIdRouteWithChildren
   '/api/projects/capabilities': typeof ApiProjectsCapabilitiesRoute
   '/marketplace/': typeof AuthenticatedMarketplaceIndexRoute
@@ -401,6 +416,8 @@ export interface FileRoutesByTo {
   '/api/billing/checkout': typeof ApiBillingCheckoutRoute
   '/api/billing/portal': typeof ApiBillingPortalRoute
   '/api/billing/webhook': typeof ApiBillingWebhookRoute
+  '/api/notifications/weekly-summary-qa': typeof ApiNotificationsWeeklySummaryQaRoute
+  '/api/notifications/welcome': typeof ApiNotificationsWelcomeRoute
   '/api/projects/$id': typeof ApiProjectsIdRouteWithChildren
   '/api/projects/capabilities': typeof ApiProjectsCapabilitiesRoute
   '/marketplace': typeof AuthenticatedMarketplaceIndexRoute
@@ -453,6 +470,8 @@ export interface FileRoutesById {
   '/api/billing/checkout': typeof ApiBillingCheckoutRoute
   '/api/billing/portal': typeof ApiBillingPortalRoute
   '/api/billing/webhook': typeof ApiBillingWebhookRoute
+  '/api/notifications/weekly-summary-qa': typeof ApiNotificationsWeeklySummaryQaRoute
+  '/api/notifications/welcome': typeof ApiNotificationsWelcomeRoute
   '/api/projects/$id': typeof ApiProjectsIdRouteWithChildren
   '/api/projects/capabilities': typeof ApiProjectsCapabilitiesRoute
   '/_authenticated/marketplace/': typeof AuthenticatedMarketplaceIndexRoute
@@ -505,6 +524,8 @@ export interface FileRouteTypes {
     | '/api/billing/checkout'
     | '/api/billing/portal'
     | '/api/billing/webhook'
+    | '/api/notifications/weekly-summary-qa'
+    | '/api/notifications/welcome'
     | '/api/projects/$id'
     | '/api/projects/capabilities'
     | '/marketplace/'
@@ -554,6 +575,8 @@ export interface FileRouteTypes {
     | '/api/billing/checkout'
     | '/api/billing/portal'
     | '/api/billing/webhook'
+    | '/api/notifications/weekly-summary-qa'
+    | '/api/notifications/welcome'
     | '/api/projects/$id'
     | '/api/projects/capabilities'
     | '/marketplace'
@@ -605,6 +628,8 @@ export interface FileRouteTypes {
     | '/api/billing/checkout'
     | '/api/billing/portal'
     | '/api/billing/webhook'
+    | '/api/notifications/weekly-summary-qa'
+    | '/api/notifications/welcome'
     | '/api/projects/$id'
     | '/api/projects/capabilities'
     | '/_authenticated/marketplace/'
@@ -639,6 +664,8 @@ export interface RootRouteChildren {
   ApiBillingCheckoutRoute: typeof ApiBillingCheckoutRoute
   ApiBillingPortalRoute: typeof ApiBillingPortalRoute
   ApiBillingWebhookRoute: typeof ApiBillingWebhookRoute
+  ApiNotificationsWeeklySummaryQaRoute: typeof ApiNotificationsWeeklySummaryQaRoute
+  ApiNotificationsWelcomeRoute: typeof ApiNotificationsWelcomeRoute
   ApiProjectsIdRoute: typeof ApiProjectsIdRouteWithChildren
   ApiProjectsCapabilitiesRoute: typeof ApiProjectsCapabilitiesRoute
   ApiProjectsIndexRoute: typeof ApiProjectsIndexRoute
@@ -826,6 +853,20 @@ declare module '@tanstack/react-router' {
       path: '/api/projects/$id'
       fullPath: '/api/projects/$id'
       preLoaderRoute: typeof ApiProjectsIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/notifications/welcome': {
+      id: '/api/notifications/welcome'
+      path: '/api/notifications/welcome'
+      fullPath: '/api/notifications/welcome'
+      preLoaderRoute: typeof ApiNotificationsWelcomeRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/notifications/weekly-summary-qa': {
+      id: '/api/notifications/weekly-summary-qa'
+      path: '/api/notifications/weekly-summary-qa'
+      fullPath: '/api/notifications/weekly-summary-qa'
+      preLoaderRoute: typeof ApiNotificationsWeeklySummaryQaRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/billing/webhook': {
@@ -1102,6 +1143,8 @@ const rootRouteChildren: RootRouteChildren = {
   ApiBillingCheckoutRoute: ApiBillingCheckoutRoute,
   ApiBillingPortalRoute: ApiBillingPortalRoute,
   ApiBillingWebhookRoute: ApiBillingWebhookRoute,
+  ApiNotificationsWeeklySummaryQaRoute: ApiNotificationsWeeklySummaryQaRoute,
+  ApiNotificationsWelcomeRoute: ApiNotificationsWelcomeRoute,
   ApiProjectsIdRoute: ApiProjectsIdRouteWithChildren,
   ApiProjectsCapabilitiesRoute: ApiProjectsCapabilitiesRoute,
   ApiProjectsIndexRoute: ApiProjectsIndexRoute,

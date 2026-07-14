@@ -3,6 +3,7 @@ import type { Database } from "@/integrations/supabase/types";
 import { getTool } from "@/lib/ai/tools-config.server";
 import { callModel, logModelUsage, type ModelUsage } from "@/lib/ai/call-model.server";
 import { checkAiExecutionAllowed } from "@/lib/ai/preview-guard.server";
+import { maybeSendLowCreditsEmail } from "@/lib/notifications/low-credits.server";
 import { buildStepPrompt } from "@/lib/projects/step-prompts.server";
 import { getCapabilityMeta } from "@/lib/projects/capabilities.server";
 import { ProjectBriefSchema } from "@/lib/projects/schema";
@@ -43,6 +44,7 @@ export async function runProjectStep(
   userId: string,
   projectId: string,
   stepId: string,
+  appOrigin?: string,
 ): Promise<Response> {
   // Preview-only allowlist gate — checked before the atomic claim so a
   // disallowed caller never puts a step into "claimed" state. No-op in
@@ -140,6 +142,14 @@ export async function runProjectStep(
     );
   }
   await supabase.rpc("mark_step_credits_reserved", { p_step_id: stepId });
+  await maybeSendLowCreditsEmail(
+    supabase,
+    userId,
+    cost,
+    reserve.credits_used,
+    reserve.credits_limit,
+    appOrigin,
+  );
 
   const briefParse = ProjectBriefSchema.safeParse(claim.brief_json ?? {});
   const brief = briefParse.success ? briefParse.data : ProjectBriefSchema.parse({});

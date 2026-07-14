@@ -4,6 +4,7 @@ import type { Database } from "@/integrations/supabase/types";
 import { getTool } from "@/lib/ai/tools-config.server";
 import { callModel, logModelUsage, type ModelUsage } from "@/lib/ai/call-model.server";
 import { checkAiExecutionAllowed } from "@/lib/ai/preview-guard.server";
+import { maybeSendLowCreditsEmail } from "@/lib/notifications/low-credits.server";
 
 // Streaming proxy to Anthropic / OpenAI. API keys stay server-side.
 // Contract: POST /api/generate-ai with Bearer token + JSON:
@@ -101,6 +102,15 @@ export const Route = createFileRoute("/api/generate-ai")({
             402,
           );
         }
+
+        await maybeSendLowCreditsEmail(
+          supabase,
+          userId,
+          tool.credits,
+          reserve.credits_used,
+          reserve.credits_limit,
+          new URL(request.url).origin,
+        );
 
         // Build stream. An AbortController threads through to the upstream
         // model fetch so that if the client disconnects mid-generation, the

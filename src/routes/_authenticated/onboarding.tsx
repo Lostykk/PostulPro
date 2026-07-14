@@ -143,6 +143,26 @@ function OnboardingPage() {
       return;
     }
     setShowWelcome(true);
+    sendWelcomeEmailBestEffort();
+  }
+
+  // Fire-and-forget: the welcome email is a nice-to-have, never a blocker
+  // for the onboarding flow the user is already looking at. The endpoint
+  // itself re-checks onboarding_completed and claims a per-user idempotency
+  // slot, so calling this more than once (e.g. a slow network retry) can
+  // never result in two emails.
+  async function sendWelcomeEmailBestEffort() {
+    try {
+      const { data: sess } = await supabase.auth.getSession();
+      const token = sess.session?.access_token;
+      if (!token) return;
+      await fetch("/api/notifications/welcome", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}` },
+      });
+    } catch {
+      /* best-effort */
+    }
   }
 
   const canNext = canAdvance(step as 1 | 2 | 3, { goal, target, name });

@@ -18,9 +18,10 @@ export const Route = createFileRoute("/api/projects/$id/run-next")({
         const { supabase, userId } = ctx;
 
         const stepId = await resolveNextStepId(supabase, params.id);
-        if (!stepId) return json({ error: "No queda ningún paso pendiente.", code: "no_next_step" }, 409);
+        if (!stepId)
+          return json({ error: "No queda ningún paso pendiente.", code: "no_next_step" }, 409);
 
-        return runProjectStep(supabase, userId, params.id, stepId);
+        return runProjectStep(supabase, userId, params.id, stepId, new URL(request.url).origin);
       },
     },
   },

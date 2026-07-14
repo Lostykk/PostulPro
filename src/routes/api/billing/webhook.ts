@@ -1,11 +1,15 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { createHash } from "node:crypto";
 import { verifyWebhookSignature } from "@/lib/lemon-squeezy.server";
-import { sendNewCommissionEmail, sendPaymentFailedEmail, sendProConfirmationEmail } from "@/lib/resend.server";
+import {
+  sendNewCommissionEmail,
+  sendPaymentFailedEmail,
+  sendProConfirmationEmail,
+} from "@/lib/resend.server";
 
-// Email sends are best-effort: RESEND_API_KEY isn't configured in this
-// environment, and a failed notification must never fail the webhook itself
-// (Lemon Squeezy needs its 200 regardless).
+// Email sends are best-effort: a missing/misconfigured Resend key or a
+// delivery failure must never fail the webhook itself (Lemon Squeezy needs
+// its 200 regardless).
 async function safeSend(fn: () => Promise<unknown>) {
   try {
     await fn();
@@ -221,7 +225,9 @@ export const Route = createFileRoute("/api/billing/webhook")({
           case "order_created": {
             const order = payload.data.attributes as OrderAttributes;
             rpcArgs.orderPaid = order.status === "paid";
-            rpcArgs.variantId = order.first_order_item ? String(order.first_order_item.variant_id) : undefined;
+            rpcArgs.variantId = order.first_order_item
+              ? String(order.first_order_item.variant_id)
+              : undefined;
             break;
           }
           case "order_refunded": {
@@ -230,7 +236,9 @@ export const Route = createFileRoute("/api/billing/webhook")({
             // instead, relying on the invariant that a user has at most one
             // non-expired/non-refunded subscription (enforced in checkout.ts).
             const order = payload.data.attributes as OrderAttributes;
-            rpcArgs.variantId = order.first_order_item ? String(order.first_order_item.variant_id) : undefined;
+            rpcArgs.variantId = order.first_order_item
+              ? String(order.first_order_item.variant_id)
+              : undefined;
             break;
           }
           case "subscription_created":
@@ -285,7 +293,12 @@ export const Route = createFileRoute("/api/billing/webhook")({
           result = await callBillingRpc(rpcArgs);
         } catch (err) {
           const reason = err instanceof Error ? err.message : "Webhook handling failed";
-          logWebhookEvent({ ...logBase, result: "error", reason, latency_ms: Date.now() - startedAt });
+          logWebhookEvent({
+            ...logBase,
+            result: "error",
+            reason,
+            latency_ms: Date.now() - startedAt,
+          });
           // Internal detail (DB/RPC error text) stays in our own logs only —
           // Lemon Squeezy just needs a non-2xx to know to retry.
           return new Response("Webhook handling failed", { status: 500 });
@@ -293,10 +306,19 @@ export const Route = createFileRoute("/api/billing/webhook")({
 
         if (!result.ok) {
           if (result.message === "already processed") {
-            logWebhookEvent({ ...logBase, result: "already_processed", latency_ms: Date.now() - startedAt });
+            logWebhookEvent({
+              ...logBase,
+              result: "already_processed",
+              latency_ms: Date.now() - startedAt,
+            });
             return new Response("Already processed", { status: 200 });
           }
-          logWebhookEvent({ ...logBase, result: "error", reason: result.message, latency_ms: Date.now() - startedAt });
+          logWebhookEvent({
+            ...logBase,
+            result: "error",
+            reason: result.message,
+            latency_ms: Date.now() - startedAt,
+          });
           return new Response("Webhook handling failed", { status: 500 });
         }
 
@@ -306,7 +328,12 @@ export const Route = createFileRoute("/api/billing/webhook")({
           switch (result.notify_kind) {
             case "pro_confirmation":
               if (result.notify_plan) {
-                await safeSend(() => sendProConfirmationEmail(result.notify_email as string, result.notify_plan as "pro" | "business"));
+                await safeSend(() =>
+                  sendProConfirmationEmail(
+                    result.notify_email as string,
+                    result.notify_plan as "pro" | "business",
+                  ),
+                );
               }
               break;
             case "payment_failed":
@@ -314,7 +341,12 @@ export const Route = createFileRoute("/api/billing/webhook")({
               break;
             case "commission":
               if (result.notify_commission !== null) {
-                await safeSend(() => sendNewCommissionEmail(result.notify_email as string, result.notify_commission as number));
+                await safeSend(() =>
+                  sendNewCommissionEmail(
+                    result.notify_email as string,
+                    result.notify_commission as number,
+                  ),
+                );
               }
               break;
           }
