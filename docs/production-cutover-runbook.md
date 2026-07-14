@@ -157,3 +157,11 @@ Primeras 24–48 horas:
 ## Decisión recomendada
 
 **Ya no hay bloqueante técnico para programar el corte.** Con A.1 (IA end-to-end), A.2 (registro público), A.3 (SMTP de Auth), A.5 (Google OAuth nativo), A.7 (billing Test Mode end-to-end), y la decisión de datos del Supabase anterior (Escenario C, relanzamiento limpio) todas en ✅, lo que queda es logística de producto: decidir si configurar `RESEND_API_KEY` para los emails de marca propios de la app (no crítico, hoy código muerto) y programar la ventana de corte (sección H), agregando `postulpro.com`/`www.postulpro.com` a las Redirect URLs de Supabase y a Google Cloud Console como parte de esa ventana. Nada de esto requiere tocar producción antes del día del corte en sí.
+
+---
+
+## K. Reverificación 2026-07-14 — snapshot final pre-corte
+
+Antes de considerar esta preparación cerrada, se repitió en modo solo lectura toda la verificación técnica de la fase anterior (sin ejecutar ningún paso de las secciones E–I contra producción). Resultado: sin drift, sin regresiones, candidato mejorado (194/194 tests, subiendo de 104/104). El detalle completo — versión activa exacta del Worker productivo, sus 14 secrets por nombre, la versión y los 18 secrets de preview, y el estado de sincronía de las 23 migraciones — está en `docs/production-cutover-snapshot.md`, que es ahora la referencia operativa para el comando exacto de rollback (sección I de arriba) y para el punto de partida "antes" contra el que comparar después del corte.
+
+Con esto, la preparación queda completa: lo único pendiente son las tres acciones humanas ya listadas (RESEND_API_KEY en producción, decisión sobre `PREVIEW_AI_ALLOWED_USER_ID`, y la autorización explícita para programar/ejecutar la ventana de corte real).

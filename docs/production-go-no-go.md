@@ -41,3 +41,18 @@ Leyenda: **PASS** (verificado, listo) · **FAIL** (verificado y roto) · **BLOCK
 **No queda ningún bloqueante técnico.** Con el inventario del Supabase anterior resuelto (Escenario C, relanzamiento limpio — ver `docs/production-data-decision.md`), el checkout/webhook de Lemon Squeezy validado end-to-end, Google OAuth nativo confirmado funcionando por click-through real, SMTP/emails de Auth (confirmación + reset) validados con correos reales entregados y clickeados, y ahora los emails propios de la app (`RESEND_API_KEY`) activados y parcialmente validados en preview, todos los gates 1–20 son PASS o PARCIAL no bloqueante (observabilidad, delete-account end-to-end en preview — brechas conocidas, ninguna impide un cutover inicial).
 
 Lo que queda son acciones humanas de producto, no técnicas: decidir cuándo configurar `RESEND_API_KEY` en **producción** (hoy solo existe en preview, deliberadamente — ver `docs/production-cutover-runbook.md`), decidir si mover el allowlist `PREVIEW_AI_ALLOWED_USER_ID` para completar la validación real de low-credits/weekly-summary, y programar la ventana de corte en sí (`docs/production-cutover-runbook.md`, sección H). Ninguna requiere tocar producción para resolverse.
+
+---
+
+## Addendum — reverificación 2026-07-14 (sin cambios de veredicto)
+
+Re-ejecutado en modo solo lectura, sin tocar producción, como parte de la preparación final del corte (ver `docs/production-cutover-snapshot.md` para el detalle completo):
+
+- HEAD `573cbf6`, working tree limpio, rama sin merge a `main`.
+- `npx tsc --noEmit` limpio; `npx vitest run` → **194/194** (subió de 104/104 el 2026-07-13, por los tests de `feat(email)`/`test(email)` de las últimas dos commits); `npm run build` exitoso.
+- `postulpro.com`, `www.postulpro.com` y el preview responden **200** los tres.
+- Producción: 14 secrets (mismos nombres que el manifest de la fase anterior, secret accidental `PostulPro Preview` intacto, sin tocar), versión activa `d597a6f8-d00f-4449-9574-bf4baa294ca2` (2026-07-13T10:24:13Z) — sin deploys nuevos desde entonces.
+- Preview: 18 secrets (mismos nombres), versión activa `dcd3223f-9f3f-4ec4-946f-e08a3548674b` (2026-07-14T19:51:36Z, ya refleja `feat(email)`/`test(email)`).
+- Supabase nuevo: 23 migraciones, **23/23 sincronizadas** (local == remote), sin drift.
+
+**Veredicto sin cambios: GO condicionado a acciones humanas no técnicas.** Ningún hallazgo nuevo, ninguna regresión, ningún gate que haya pasado de PASS a FAIL. Los 3 gates humanos pendientes (RESEND_API_KEY en producción, decisión sobre `PREVIEW_AI_ALLOWED_USER_ID`, y programar la ventana) siguen siendo exactamente los mismos.
