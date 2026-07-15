@@ -110,7 +110,30 @@ describe("callModel — Anthropic streaming", () => {
     );
 
     expect(full).toBe("Hola mundo");
-    expect(usage).toEqual({ inputTokens: 42, outputTokens: 7 });
+    expect(usage).toEqual({ inputTokens: 42, outputTokens: 7, stopReason: null });
+  });
+
+  it("captures stop_reason from message_delta (e.g. truncation by max_tokens)", async () => {
+    const stream = sseStream([
+      `data: ${JSON.stringify({ type: "content_block_delta", delta: { type: "text_delta", text: "{" } })}\n\n`,
+      `data: ${JSON.stringify({ type: "message_delta", delta: { stop_reason: "max_tokens" }, usage: { output_tokens: 6000 } })}\n\n`,
+      `data: [DONE]\n\n`,
+    ]);
+    vi.stubGlobal("fetch", mockFetchOnce({ ok: true, status: 200, body: stream }));
+    let usage: ModelUsage | null = null;
+    await callModel(ANTHROPIC_TOOL, "idea", () => {}, undefined, (u) => (usage = u));
+    expect(usage).toEqual({ inputTokens: null, outputTokens: 6000, stopReason: "max_tokens" });
+  });
+
+  it("reports a natural stop_reason (end_turn) distinctly from a truncated one", async () => {
+    const stream = sseStream([
+      `data: ${JSON.stringify({ type: "content_block_delta", delta: { type: "text_delta", text: "ok" } })}\n\n`,
+      `data: ${JSON.stringify({ type: "message_delta", delta: { stop_reason: "end_turn" }, usage: { output_tokens: 3 } })}\n\n`,
+    ]);
+    vi.stubGlobal("fetch", mockFetchOnce({ ok: true, status: 200, body: stream }));
+    let usage: ModelUsage | null = null;
+    await callModel(ANTHROPIC_TOOL, "idea", () => {}, undefined, (u) => (usage = u));
+    expect(usage).toEqual({ inputTokens: null, outputTokens: 3, stopReason: "end_turn" });
   });
 
   it("surfaces the HTTP status and truncated body on a non-ok response", async () => {
@@ -184,7 +207,7 @@ describe("callModel — Anthropic streaming", () => {
       undefined,
       (u) => (usage = u),
     );
-    expect(usage).toEqual({ inputTokens: null, outputTokens: null });
+    expect(usage).toEqual({ inputTokens: null, outputTokens: null, stopReason: null });
   });
 });
 
@@ -214,7 +237,7 @@ describe("callModel — OpenAI streaming", () => {
     );
 
     expect(full).toBe("Hi there");
-    expect(usage).toEqual({ inputTokens: 12, outputTokens: 3 });
+    expect(usage).toEqual({ inputTokens: 12, outputTokens: 3, stopReason: null });
     const [, requestInit] = fetchSpy.mock.calls[0];
     const sentBody = JSON.parse(requestInit.body as string);
     expect(sentBody.stream_options).toEqual({ include_usage: true });
@@ -226,6 +249,19 @@ describe("callModel — OpenAI streaming", () => {
       mockFetchOnce({ ok: false, status: 401, body: null, text: async () => "invalid_api_key" }),
     );
     await expect(callModel(OPENAI_TOOL, "idea", () => {})).rejects.toThrow(/OpenAI 401/);
+  });
+
+  it("captures finish_reason=length as the stop reason when OpenAI truncates", async () => {
+    const stream = sseStream([
+      `data: ${JSON.stringify({ choices: [{ delta: { content: "hi" }, finish_reason: null }] })}\n\n`,
+      `data: ${JSON.stringify({ choices: [{ delta: {}, finish_reason: "length" }] })}\n\n`,
+      `data: ${JSON.stringify({ choices: [], usage: { prompt_tokens: 5, completion_tokens: 1200 } })}\n\n`,
+      `data: [DONE]\n\n`,
+    ]);
+    vi.stubGlobal("fetch", mockFetchOnce({ ok: true, status: 200, body: stream }));
+    let usage: ModelUsage | null = null;
+    await callModel(OPENAI_TOOL, "idea", () => {}, undefined, (u) => (usage = u));
+    expect(usage).toEqual({ inputTokens: 5, outputTokens: 1200, stopReason: "length" });
   });
 });
 
@@ -241,7 +277,7 @@ describe("callModelOnce", () => {
     let usage: ModelUsage | null = null;
     const result = await callModelOnce(ANTHROPIC_TOOL, "idea", undefined, (u) => (usage = u));
     expect(result).toBe("abcd");
-    expect(usage).toEqual({ inputTokens: 5, outputTokens: 0 });
+    expect(usage).toEqual({ inputTokens: 5, outputTokens: 0, stopReason: null });
   });
 });
 
@@ -253,7 +289,7 @@ describe("logModelUsage — safe telemetry", () => {
       model: "claude-sonnet-4-5-20250929",
       operation: "project_step",
       toolKey: "business-plan",
-      usage: { inputTokens: 100, outputTokens: 50 },
+      usage: { inputTokens: 100, outputTokens: 50, stopReason: "end_turn" },
       durationMs: 1234,
       status: "success",
     });
@@ -267,6 +303,7 @@ describe("logModelUsage — safe telemetry", () => {
       toolKey: "business-plan",
       inputTokens: 100,
       outputTokens: 50,
+      stopReason: "end_turn",
       durationMs: 1234,
       status: "success",
       // errorCode: undefined is correctly dropped by JSON.stringify, not logged.
@@ -283,6 +320,7 @@ describe("logModelUsage — safe telemetry", () => {
         "provider",
         "scope",
         "status",
+        "stopReason",
         "toolKey",
       ].sort(),
     );

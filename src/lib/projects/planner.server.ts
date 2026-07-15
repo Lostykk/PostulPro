@@ -19,9 +19,35 @@ import { z } from "zod";
 // against the real capability allowlist and every cost is recalculated
 // from the real tool registry before this function returns.
 
+export type PlannerErrorCode =
+  | "empty_response"
+  | "truncated_response"
+  | "json_parse_failed"
+  | "schema_validation_failed"
+  | "no_valid_deliverables"
+  | "provider_error";
+
+// User-facing text per failure code — never blames the user's idea for a
+// technical failure. "no_valid_deliverables" is the one case where the
+// model DID respond with a valid, well-formed plan but genuinely couldn't
+// map the idea to any real capability — reformulating can actually help
+// there, unlike every other code below.
+const PUBLIC_MESSAGES: Record<PlannerErrorCode, string> = {
+  empty_response: "La IA devolvió una respuesta vacía. Podés reintentar sin perder créditos.",
+  truncated_response:
+    "La IA devolvió una respuesta incompleta. Ya reintentamos de forma segura, pero no se pudo completar — podés reintentar sin perder créditos.",
+  json_parse_failed:
+    "No pudimos interpretar la respuesta de la IA. Podés reintentar sin perder créditos.",
+  schema_validation_failed:
+    "El plan generado no tenía el formato esperado. Podés reintentar sin perder créditos.",
+  no_valid_deliverables: "El plan no propuso ninguna capacidad válida. Probá reformular la idea.",
+  provider_error:
+    "El servicio de IA tardó más de lo esperado o no respondió. Podés reintentar sin perder créditos.",
+};
+
 export class PlannerError extends Error {
-  code: "invalid_response" | "no_valid_deliverables" | "provider_error";
-  constructor(code: PlannerError["code"], message: string) {
+  code: PlannerErrorCode;
+  constructor(code: PlannerErrorCode, message: string = PUBLIC_MESSAGES[code]) {
     super(message);
     this.code = code;
   }
@@ -115,14 +141,45 @@ function stripJsonFences(raw: string): string {
     .trim();
 }
 
-async function callPlannerModel(systemPrompt: string, userPrompt: string): Promise<string> {
+// Safe, mechanical extraction only — never a semantic "repair". If the
+// model wrapped the JSON in prose ("Here's the plan:\n{...}\nHope that
+// helps!") or a fence stripJsonFences didn't fully catch, take the
+// substring between the first "{" and the last "}". Whitespace, fences,
+// and surrounding text are the only things this touches; a truncated or
+// otherwise broken object still fails JSON.parse right after, exactly as
+// it should.
+function extractJsonCandidate(raw: string): string {
+  const stripped = stripJsonFences(raw);
+  const first = stripped.indexOf("{");
+  const last = stripped.lastIndexOf("}");
+  if (first === -1 || last === -1 || last <= first) return stripped;
+  return stripped.slice(first, last + 1);
+}
+
+// Matches the highest maxTokens already proven safe for this exact model
+// (business-plan tool, tools-config.server.ts) rather than guessing at an
+// untested ceiling — claude-sonnet-4-5's default (non-extended) output cap
+// is well above this, so 8000 is a real, not just theoretical, increase
+// from the previous 6000 that a detailed idea (12-field brief + up to 6
+// deliverables) could plausibly exceed.
+const PLANNER_MAX_TOKENS = 8000;
+
+type ModelAttempt = { text: string; stopReason: string | null };
+
+async function callPlannerModel(
+  systemPrompt: string,
+  userPrompt: string,
+  maxTokens: number,
+): Promise<ModelAttempt> {
   const startedAt = Date.now();
+  let stopReason: string | null = null;
   try {
-    const result = await callModelOnce(
-      { provider: "anthropic", model: CLAUDE, credits: 0, maxTokens: 6000, systemPrompt },
+    const text = await callModelOnce(
+      { provider: "anthropic", model: CLAUDE, credits: 0, maxTokens, systemPrompt },
       userPrompt,
       undefined,
-      (usage) =>
+      (usage) => {
+        stopReason = usage.stopReason;
         logModelUsage({
           provider: "anthropic",
           model: CLAUDE,
@@ -130,24 +187,87 @@ async function callPlannerModel(systemPrompt: string, userPrompt: string): Promi
           usage,
           durationMs: Date.now() - startedAt,
           status: "success",
-        }),
+        });
+      },
     );
-    return result;
+    return { text, stopReason };
   } catch (err) {
     logModelUsage({
       provider: "anthropic",
       model: CLAUDE,
       operation: "planner",
-      usage: { inputTokens: null, outputTokens: null },
+      usage: { inputTokens: null, outputTokens: null, stopReason: null },
       durationMs: Date.now() - startedAt,
       status: "error",
       errorCode: "provider_error",
     });
-    throw new PlannerError(
-      "provider_error",
-      err instanceof Error ? err.message : "Planner model call failed",
-    );
+    // Never surface the raw provider error (status/body) to the end user —
+    // it's logged above for operators; the user gets the safe, generic text.
+    throw new PlannerError("provider_error");
   }
+}
+
+type PlannerRetryableCode = Exclude<PlannerErrorCode, "no_valid_deliverables" | "provider_error">;
+
+type ParseOutcome =
+  | { ok: true; data: PlannerResult }
+  | { ok: false; code: PlannerRetryableCode; detail: string };
+
+// Classifies exactly why a response didn't produce a usable plan, using the
+// provider's own stop_reason as the signal for "was this actually cut off"
+// rather than inferring truncation from response shape. Never collapses
+// these into one generic bucket — each is logged and handled distinctly.
+function classifyResponse(raw: string, stopReason: string | null): ParseOutcome {
+  if (!raw || raw.trim().length === 0) {
+    return { ok: false, code: "empty_response", detail: "empty body" };
+  }
+
+  const candidate = extractJsonCandidate(raw);
+  let json: unknown;
+  try {
+    json = JSON.parse(candidate);
+  } catch (err) {
+    const truncated = stopReason === "max_tokens" || stopReason === "length";
+    return {
+      ok: false,
+      code: truncated ? "truncated_response" : "json_parse_failed",
+      detail: err instanceof Error ? err.message.slice(0, 120) : "parse error",
+    };
+  }
+
+  const result = PlannerResponseSchema.safeParse(json);
+  if (!result.success) {
+    const issue = result.error.issues[0];
+    return {
+      ok: false,
+      code: "schema_validation_failed",
+      detail: issue ? `${issue.path.join(".") || "(root)"}: ${issue.code}` : "schema mismatch",
+    };
+  }
+
+  return { ok: true, data: result.data };
+}
+
+// Safe, structured diagnostic — never the prompt, never the raw response.
+function logPlannerParseFailure(attempt: number, code: string, detail: string, raw: string, stopReason: string | null): void {
+  console.log(
+    JSON.stringify({
+      scope: "ai_planner_parse",
+      attempt,
+      code,
+      detail,
+      stopReason,
+      responseLength: raw.length,
+      hasMarkdownFence: /```/.test(raw),
+    }),
+  );
+}
+
+function buildRetryPrompt(userPrompt: string, code: PlannerRetryableCode): string {
+  if (code === "truncated_response") {
+    return `${userPrompt}\n\nTu respuesta anterior se cortó por exceder el límite de longitud antes de terminar el JSON. Esta vez respondé de forma MÁS BREVE para que entre completo: máximo 4 entregables, "knownFacts"/"assumptions" con máximo 3 elementos cada uno, descripciones de una sola oración. Seguí devolviendo ÚNICAMENTE el objeto JSON exacto descripto arriba, sin texto adicional, y asegurate de cerrar todas las llaves y corchetes.`;
+  }
+  return `${userPrompt}\n\nTu respuesta anterior no era JSON válido. Respondé ÚNICAMENTE con el objeto JSON exacto descripto arriba, sin texto adicional antes o después, sin bloques de markdown.`;
 }
 
 export async function generateProjectPlan(input: PlannerInput): Promise<PlannerResult> {
@@ -161,37 +281,25 @@ export async function generateProjectPlan(input: PlannerInput): Promise<PlannerR
   const systemPrompt = buildSystemPrompt(caps);
   const userPrompt = buildUserPrompt(input);
 
-  let raw = await callPlannerModel(systemPrompt, userPrompt);
-  let parsed = tryParse(raw);
+  let { text, stopReason } = await callPlannerModel(systemPrompt, userPrompt, PLANNER_MAX_TOKENS);
+  let outcome = classifyResponse(text, stopReason);
 
-  if (!parsed) {
-    // One correction retry: tell the model exactly what went wrong.
-    raw = await callPlannerModel(
-      systemPrompt,
-      `${userPrompt}\n\nTu respuesta anterior no era JSON válido. Respondé ÚNICAMENTE con el objeto JSON exacto descripto arriba, sin texto adicional.`,
-    );
-    parsed = tryParse(raw);
+  if (!outcome.ok) {
+    logPlannerParseFailure(1, outcome.code, outcome.detail, text, stopReason);
+    // Exactly one controlled retry, regardless of which of the four
+    // classified failure modes occurred — never more than one extra model
+    // call per submit, so a stuck provider can't multiply cost or latency.
+    const retryPrompt = buildRetryPrompt(userPrompt, outcome.code);
+    ({ text, stopReason } = await callPlannerModel(systemPrompt, retryPrompt, PLANNER_MAX_TOKENS));
+    outcome = classifyResponse(text, stopReason);
   }
 
-  if (!parsed) {
-    throw new PlannerError(
-      "invalid_response",
-      "No pudimos interpretar el plan generado. Probá reformular la idea.",
-    );
+  if (!outcome.ok) {
+    logPlannerParseFailure(2, outcome.code, outcome.detail, text, stopReason);
+    throw new PlannerError(outcome.code);
   }
 
-  return sanitizePlannerResult(parsed);
-}
-
-function tryParse(raw: string): PlannerResult | null {
-  try {
-    const json = JSON.parse(stripJsonFences(raw));
-    const result = PlannerResponseSchema.safeParse(json);
-    if (!result.success) return null;
-    return result.data;
-  } catch {
-    return null;
-  }
+  return sanitizePlannerResult(outcome.data);
 }
 
 // Cross-checks every deliverable's toolKey against the real allowlist,

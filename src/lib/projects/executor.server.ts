@@ -198,7 +198,7 @@ export async function runProjectStep(
       };
 
       let full = "";
-      let usage: ModelUsage = { inputTokens: null, outputTokens: null };
+      let usage: ModelUsage = { inputTokens: null, outputTokens: null, stopReason: null };
       const startedAt = Date.now();
       try {
         await callModel(

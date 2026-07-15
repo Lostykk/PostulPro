@@ -8,8 +8,17 @@ import type { ToolConfig } from "@/lib/ai/tools-config.server";
 // Real token counts as reported by the provider itself — never derived
 // from output length. `onUsage` fires at most once, after the stream ends,
 // with whatever the provider actually reported (either field may be null
-// if a given provider/response never included it).
-export type ModelUsage = { inputTokens: number | null; outputTokens: number | null };
+// if a given provider/response never included it). `stopReason` is the
+// provider's own reason the generation ended (e.g. "end_turn"/"stop" for a
+// natural finish, "max_tokens"/"length" when the output was cut off by the
+// token limit) — callers that need to distinguish a truncated response from
+// a malformed-but-complete one (the planner) rely on this being accurate,
+// never inferred from response length.
+export type ModelUsage = {
+  inputTokens: number | null;
+  outputTokens: number | null;
+  stopReason: string | null;
+};
 
 export async function callModel(
   tool: ToolConfig,
@@ -43,17 +52,19 @@ export async function callModel(
     }
     let inputTokens: number | null = null;
     let outputTokens: number | null = null;
+    let stopReason: string | null = null;
     await readSSE(res.body, (evt) => {
       if (evt.type === "message_start" && evt.message?.usage) {
         inputTokens = evt.message.usage.input_tokens ?? null;
         outputTokens = evt.message.usage.output_tokens ?? outputTokens;
-      } else if (evt.type === "message_delta" && evt.usage) {
-        outputTokens = evt.usage.output_tokens ?? outputTokens;
+      } else if (evt.type === "message_delta") {
+        if (evt.usage) outputTokens = evt.usage.output_tokens ?? outputTokens;
+        if (evt.delta?.stop_reason) stopReason = evt.delta.stop_reason;
       } else if (evt.type === "content_block_delta" && evt.delta?.type === "text_delta") {
         onDelta(evt.delta.text ?? "");
       }
     });
-    onUsage?.({ inputTokens, outputTokens });
+    onUsage?.({ inputTokens, outputTokens, stopReason });
     return;
   }
 
@@ -85,15 +96,17 @@ export async function callModel(
   }
   let inputTokens: number | null = null;
   let outputTokens: number | null = null;
+  let stopReason: string | null = null;
   await readSSE(res.body, (evt) => {
     if (evt.usage) {
       inputTokens = evt.usage.prompt_tokens ?? null;
       outputTokens = evt.usage.completion_tokens ?? null;
     }
+    if (evt?.choices?.[0]?.finish_reason) stopReason = evt.choices[0].finish_reason ?? null;
     const delta = evt?.choices?.[0]?.delta?.content;
     if (typeof delta === "string" && delta) onDelta(delta);
   });
-  onUsage?.({ inputTokens, outputTokens });
+  onUsage?.({ inputTokens, outputTokens, stopReason });
 }
 
 // Non-streaming convenience wrapper (used by the planner, which needs the
@@ -133,6 +146,7 @@ export function logModelUsage(entry: {
       toolKey: entry.toolKey,
       inputTokens: entry.usage.inputTokens,
       outputTokens: entry.usage.outputTokens,
+      stopReason: entry.usage.stopReason,
       durationMs: entry.durationMs,
       status: entry.status,
       errorCode: entry.errorCode,
@@ -142,8 +156,8 @@ export function logModelUsage(entry: {
 
 type SSEEvent = {
   type?: string;
-  delta?: { type?: string; text?: string };
-  choices?: Array<{ delta?: { content?: string } }>;
+  delta?: { type?: string; text?: string; stop_reason?: string };
+  choices?: Array<{ delta?: { content?: string }; finish_reason?: string | null }>;
   message?: { usage?: { input_tokens?: number; output_tokens?: number } };
   usage?: {
     output_tokens?: number;

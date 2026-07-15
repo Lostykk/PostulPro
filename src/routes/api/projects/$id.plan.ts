@@ -214,11 +214,28 @@ export const Route = createFileRoute("/api/projects/$id/plan")({
           p_total_credits: result.plan.totalEstimatedCredits,
           p_steps: steps as never,
         });
-        if (saveErr)
-          return json(
-            { error: saveErr.message.slice(0, 200) || "No se pudo guardar el plan." },
-            400,
+        if (saveErr) {
+          // The plan itself was generated and validated successfully — only
+          // the DB write failed. Credits were never touched by planning in
+          // the first place (only step execution charges credits), so this
+          // is honestly communicated as a save failure, not a billing one.
+          // Safe to retry: save_ai_project_plan replaces (not appends)
+          // this project's steps, so re-submitting never duplicates them.
+          console.log(
+            JSON.stringify({
+              scope: "ai_planner_persist",
+              code: "persistence_failed",
+              projectId: params.id,
+            }),
           );
+          return json(
+            {
+              error: "No pudimos terminar el diseño del proyecto. Tu saldo no fue afectado.",
+              code: "persistence_failed",
+            },
+            502,
+          );
+        }
 
         return json({ brief: result.brief, plan: result.plan });
       },
