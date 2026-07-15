@@ -18,6 +18,7 @@ import {
 } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
 import { ProfileProvider, useProfile } from "@/hooks/use-profile";
+import { isOwner } from "@/lib/auth/is-owner";
 import { Progress } from "@/components/ui/progress";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
@@ -135,13 +136,19 @@ function Sidebar() {
               </div>
               <Progress value={percent} className="h-1.5" />
             </div>
-            {profile.plan !== "business" && (
-              <Link
-                to="/settings"
-                className="w-full inline-flex items-center justify-center gap-1 h-8 rounded-lg text-xs font-semibold bg-gradient-to-r from-violet-500 to-fuchsia-500 text-white hover:opacity-90 transition"
-              >
-                Upgrade <ArrowUpRight className="w-3 h-3" />
-              </Link>
+            {isOwner(profile) ? (
+              <div className="w-full inline-flex items-center justify-center gap-1 h-8 rounded-lg text-xs font-semibold bg-white/10 border border-violet-500/30 text-violet-200">
+                <ShieldCheck className="w-3 h-3" /> Founder
+              </div>
+            ) : (
+              profile.plan !== "business" && (
+                <Link
+                  to="/settings"
+                  className="w-full inline-flex items-center justify-center gap-1 h-8 rounded-lg text-xs font-semibold bg-gradient-to-r from-violet-500 to-fuchsia-500 text-white hover:opacity-90 transition"
+                >
+                  Upgrade <ArrowUpRight className="w-3 h-3" />
+                </Link>
+              )
             )}
           </div>
         )}

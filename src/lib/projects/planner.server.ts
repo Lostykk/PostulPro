@@ -38,6 +38,10 @@ export type PlannerInput = {
   targetAudience?: string;
   language: string;
   plan: "free" | "pro" | "business";
+  // Owner/founder entitlement (see lib/auth/is-owner.ts) — lifts the plan
+  // gate on which capabilities the planner may propose, without changing
+  // `plan` itself or any commercial data.
+  isOwner?: boolean;
   // Light onboarding personalization only — never a promise, never the
   // revenue goal (we don't want the model implying it will hit a number
   // the user typed into an unrelated onboarding slider).
@@ -147,7 +151,7 @@ async function callPlannerModel(systemPrompt: string, userPrompt: string): Promi
 }
 
 export async function generateProjectPlan(input: PlannerInput): Promise<PlannerResult> {
-  const caps = listProjectCapabilities(input.plan);
+  const caps = listProjectCapabilities(input.plan, input.isOwner);
   if (caps.length === 0) {
     throw new PlannerError(
       "no_valid_deliverables",

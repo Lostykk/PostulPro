@@ -81,12 +81,14 @@ export function isProjectCapability(toolKey: string): toolKey is (typeof PROJECT
 // List of capabilities available to a given plan — used both by the
 // planner (to know what it may propose) and by the UI (to render "add a
 // step" options). Costs are always read fresh from TOOLS, never cached or
-// passed through from the client.
-export function listProjectCapabilities(plan: "free" | "pro" | "business"): CapabilityMeta[] {
+// passed through from the client. `isOwnerUser` lifts the plan gate for the
+// internal owner/founder entitlement (see lib/auth/is-owner.ts) — it never
+// changes `plan` itself, so commercial data stays untouched.
+export function listProjectCapabilities(plan: "free" | "pro" | "business", isOwnerUser = false): CapabilityMeta[] {
   const rank: Record<string, number> = { free: 0, pro: 1, business: 2 };
   return PROJECT_TOOL_KEYS.filter((key) => {
     const gate = TOOLS[key].planGate;
-    if (!gate) return true;
+    if (!gate || isOwnerUser) return true;
     return (rank[plan] ?? 0) >= (rank[gate] ?? 0);
   }).map((key) => toCapabilityMeta(key));
 }

@@ -5,6 +5,7 @@ import { isProjectCapability, realCreditsFor } from "@/lib/projects/capabilities
 import { PlanDeliverableSchema, MAX_DELIVERABLES } from "@/lib/projects/schema";
 import { claimPlanRateLimit, rateLimitHeaders } from "@/lib/rate-limit.server";
 import { checkAiExecutionAllowed } from "@/lib/ai/preview-guard.server";
+import { isOwner } from "@/lib/auth/is-owner";
 import { z } from "zod";
 
 // POST  /api/projects/:id/plan — run the planner against the project's
@@ -156,7 +157,7 @@ export const Route = createFileRoute("/api/projects/$id/plan")({
 
         const { data: profile } = await supabase
           .from("users")
-          .select("plan,primary_goal,company_name")
+          .select("plan,primary_goal,company_name,role")
           .eq("id", userId)
           .maybeSingle();
 
@@ -168,6 +169,7 @@ export const Route = createFileRoute("/api/projects/$id/plan")({
             targetAudience: project.target_audience ?? undefined,
             language: project.language,
             plan: (profile?.plan as "free" | "pro" | "business") ?? "free",
+            isOwner: isOwner(profile),
             userContext: { primaryGoal: profile?.primary_goal, companyName: profile?.company_name },
           });
         } catch (err) {

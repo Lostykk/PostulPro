@@ -5,6 +5,7 @@ import { getTool } from "@/lib/ai/tools-config.server";
 import { callModel, logModelUsage, type ModelUsage } from "@/lib/ai/call-model.server";
 import { checkAiExecutionAllowed } from "@/lib/ai/preview-guard.server";
 import { maybeSendLowCreditsEmail } from "@/lib/notifications/low-credits.server";
+import { isOwner } from "@/lib/auth/is-owner";
 
 // Streaming proxy to Anthropic / OpenAI. API keys stay server-side.
 // Contract: POST /api/generate-ai with Bearer token + JSON:
@@ -62,13 +63,14 @@ export const Route = createFileRoute("/api/generate-ai")({
         // Fetch user's plan
         const { data: profile, error: profErr } = await supabase
           .from("users")
-          .select("plan")
+          .select("plan,role")
           .eq("id", userId)
           .maybeSingle();
         if (profErr || !profile) return json({ error: "Profile not found" }, 404);
+        const owner = isOwner(profile);
 
-        // Plan gate
-        if (tool.planGate) {
+        // Plan gate — owners get full internal tool access without a plan change.
+        if (tool.planGate && !owner) {
           const rank: Record<string, number> = { free: 0, pro: 1, business: 2 };
           if ((rank[profile.plan] ?? 0) < (rank[tool.planGate] ?? 0)) {
             return json(

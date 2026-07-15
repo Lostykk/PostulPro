@@ -5,6 +5,7 @@ import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/use-auth";
 import { useProfile } from "@/hooks/use-profile";
+import { isOwner } from "@/lib/auth/is-owner";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   AlertDialog,
@@ -479,7 +480,7 @@ type ApiKey = { id: string; name: string; key_prefix: string; created_at: string
 function ApiKeysTab() {
   const { profile, loading } = useProfile();
 
-  if (!loading && profile && profile.plan !== "business") {
+  if (!loading && profile && profile.plan !== "business" && !isOwner(profile)) {
     return (
       <Card>
         <p className="text-sm text-muted-foreground">Las API keys son exclusivas del plan BUSINESS.</p>

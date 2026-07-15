@@ -7,6 +7,7 @@ import { maybeSendLowCreditsEmail } from "@/lib/notifications/low-credits.server
 import { buildStepPrompt } from "@/lib/projects/step-prompts.server";
 import { getCapabilityMeta } from "@/lib/projects/capabilities.server";
 import { ProjectBriefSchema } from "@/lib/projects/schema";
+import { isOwner } from "@/lib/auth/is-owner";
 
 // Runs exactly one project step end to end: claim -> reserve credits ->
 // stream the model -> persist the generation -> mark the step complete
@@ -95,15 +96,15 @@ export async function runProjectStep(
 
   // Defense in depth: re-check the plan gate even though the planner
   // already filtered by plan, in case the user's plan changed between
-  // planning and execution.
+  // planning and execution. Owners bypass this without a plan change.
   if (tool.planGate) {
     const { data: profile } = await supabase
       .from("users")
-      .select("plan")
+      .select("plan,role")
       .eq("id", userId)
       .maybeSingle();
     const rank: Record<string, number> = { free: 0, pro: 1, business: 2 };
-    if ((rank[profile?.plan ?? "free"] ?? 0) < (rank[tool.planGate] ?? 0)) {
+    if (!isOwner(profile) && (rank[profile?.plan ?? "free"] ?? 0) < (rank[tool.planGate] ?? 0)) {
       await supabase.rpc("fail_ai_project_step", {
         p_step_id: stepId,
         p_error_code: "plan_required",
