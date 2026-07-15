@@ -883,6 +883,13 @@ export type Database = {
       [_ in never]: never;
     };
     Functions: {
+      admin_update_user_plan: {
+        Args: { p_new_plan: string; p_target_user_id: string };
+        Returns: {
+          plan: string;
+          user_id: string;
+        }[];
+      };
       archive_ai_project: { Args: { p_project_id: string }; Returns: undefined };
       claim_ai_project_step: {
         Args: { p_project_id: string; p_step_id: string };

@@ -114,10 +114,16 @@ function AdminDashboard() {
   }, [users, generations]);
 
   async function changePlan(userId: string, plan: string) {
-    const { error } = await supabase.from("users").update({ plan }).eq("id", userId);
+    // Admin-only, server-validated RPC — see 20260718000000. Never touches
+    // role/credits/affiliate_code and never creates a real order/subscription;
+    // this is a QA/admin override, not a purchase.
+    const { error } = await supabase.rpc("admin_update_user_plan", {
+      p_target_user_id: userId,
+      p_new_plan: plan,
+    });
     if (error) return toast.error(error.message);
     setUsers((prev) => (prev ?? []).map((u) => (u.id === userId ? { ...u, plan } : u)));
-    toast.success("Plan actualizado");
+    toast.success("Plan actualizado (QA/admin)");
   }
 
   async function toggleProduct(id: string, publish: boolean) {
