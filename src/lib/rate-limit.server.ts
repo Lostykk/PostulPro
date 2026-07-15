@@ -69,7 +69,11 @@ export async function claimPlanRateLimit(
   const ipHash = await hashIp(clientIpFrom(request));
 
   const { data, error } = await supabase.rpc("claim_plan_rate_limit", {
-    p_ip_hash: ipHash ?? undefined,
+    // Generated RPC arg type is non-nullable `string` even though the SQL
+    // function defaults this param to NULL — passing `undefined` (dropped
+    // by JSON.stringify) lets Postgres apply that default unchanged; see
+    // hashIp() above for why null/no-signal must never become a real bucket.
+    p_ip_hash: (ipHash ?? undefined) as string,
     p_window_seconds: config.windowSeconds,
     p_max_requests: config.maxRequests,
     p_daily_max: config.dailyMax,

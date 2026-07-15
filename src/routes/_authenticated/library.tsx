@@ -1,12 +1,30 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
-import { Search, Star, Trash2, Copy, Download, Eye, FolderPlus, Folder as FolderIcon, Pencil, Check, X } from "lucide-react";
+import {
+  Search,
+  Star,
+  Trash2,
+  Copy,
+  Download,
+  Eye,
+  FolderPlus,
+  Folder as FolderIcon,
+  Pencil,
+  Check,
+  X,
+} from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { useProfile } from "@/hooks/use-profile";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { downloadTxt } from "@/hooks/use-ai-stream";
 import { TOOL_META } from "@/lib/tool-meta";
+import { DeliverableRenderer } from "@/components/deliverables/DeliverableRenderer";
+import {
+  saveEditedOutput,
+  restoreGeneratedOutput,
+  toggleApproval,
+} from "@/lib/deliverables/generation-actions";
 
 export const Route = createFileRoute("/_authenticated/library")({
   head: () => ({ meta: [{ title: "Biblioteca — PostulPro" }] }),
@@ -21,6 +39,8 @@ type Generation = {
   tool: string;
   title: string | null;
   output: string | null;
+  edited_output: string | null;
+  approvals_json: Record<string, boolean> | null;
   is_favorite: boolean;
   folder_id: string | null;
   project_id: string | null;
@@ -44,7 +64,6 @@ function LibraryPage() {
   const [onlyFavorites, setOnlyFavorites] = useState(false);
   const [activeFolder, setActiveFolder] = useState<string | null | "all">("all");
   const [viewing, setViewing] = useState<Generation | null>(null);
-  const [editValue, setEditValue] = useState("");
   const [newFolderName, setNewFolderName] = useState("");
   const [renamingFolder, setRenamingFolder] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState("");
@@ -60,10 +79,16 @@ function LibraryPage() {
     const [{ data: g }, { data: f }, { data: p }] = await Promise.all([
       supabase
         .from("generations")
-        .select("id,tool,title,output,is_favorite,folder_id,project_id,created_at")
+        .select(
+          "id,tool,title,output,edited_output,approvals_json,is_favorite,folder_id,project_id,created_at",
+        )
         .eq("user_id", profile.id)
         .order("created_at", { ascending: false }),
-      supabase.from("folders").select("id,name,parent_id").eq("user_id", profile.id).order("created_at", { ascending: true }),
+      supabase
+        .from("folders")
+        .select("id,name,parent_id")
+        .eq("user_id", profile.id)
+        .order("created_at", { ascending: true }),
       supabase.from("ai_projects").select("id,title").eq("user_id", profile.id),
     ]);
     setGens((g as Generation[] | null) ?? []);
@@ -85,7 +110,7 @@ function LibraryPage() {
       }
       if (search.trim()) {
         const q = search.toLowerCase();
-        const hay = `${g.title ?? ""} ${g.output ?? ""}`.toLowerCase();
+        const hay = `${g.title ?? ""} ${g.edited_output ?? g.output ?? ""}`.toLowerCase();
         if (!hay.includes(q)) return false;
       }
       return true;
@@ -99,9 +124,14 @@ function LibraryPage() {
   }, [gens, projects]);
 
   async function toggleFavorite(g: Generation) {
-    const { error } = await supabase.from("generations").update({ is_favorite: !g.is_favorite }).eq("id", g.id);
+    const { error } = await supabase
+      .from("generations")
+      .update({ is_favorite: !g.is_favorite })
+      .eq("id", g.id);
     if (error) return toast.error(error.message);
-    setGens((prev) => (prev ?? []).map((x) => (x.id === g.id ? { ...x, is_favorite: !x.is_favorite } : x)));
+    setGens((prev) =>
+      (prev ?? []).map((x) => (x.id === g.id ? { ...x, is_favorite: !x.is_favorite } : x)),
+    );
   }
   async function deleteGen(id: string) {
     const { error } = await supabase.from("generations").delete().eq("id", id);
@@ -110,26 +140,48 @@ function LibraryPage() {
     toast.success("Eliminado");
   }
   async function copyGen(g: Generation) {
-    if (!g.output) return;
-    await navigator.clipboard.writeText(g.output);
+    const text = g.edited_output ?? g.output;
+    if (!text) return;
+    await navigator.clipboard.writeText(text);
     toast.success("Copiado");
   }
   function downloadGen(g: Generation) {
-    if (!g.output) return;
-    downloadTxt(g.output, `${(g.title ?? "postulpro").slice(0, 40).replace(/\s+/g, "-")}.txt`);
+    const text = g.edited_output ?? g.output;
+    if (!text) return;
+    downloadTxt(text, `${(g.title ?? "postulpro").slice(0, 40).replace(/\s+/g, "-")}.txt`);
   }
 
   function openView(g: Generation) {
     setViewing(g);
-    setEditValue(g.output ?? "");
   }
-  async function saveEdit() {
+  async function saveEdit(newText: string) {
     if (!viewing) return;
-    const { error } = await supabase.from("generations").update({ output: editValue }).eq("id", viewing.id);
-    if (error) return toast.error(error.message);
-    setGens((prev) => (prev ?? []).map((x) => (x.id === viewing.id ? { ...x, output: editValue } : x)));
-    setViewing({ ...viewing, output: editValue });
-    toast.success("Guardado");
+    await saveEditedOutput(viewing.id, newText);
+    setGens((prev) =>
+      (prev ?? []).map((x) => (x.id === viewing.id ? { ...x, edited_output: newText } : x)),
+    );
+    setViewing({ ...viewing, edited_output: newText });
+  }
+  async function restoreGen() {
+    if (!viewing) return;
+    await restoreGeneratedOutput(viewing.id);
+    setGens((prev) =>
+      (prev ?? []).map((x) => (x.id === viewing.id ? { ...x, edited_output: null } : x)),
+    );
+    setViewing({ ...viewing, edited_output: null });
+  }
+  async function toggleGenApproval(blockTitle: string, approved: boolean) {
+    if (!viewing) return;
+    const next = await toggleApproval(
+      viewing.id,
+      viewing.approvals_json ?? {},
+      blockTitle,
+      approved,
+    );
+    setGens((prev) =>
+      (prev ?? []).map((x) => (x.id === viewing.id ? { ...x, approvals_json: next } : x)),
+    );
+    setViewing({ ...viewing, approvals_json: next });
   }
 
   async function createFolder() {
@@ -145,7 +197,10 @@ function LibraryPage() {
   }
   async function renameFolder(id: string) {
     if (!renameValue.trim()) return setRenamingFolder(null);
-    const { error } = await supabase.from("folders").update({ name: renameValue.trim() }).eq("id", id);
+    const { error } = await supabase
+      .from("folders")
+      .update({ name: renameValue.trim() })
+      .eq("id", id);
     if (error) return toast.error(error.message);
     setFolders((prev) => prev.map((f) => (f.id === id ? { ...f, name: renameValue.trim() } : f)));
     setRenamingFolder(null);
@@ -154,20 +209,29 @@ function LibraryPage() {
     const { error } = await supabase.from("folders").delete().eq("id", id);
     if (error) return toast.error(error.message);
     setFolders((prev) => prev.filter((f) => f.id !== id));
-    setGens((prev) => (prev ?? []).map((g) => (g.folder_id === id ? { ...g, folder_id: null } : g)));
+    setGens((prev) =>
+      (prev ?? []).map((g) => (g.folder_id === id ? { ...g, folder_id: null } : g)),
+    );
     if (activeFolder === id) setActiveFolder("all");
   }
   async function moveToFolder(genId: string, folderId: string | null) {
-    const { error } = await supabase.from("generations").update({ folder_id: folderId }).eq("id", genId);
+    const { error } = await supabase
+      .from("generations")
+      .update({ folder_id: folderId })
+      .eq("id", genId);
     if (error) return toast.error(error.message);
-    setGens((prev) => (prev ?? []).map((g) => (g.id === genId ? { ...g, folder_id: folderId } : g)));
+    setGens((prev) =>
+      (prev ?? []).map((g) => (g.id === genId ? { ...g, folder_id: folderId } : g)),
+    );
   }
 
   return (
     <div className="max-w-7xl mx-auto px-4 md:px-6 py-8">
       <header className="mb-6">
         <h1 className="font-display text-3xl font-bold">📚 Biblioteca</h1>
-        <p className="mt-1 text-sm text-muted-foreground">Todas tus generaciones y compras en un solo lugar.</p>
+        <p className="mt-1 text-sm text-muted-foreground">
+          Todas tus generaciones y compras en un solo lugar.
+        </p>
       </header>
 
       <div className="grid lg:grid-cols-[220px_1fr] gap-6">
@@ -182,7 +246,9 @@ function LibraryPage() {
                 if (id) void moveToFolder(id, null);
               }}
               className={`w-full text-left px-3 py-2 rounded-lg text-sm transition ${
-                activeFolder === "all" ? "bg-white/10 text-foreground" : "text-muted-foreground hover:bg-white/5"
+                activeFolder === "all"
+                  ? "bg-white/10 text-foreground"
+                  : "text-muted-foreground hover:bg-white/5"
               }`}
             >
               Todos
@@ -191,7 +257,9 @@ function LibraryPage() {
               type="button"
               onClick={() => setOnlyFavorites((v) => !v)}
               className={`w-full text-left px-3 py-2 rounded-lg text-sm transition flex items-center gap-2 ${
-                onlyFavorites ? "bg-white/10 text-foreground" : "text-muted-foreground hover:bg-white/5"
+                onlyFavorites
+                  ? "bg-white/10 text-foreground"
+                  : "text-muted-foreground hover:bg-white/5"
               }`}
             >
               <Star className="w-3.5 h-3.5" /> Favoritos
@@ -200,7 +268,9 @@ function LibraryPage() {
 
           <div className="rounded-2xl border border-white/10 bg-white/5 p-3 space-y-1">
             <div className="flex items-center justify-between px-1 mb-1">
-              <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Carpetas</span>
+              <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+                Carpetas
+              </span>
             </div>
             {folders.map((f) => (
               <div
@@ -227,10 +297,18 @@ function LibraryPage() {
                       onChange={(e) => setRenameValue(e.target.value)}
                       autoFocus
                     />
-                    <button type="button" onClick={() => renameFolder(f.id)} className="p-1 text-muted-foreground hover:text-foreground">
+                    <button
+                      type="button"
+                      onClick={() => renameFolder(f.id)}
+                      className="p-1 text-muted-foreground hover:text-foreground"
+                    >
                       <Check className="w-3.5 h-3.5" />
                     </button>
-                    <button type="button" onClick={() => setRenamingFolder(null)} className="p-1 text-muted-foreground hover:text-foreground">
+                    <button
+                      type="button"
+                      onClick={() => setRenamingFolder(null)}
+                      className="p-1 text-muted-foreground hover:text-foreground"
+                    >
                       <X className="w-3.5 h-3.5" />
                     </button>
                   </div>
@@ -240,7 +318,9 @@ function LibraryPage() {
                       type="button"
                       onClick={() => setActiveFolder(f.id)}
                       className={`flex-1 text-left px-2 py-2 rounded-lg text-sm truncate flex items-center gap-2 transition ${
-                        activeFolder === f.id ? "bg-white/10 text-foreground" : "text-muted-foreground hover:bg-white/5"
+                        activeFolder === f.id
+                          ? "bg-white/10 text-foreground"
+                          : "text-muted-foreground hover:bg-white/5"
                       }`}
                     >
                       <FolderIcon className="w-3.5 h-3.5 shrink-0" /> {f.name || "Sin nombre"}
@@ -274,7 +354,11 @@ function LibraryPage() {
                 onKeyDown={(e) => e.key === "Enter" && createFolder()}
                 placeholder="Nueva carpeta…"
               />
-              <button type="button" onClick={createFolder} className="p-1.5 text-muted-foreground hover:text-foreground">
+              <button
+                type="button"
+                onClick={createFolder}
+                className="p-1.5 text-muted-foreground hover:text-foreground"
+              >
                 <FolderPlus className="w-4 h-4" />
               </button>
             </div>
@@ -285,9 +369,18 @@ function LibraryPage() {
           <div className="flex flex-wrap items-center gap-2 mb-4">
             <div className="relative flex-1 min-w-[200px]">
               <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" />
-              <input className="input pl-8" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Buscar…" />
+              <input
+                className="input pl-8"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="Buscar…"
+              />
             </div>
-            <select className="input w-auto" value={toolFilter} onChange={(e) => setToolFilter(e.target.value)}>
+            <select
+              className="input w-auto"
+              value={toolFilter}
+              onChange={(e) => setToolFilter(e.target.value)}
+            >
               <option value="all">Todas las herramientas</option>
               {Object.entries(TOOL_META).map(([id, m]) => (
                 <option key={id} value={id}>
@@ -295,7 +388,11 @@ function LibraryPage() {
                 </option>
               ))}
             </select>
-            <select className="input w-auto" value={dateFilter} onChange={(e) => setDateFilter(e.target.value as typeof dateFilter)}>
+            <select
+              className="input w-auto"
+              value={dateFilter}
+              onChange={(e) => setDateFilter(e.target.value as typeof dateFilter)}
+            >
               {DATE_FILTERS.map((d) => (
                 <option key={d} value={d}>
                   {d}
@@ -303,7 +400,11 @@ function LibraryPage() {
               ))}
             </select>
             {projectsWithGenerations.length > 0 && (
-              <select className="input w-auto" value={projectFilter} onChange={(e) => setProjectFilter(e.target.value)}>
+              <select
+                className="input w-auto"
+                value={projectFilter}
+                onChange={(e) => setProjectFilter(e.target.value)}
+              >
                 <option value="all">Todos los proyectos</option>
                 {projectsWithGenerations.map((p) => (
                   <option key={p.id} value={p.id}>
@@ -342,7 +443,9 @@ function LibraryPage() {
             <div className="grid sm:grid-cols-2 xl:grid-cols-3 gap-3">
               {filtered.map((g) => {
                 const meta = TOOL_META[g.tool] ?? { label: g.tool, icon: "⚡" };
-                const originProject = g.project_id ? projects.find((p) => p.id === g.project_id) : null;
+                const originProject = g.project_id
+                  ? projects.find((p) => p.id === g.project_id)
+                  : null;
                 return (
                   <div
                     key={g.id}
@@ -353,7 +456,9 @@ function LibraryPage() {
                     <div className="flex items-start justify-between gap-2">
                       <span className="text-lg">{meta.icon}</span>
                       <button type="button" onClick={() => toggleFavorite(g)} aria-label="Favorito">
-                        <Star className={`w-4 h-4 ${g.is_favorite ? "fill-amber-400 text-amber-400" : "text-muted-foreground"}`} />
+                        <Star
+                          className={`w-4 h-4 ${g.is_favorite ? "fill-amber-400 text-amber-400" : "text-muted-foreground"}`}
+                        />
                       </button>
                     </div>
                     <div className="text-sm font-medium line-clamp-1">{g.title || meta.label}</div>
@@ -366,7 +471,9 @@ function LibraryPage() {
                         🧭 {originProject.title || "Proyecto"}
                       </Link>
                     )}
-                    <div className="text-xs text-muted-foreground line-clamp-2 flex-1">{g.output?.slice(0, 120)}</div>
+                    <div className="text-xs text-muted-foreground line-clamp-2 flex-1">
+                      {(g.edited_output ?? g.output)?.slice(0, 120)}
+                    </div>
                     <div className="flex items-center gap-1 pt-1 border-t border-white/5 mt-1">
                       <IconBtn label="Ver" onClick={() => openView(g)}>
                         <Eye className="w-3.5 h-3.5" />
@@ -390,34 +497,40 @@ function LibraryPage() {
       </div>
 
       <Dialog open={!!viewing} onOpenChange={(o) => !o && setViewing(null)}>
-        <DialogContent className="max-w-2xl max-h-[80vh] overflow-auto">
+        <DialogContent className="max-w-3xl max-h-[80vh] overflow-auto">
           <DialogHeader>
-            <DialogTitle>{viewing ? TOOL_META[viewing.tool]?.icon ?? "⚡" : ""} {viewing?.title || "Generación"}</DialogTitle>
+            <DialogTitle>
+              {viewing ? (TOOL_META[viewing.tool]?.icon ?? "⚡") : ""}{" "}
+              {viewing?.title || "Generación"}
+            </DialogTitle>
           </DialogHeader>
-          <div className="space-y-3">
-            <textarea
-              className="input min-h-[300px] resize-y font-sans text-sm"
-              value={editValue}
-              onChange={(e) => setEditValue(e.target.value)}
+          {viewing && (
+            <DeliverableRenderer
+              toolKey={viewing.tool}
+              output={viewing.output ?? ""}
+              editedOutput={viewing.edited_output}
+              approvals={viewing.approvals_json ?? {}}
+              title={viewing.title ?? "Generación"}
+              onSave={saveEdit}
+              onRestore={restoreGen}
+              onToggleApproval={toggleGenApproval}
             />
-            <div className="flex justify-end gap-2">
-              <button
-                type="button"
-                onClick={saveEdit}
-                disabled={!viewing || editValue === viewing.output}
-                className="inline-flex items-center gap-1.5 px-3 h-9 rounded-lg text-xs font-semibold bg-gradient-to-r from-violet-500 to-fuchsia-500 text-white disabled:opacity-40 transition"
-              >
-                Guardar cambios
-              </button>
-            </div>
-          </div>
+          )}
         </DialogContent>
       </Dialog>
     </div>
   );
 }
 
-function IconBtn({ children, label, onClick }: { children: React.ReactNode; label: string; onClick: () => void }) {
+function IconBtn({
+  children,
+  label,
+  onClick,
+}: {
+  children: React.ReactNode;
+  label: string;
+  onClick: () => void;
+}) {
   return (
     <button
       type="button"

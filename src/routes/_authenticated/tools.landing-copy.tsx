@@ -1,53 +1,53 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Target, Copy, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { useAiStream } from "@/hooks/use-ai-stream";
+import { useProjectStepContext, type StepGeneration } from "@/hooks/use-project-step-context";
+import { saveEditedOutput, restoreGeneratedOutput } from "@/lib/deliverables/generation-actions";
+import { DeliverableRenderer } from "@/components/deliverables/DeliverableRenderer";
+import { ProjectContextBanner } from "@/components/deliverables/ProjectContextBanner";
+import { parseLandingJson, type LandingPageData } from "@/lib/deliverables/parse-landing";
 
 export const Route = createFileRoute("/_authenticated/tools/landing-copy")({
   head: () => ({ meta: [{ title: "Landing Copy — PostulPro" }] }),
+  validateSearch: (search: Record<string, unknown>): { projectId?: string; stepId?: string } => ({
+    projectId: typeof search.projectId === "string" ? search.projectId : undefined,
+    stepId: typeof search.stepId === "string" ? search.stepId : undefined,
+  }),
   component: LandingCopyPage,
 });
 
-type LandingData = {
-  headlines: string[];
-  subheadline: string;
-  hero: string;
-  features: string[];
-  social_proof: string;
-  faq: { q: string; a: string }[];
-  cta: string;
-  meta_title: string;
-  meta_description: string;
-};
-
-function parseLandingJson(raw: string): LandingData | null {
-  const cleaned = raw.replace(/^```json\s*/i, "").replace(/```\s*$/, "").trim();
-  try {
-    const j = JSON.parse(cleaned) as Partial<LandingData>;
-    return {
-      headlines: Array.isArray(j.headlines) ? j.headlines.slice(0, 3) : [],
-      subheadline: j.subheadline ?? "",
-      hero: j.hero ?? "",
-      features: Array.isArray(j.features) ? j.features.slice(0, 3) : [],
-      social_proof: j.social_proof ?? "",
-      faq: Array.isArray(j.faq) ? j.faq.slice(0, 6) : [],
-      cta: j.cta ?? "",
-      meta_title: j.meta_title ?? "",
-      meta_description: j.meta_description ?? "",
-    };
-  } catch {
-    return null;
-  }
-}
+type LandingData = LandingPageData;
 
 function LandingCopyPage() {
+  const { projectId, stepId } = Route.useSearch();
+  const stepCtx = useProjectStepContext(projectId, stepId);
+  const [gen, setGen] = useState<StepGeneration | null>(null);
+  const prefilledRef = useRef(false);
+
   const { output, streaming, generate } = useAiStream("landing-copy");
   const [product, setProduct] = useState("");
   const [icp, setIcp] = useState("");
   const [valueProp, setValueProp] = useState("");
   const [price, setPrice] = useState("");
   const [data, setData] = useState<LandingData | null>(null);
+
+  useEffect(() => setGen(stepCtx.generation), [stepCtx.generation]);
+
+  // Deep-linked from a project step with no deliverable yet — prefill the
+  // wizard from the project's brief instead of generating anything (opening
+  // the tool must never itself consume credits).
+  useEffect(() => {
+    if (stepCtx.loading || stepCtx.generation || prefilledRef.current || !stepCtx.brief) return;
+    prefilledRef.current = true;
+    setProduct(stepCtx.brief.name || stepCtx.brief.description || "");
+    setIcp(stepCtx.brief.audience || "");
+    setValueProp(stepCtx.brief.valueProposition || "");
+    setPrice(
+      typeof stepCtx.stepInput?.price === "string" ? (stepCtx.stepInput.price as string) : "",
+    );
+  }, [stepCtx]);
 
   useEffect(() => {
     if (!streaming && output) {
@@ -59,6 +59,29 @@ function LandingCopyPage() {
       }
     }
   }, [streaming, output]);
+
+  if (projectId && gen) {
+    return (
+      <div className="max-w-4xl mx-auto px-4 md:px-6 py-8">
+        <ProjectContextBanner projectId={projectId} />
+        <h1 className="font-display text-2xl font-bold mb-4">🎯 Landing Copy</h1>
+        <DeliverableRenderer
+          toolKey="landing-copy"
+          output={gen.output}
+          editedOutput={gen.editedOutput}
+          title="Landing Copy"
+          onSave={async (text) => {
+            await saveEditedOutput(gen.id, text);
+            setGen({ ...gen, editedOutput: text });
+          }}
+          onRestore={async () => {
+            await restoreGeneratedOutput(gen.id);
+            setGen({ ...gen, editedOutput: null });
+          }}
+        />
+      </div>
+    );
+  }
 
   async function handleGenerate() {
     if (!product.trim() || !icp.trim()) {
@@ -115,7 +138,9 @@ Devuelve ÚNICAMENTE un objeto JSON válido (sin markdown, sin texto fuera del J
       <header className="mb-6 flex items-start justify-between gap-4">
         <div>
           <h1 className="font-display text-3xl font-bold">🎯 Landing Copy</h1>
-          <p className="mt-1 text-sm text-muted-foreground">2 créditos · headlines, hero, features, FAQ y CTA — editable inline</p>
+          <p className="mt-1 text-sm text-muted-foreground">
+            2 créditos · headlines, hero, features, FAQ y CTA — editable inline
+          </p>
         </div>
         {data && (
           <button
@@ -131,16 +156,36 @@ Devuelve ÚNICAMENTE un objeto JSON válido (sin markdown, sin texto fuera del J
       <div className="grid lg:grid-cols-[380px_1fr] gap-6">
         <aside className="rounded-2xl border border-white/10 bg-white/5 p-5 space-y-4 h-fit">
           <Field label="Producto / servicio">
-            <input className="input" value={product} onChange={(e) => setProduct(e.target.value)} placeholder="Ej: App de finanzas personales" />
+            <input
+              className="input"
+              value={product}
+              onChange={(e) => setProduct(e.target.value)}
+              placeholder="Ej: App de finanzas personales"
+            />
           </Field>
           <Field label="ICP (cliente ideal)">
-            <input className="input" value={icp} onChange={(e) => setIcp(e.target.value)} placeholder="Ej: freelancers 25-40 años" />
+            <input
+              className="input"
+              value={icp}
+              onChange={(e) => setIcp(e.target.value)}
+              placeholder="Ej: freelancers 25-40 años"
+            />
           </Field>
           <Field label="Propuesta de valor">
-            <textarea className="input min-h-[80px] resize-y" value={valueProp} onChange={(e) => setValueProp(e.target.value)} placeholder="¿Qué te hace distinto?" />
+            <textarea
+              className="input min-h-[80px] resize-y"
+              value={valueProp}
+              onChange={(e) => setValueProp(e.target.value)}
+              placeholder="¿Qué te hace distinto?"
+            />
           </Field>
           <Field label="Precio">
-            <input className="input" value={price} onChange={(e) => setPrice(e.target.value)} placeholder="Ej: $19/mes" />
+            <input
+              className="input"
+              value={price}
+              onChange={(e) => setPrice(e.target.value)}
+              placeholder="Ej: $19/mes"
+            />
           </Field>
           <button
             type="button"
@@ -167,29 +212,58 @@ Devuelve ÚNICAMENTE un objeto JSON válido (sin markdown, sin texto fuera del J
                 <SectionLabel>Headlines (3 variantes)</SectionLabel>
                 <div className="space-y-2">
                   {data.headlines.map((h, i) => (
-                    <EditableInput key={i} value={h} onChange={(v) => setData({ ...data, headlines: data.headlines.map((x, j) => (j === i ? v : x)) })} big />
+                    <EditableInput
+                      key={i}
+                      value={h}
+                      onChange={(v) =>
+                        setData({
+                          ...data,
+                          headlines: data.headlines.map((x, j) => (j === i ? v : x)),
+                        })
+                      }
+                      big
+                    />
                   ))}
                 </div>
               </div>
               <div>
                 <SectionLabel>Subheadline</SectionLabel>
-                <EditableTextarea value={data.subheadline} onChange={(v) => setData({ ...data, subheadline: v })} />
+                <EditableTextarea
+                  value={data.subheadline}
+                  onChange={(v) => setData({ ...data, subheadline: v })}
+                />
               </div>
               <div>
                 <SectionLabel>Hero</SectionLabel>
-                <EditableTextarea value={data.hero} onChange={(v) => setData({ ...data, hero: v })} rows={4} />
+                <EditableTextarea
+                  value={data.hero}
+                  onChange={(v) => setData({ ...data, hero: v })}
+                  rows={4}
+                />
               </div>
               <div>
                 <SectionLabel>Features</SectionLabel>
                 <div className="space-y-2">
                   {data.features.map((f, i) => (
-                    <EditableInput key={i} value={f} onChange={(v) => setData({ ...data, features: data.features.map((x, j) => (j === i ? v : x)) })} />
+                    <EditableInput
+                      key={i}
+                      value={f}
+                      onChange={(v) =>
+                        setData({
+                          ...data,
+                          features: data.features.map((x, j) => (j === i ? v : x)),
+                        })
+                      }
+                    />
                   ))}
                 </div>
               </div>
               <div>
                 <SectionLabel>Social proof (sugerido — editar antes de publicar)</SectionLabel>
-                <EditableTextarea value={data.social_proof} onChange={(v) => setData({ ...data, social_proof: v })} />
+                <EditableTextarea
+                  value={data.social_proof}
+                  onChange={(v) => setData({ ...data, social_proof: v })}
+                />
               </div>
               <div>
                 <SectionLabel>FAQ</SectionLabel>
@@ -198,11 +272,21 @@ Devuelve ÚNICAMENTE un objeto JSON válido (sin markdown, sin texto fuera del J
                     <div key={i} className="space-y-1">
                       <EditableInput
                         value={f.q}
-                        onChange={(v) => setData({ ...data, faq: data.faq.map((x, j) => (j === i ? { ...x, q: v } : x)) })}
+                        onChange={(v) =>
+                          setData({
+                            ...data,
+                            faq: data.faq.map((x, j) => (j === i ? { ...x, q: v } : x)),
+                          })
+                        }
                       />
                       <EditableTextarea
                         value={f.a}
-                        onChange={(v) => setData({ ...data, faq: data.faq.map((x, j) => (j === i ? { ...x, a: v } : x)) })}
+                        onChange={(v) =>
+                          setData({
+                            ...data,
+                            faq: data.faq.map((x, j) => (j === i ? { ...x, a: v } : x)),
+                          })
+                        }
                       />
                     </div>
                   ))}
@@ -210,16 +294,26 @@ Devuelve ÚNICAMENTE un objeto JSON válido (sin markdown, sin texto fuera del J
               </div>
               <div>
                 <SectionLabel>CTA final</SectionLabel>
-                <EditableInput value={data.cta} onChange={(v) => setData({ ...data, cta: v })} big />
+                <EditableInput
+                  value={data.cta}
+                  onChange={(v) => setData({ ...data, cta: v })}
+                  big
+                />
               </div>
               <div className="grid sm:grid-cols-2 gap-3 pt-4 border-t border-white/5">
                 <div>
                   <SectionLabel>Meta title</SectionLabel>
-                  <EditableInput value={data.meta_title} onChange={(v) => setData({ ...data, meta_title: v })} />
+                  <EditableInput
+                    value={data.meta_title}
+                    onChange={(v) => setData({ ...data, meta_title: v })}
+                  />
                 </div>
                 <div>
                   <SectionLabel>Meta description</SectionLabel>
-                  <EditableTextarea value={data.meta_description} onChange={(v) => setData({ ...data, meta_description: v })} />
+                  <EditableTextarea
+                    value={data.meta_description}
+                    onChange={(v) => setData({ ...data, meta_description: v })}
+                  />
                 </div>
               </div>
             </div>
@@ -235,7 +329,11 @@ Devuelve ÚNICAMENTE un objeto JSON válido (sin markdown, sin texto fuera del J
                   <div className="text-4xl mb-3">⚠️</div>
                   <p className="text-sm">
                     No pudimos interpretar la respuesta.{" "}
-                    <button type="button" onClick={handleGenerate} className="text-foreground underline">
+                    <button
+                      type="button"
+                      onClick={handleGenerate}
+                      className="text-foreground underline"
+                    >
                       Reintentar
                     </button>
                   </p>
@@ -266,10 +364,22 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
 }
 
 function SectionLabel({ children }: { children: React.ReactNode }) {
-  return <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-2">{children}</div>;
+  return (
+    <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-2">
+      {children}
+    </div>
+  );
 }
 
-function EditableInput({ value, onChange, big }: { value: string; onChange: (v: string) => void; big?: boolean }) {
+function EditableInput({
+  value,
+  onChange,
+  big,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  big?: boolean;
+}) {
   return (
     <input
       className={`input ${big ? "font-display font-bold text-base h-11" : ""}`}
@@ -279,6 +389,22 @@ function EditableInput({ value, onChange, big }: { value: string; onChange: (v: 
   );
 }
 
-function EditableTextarea({ value, onChange, rows = 2 }: { value: string; onChange: (v: string) => void; rows?: number }) {
-  return <textarea className="input resize-y" style={{ minHeight: `${rows * 1.5 + 1}rem` }} value={value} onChange={(e) => onChange(e.target.value)} rows={rows} />;
+function EditableTextarea({
+  value,
+  onChange,
+  rows = 2,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  rows?: number;
+}) {
+  return (
+    <textarea
+      className="input resize-y"
+      style={{ minHeight: `${rows * 1.5 + 1}rem` }}
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      rows={rows}
+    />
+  );
 }

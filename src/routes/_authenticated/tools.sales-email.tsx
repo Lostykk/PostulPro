@@ -1,16 +1,33 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Send, Copy, Loader2, ClipboardCopy } from "lucide-react";
 import { toast } from "sonner";
 import { useAiStream } from "@/hooks/use-ai-stream";
 import { parseSections } from "@/lib/ai/parse-sections";
+import { useProjectStepContext, type StepGeneration } from "@/hooks/use-project-step-context";
+import {
+  saveEditedOutput,
+  restoreGeneratedOutput,
+  toggleApproval,
+} from "@/lib/deliverables/generation-actions";
+import { DeliverableRenderer } from "@/components/deliverables/DeliverableRenderer";
+import { ProjectContextBanner } from "@/components/deliverables/ProjectContextBanner";
 
 export const Route = createFileRoute("/_authenticated/tools/sales-email")({
   head: () => ({ meta: [{ title: "Sales Email — PostulPro" }] }),
+  validateSearch: (search: Record<string, unknown>): { projectId?: string; stepId?: string } => ({
+    projectId: typeof search.projectId === "string" ? search.projectId : undefined,
+    stepId: typeof search.stepId === "string" ? search.stepId : undefined,
+  }),
   component: SalesEmailPage,
 });
 
 function SalesEmailPage() {
+  const { projectId, stepId } = Route.useSearch();
+  const stepCtx = useProjectStepContext(projectId, stepId);
+  const [gen, setGen] = useState<StepGeneration | null>(null);
+  const prefilledRef = useRef(false);
+
   const { output, streaming, generate } = useAiStream("sales-email");
   const [company, setCompany] = useState("");
   const [role, setRole] = useState("");
@@ -19,6 +36,44 @@ function SalesEmailPage() {
   const [activeTab, setActiveTab] = useState(0);
 
   const sections = useMemo(() => parseSections(output), [output]);
+
+  useEffect(() => setGen(stepCtx.generation), [stepCtx.generation]);
+
+  useEffect(() => {
+    if (stepCtx.loading || stepCtx.generation || prefilledRef.current || !stepCtx.brief) return;
+    prefilledRef.current = true;
+    setCompany(stepCtx.brief.name || "");
+    setProduct(stepCtx.brief.offer || stepCtx.brief.description || "");
+    setPainPoint(stepCtx.brief.problem || "");
+  }, [stepCtx]);
+
+  if (projectId && gen) {
+    return (
+      <div className="max-w-4xl mx-auto px-4 md:px-6 py-8">
+        <ProjectContextBanner projectId={projectId} />
+        <h1 className="font-display text-2xl font-bold mb-4">✉️ Sales Email</h1>
+        <DeliverableRenderer
+          toolKey="sales-email"
+          output={gen.output}
+          editedOutput={gen.editedOutput}
+          approvals={gen.approvals}
+          title="Sales Email"
+          onSave={async (text) => {
+            await saveEditedOutput(gen.id, text);
+            setGen({ ...gen, editedOutput: text });
+          }}
+          onRestore={async () => {
+            await restoreGeneratedOutput(gen.id);
+            setGen({ ...gen, editedOutput: null });
+          }}
+          onToggleApproval={async (title, approved) => {
+            const next = await toggleApproval(gen.id, gen.approvals, title, approved);
+            setGen({ ...gen, approvals: next });
+          }}
+        />
+      </div>
+    );
+  }
 
   async function handleGenerate() {
     if (!company.trim() || !product.trim()) {
@@ -80,19 +135,36 @@ CTA: ...
     <div className="max-w-6xl mx-auto px-4 md:px-6 py-8">
       <header className="mb-6">
         <h1 className="font-display text-3xl font-bold">✉️ Sales Email</h1>
-        <p className="mt-1 text-sm text-muted-foreground">2 créditos · secuencia de 5 emails + variante A/B</p>
+        <p className="mt-1 text-sm text-muted-foreground">
+          2 créditos · secuencia de 5 emails + variante A/B
+        </p>
       </header>
 
       <div className="grid lg:grid-cols-[380px_1fr] gap-6">
         <aside className="rounded-2xl border border-white/10 bg-white/5 p-5 space-y-4 h-fit">
           <Field label="Empresa objetivo">
-            <input className="input" value={company} onChange={(e) => setCompany(e.target.value)} placeholder="Ej: Acme Corp" />
+            <input
+              className="input"
+              value={company}
+              onChange={(e) => setCompany(e.target.value)}
+              placeholder="Ej: Acme Corp"
+            />
           </Field>
           <Field label="Cargo del contacto">
-            <input className="input" value={role} onChange={(e) => setRole(e.target.value)} placeholder="Ej: Head of Growth" />
+            <input
+              className="input"
+              value={role}
+              onChange={(e) => setRole(e.target.value)}
+              placeholder="Ej: Head of Growth"
+            />
           </Field>
           <Field label="Producto / servicio">
-            <input className="input" value={product} onChange={(e) => setProduct(e.target.value)} placeholder="Ej: Plataforma de automatización" />
+            <input
+              className="input"
+              value={product}
+              onChange={(e) => setProduct(e.target.value)}
+              placeholder="Ej: Plataforma de automatización"
+            />
           </Field>
           <Field label="Pain point">
             <textarea
@@ -131,7 +203,9 @@ CTA: ...
                       type="button"
                       onClick={() => setActiveTab(i)}
                       className={`px-3 py-1.5 rounded-md text-xs font-medium whitespace-nowrap transition ${
-                        activeTab === i ? "bg-white/10 text-foreground" : "text-muted-foreground hover:text-foreground"
+                        activeTab === i
+                          ? "bg-white/10 text-foreground"
+                          : "text-muted-foreground hover:text-foreground"
                       }`}
                     >
                       {s.title.replace("EMAIL ", "Email ")}
@@ -165,17 +239,23 @@ CTA: ...
                     {sections[activeTab].fields.preview && (
                       <div>
                         <div className="text-xs text-muted-foreground mb-1">Preview</div>
-                        <div className="text-sm text-muted-foreground italic">{sections[activeTab].fields.preview}</div>
+                        <div className="text-sm text-muted-foreground italic">
+                          {sections[activeTab].fields.preview}
+                        </div>
                       </div>
                     )}
                     <div>
                       <div className="text-xs text-muted-foreground mb-1">Cuerpo</div>
-                      <pre className="whitespace-pre-wrap font-sans text-sm leading-relaxed">{sections[activeTab].body}</pre>
+                      <pre className="whitespace-pre-wrap font-sans text-sm leading-relaxed">
+                        {sections[activeTab].body}
+                      </pre>
                     </div>
                     {sections[activeTab].fields.cta && (
                       <div>
                         <div className="text-xs text-muted-foreground mb-1">CTA</div>
-                        <div className="text-sm font-medium text-violet-300">{sections[activeTab].fields.cta}</div>
+                        <div className="text-sm font-medium text-violet-300">
+                          {sections[activeTab].fields.cta}
+                        </div>
                       </div>
                     )}
                   </div>
@@ -187,7 +267,9 @@ CTA: ...
               {streaming ? (
                 <div>
                   <Loader2 className="w-6 h-6 animate-spin mx-auto mb-3" />
-                  <pre className="whitespace-pre-wrap font-sans text-xs text-left max-w-lg opacity-60">{output}</pre>
+                  <pre className="whitespace-pre-wrap font-sans text-xs text-left max-w-lg opacity-60">
+                    {output}
+                  </pre>
                 </div>
               ) : (
                 <div>

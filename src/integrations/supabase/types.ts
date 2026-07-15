@@ -464,8 +464,10 @@ export type Database = {
       };
       generations: {
         Row: {
+          approvals_json: Json;
           artifact_type: string | null;
           created_at: string;
+          edited_output: string | null;
           folder_id: string | null;
           id: string;
           is_favorite: boolean;
@@ -479,8 +481,10 @@ export type Database = {
           user_id: string;
         };
         Insert: {
+          approvals_json?: Json;
           artifact_type?: string | null;
           created_at?: string;
+          edited_output?: string | null;
           folder_id?: string | null;
           id?: string;
           is_favorite?: boolean;
@@ -494,8 +498,10 @@ export type Database = {
           user_id: string;
         };
         Update: {
+          approvals_json?: Json;
           artifact_type?: string | null;
           created_at?: string;
+          edited_output?: string | null;
           folder_id?: string | null;
           id?: string;
           is_favorite?: boolean;
@@ -557,6 +563,35 @@ export type Database = {
         };
         Relationships: [];
       };
+      plan_rate_limit_events: {
+        Row: {
+          created_at: string;
+          id: string;
+          ip_hash: string | null;
+          user_id: string;
+        };
+        Insert: {
+          created_at?: string;
+          id?: string;
+          ip_hash?: string | null;
+          user_id: string;
+        };
+        Update: {
+          created_at?: string;
+          id?: string;
+          ip_hash?: string | null;
+          user_id?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "plan_rate_limit_events_user_id_fkey";
+            columns: ["user_id"];
+            isOneToOne: false;
+            referencedRelation: "users";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
       products: {
         Row: {
           category: string | null;
@@ -607,35 +642,6 @@ export type Database = {
           {
             foreignKeyName: "products_seller_id_fkey";
             columns: ["seller_id"];
-            isOneToOne: false;
-            referencedRelation: "users";
-            referencedColumns: ["id"];
-          },
-        ];
-      };
-      plan_rate_limit_events: {
-        Row: {
-          created_at: string;
-          id: string;
-          ip_hash: string | null;
-          user_id: string;
-        };
-        Insert: {
-          created_at?: string;
-          id?: string;
-          ip_hash?: string | null;
-          user_id: string;
-        };
-        Update: {
-          created_at?: string;
-          id?: string;
-          ip_hash?: string | null;
-          user_id?: string;
-        };
-        Relationships: [
-          {
-            foreignKeyName: "plan_rate_limit_events_user_id_fkey";
-            columns: ["user_id"];
             isOneToOne: false;
             referencedRelation: "users";
             referencedColumns: ["id"];
@@ -725,6 +731,27 @@ export type Database = {
             referencedColumns: ["id"];
           },
         ];
+      };
+      sent_notifications: {
+        Row: {
+          created_at: string;
+          idempotency_key: string;
+          kind: string;
+          user_id: string;
+        };
+        Insert: {
+          created_at?: string;
+          idempotency_key: string;
+          kind: string;
+          user_id: string;
+        };
+        Update: {
+          created_at?: string;
+          idempotency_key?: string;
+          kind?: string;
+          user_id?: string;
+        };
+        Relationships: [];
       };
       subscriptions: {
         Row: {
@@ -910,7 +937,7 @@ export type Database = {
       claim_plan_rate_limit: {
         Args: {
           p_daily_max: number;
-          p_ip_hash?: string;
+          p_ip_hash: string;
           p_max_requests: number;
           p_window_seconds: number;
         };

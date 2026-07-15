@@ -129,9 +129,10 @@ function Sidebar() {
             </div>
             <div>
               <div className="flex justify-between text-[11px] text-muted-foreground mb-1">
-                <span>Créditos</span>
+                <span>Créditos usados</span>
                 <span>
-                  {profile.credits_used}/{profile.credits_limit}
+                  {profile.credits_used}/{profile.credits_limit} ·{" "}
+                  {Math.max(0, profile.credits_limit - profile.credits_used)} disponibles
                 </span>
               </div>
               <Progress value={percent} className="h-1.5" />
@@ -156,7 +157,9 @@ function Sidebar() {
           <Link
             to="/admin"
             className={`flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-medium transition ${
-              pathname.startsWith("/admin") ? "bg-white/10 text-foreground" : "text-muted-foreground hover:text-foreground hover:bg-white/5"
+              pathname.startsWith("/admin")
+                ? "bg-white/10 text-foreground"
+                : "text-muted-foreground hover:text-foreground hover:bg-white/5"
             }`}
           >
             <ShieldCheck className="w-3.5 h-3.5" /> Admin
@@ -229,7 +232,9 @@ function TopBar() {
           </PopoverTrigger>
           <PopoverContent align="end" className="w-64 text-sm">
             <p className="font-medium mb-1">Notificaciones</p>
-            <p className="text-muted-foreground text-xs">No tenés notificaciones nuevas por ahora.</p>
+            <p className="text-muted-foreground text-xs">
+              No tenés notificaciones nuevas por ahora.
+            </p>
           </PopoverContent>
         </Popover>
 
@@ -253,7 +258,10 @@ function TopBar() {
                 <Settings className="w-4 h-4" /> Configuración
               </Link>
             </DropdownMenuItem>
-            <DropdownMenuItem onClick={handleSignOut} className="flex items-center gap-2 cursor-pointer">
+            <DropdownMenuItem
+              onClick={handleSignOut}
+              className="flex items-center gap-2 cursor-pointer"
+            >
               <LogOut className="w-4 h-4" /> Cerrar sesión
             </DropdownMenuItem>
           </DropdownMenuContent>
@@ -268,7 +276,9 @@ function MobileTabs() {
   const [moreOpen, setMoreOpen] = useState(false);
   const direct = NAV.filter((item) => MOBILE_DIRECT.includes(item.to));
   const overflow = NAV.filter((item) => !MOBILE_DIRECT.includes(item.to));
-  const overflowActive = overflow.some((item) => pathname === item.to || pathname.startsWith(item.to + "/"));
+  const overflowActive = overflow.some(
+    (item) => pathname === item.to || pathname.startsWith(item.to + "/"),
+  );
 
   return (
     <>
@@ -320,7 +330,9 @@ function MobileTabs() {
                   to={item.to}
                   onClick={() => setMoreOpen(false)}
                   className={`flex flex-col items-center justify-center gap-1.5 p-4 rounded-xl border text-xs ${
-                    active ? "border-violet-500/50 bg-violet-500/10 text-foreground" : "border-white/10 bg-white/5 text-muted-foreground"
+                    active
+                      ? "border-violet-500/50 bg-violet-500/10 text-foreground"
+                      : "border-white/10 bg-white/5 text-muted-foreground"
                   }`}
                 >
                   <Icon className="w-5 h-5" />

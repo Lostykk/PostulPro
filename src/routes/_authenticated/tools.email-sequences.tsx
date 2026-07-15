@@ -1,12 +1,24 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Mail, Copy, Loader2, ClipboardCopy } from "lucide-react";
 import { toast } from "sonner";
 import { useAiStream } from "@/hooks/use-ai-stream";
 import { parseSections } from "@/lib/ai/parse-sections";
+import { useProjectStepContext, type StepGeneration } from "@/hooks/use-project-step-context";
+import {
+  saveEditedOutput,
+  restoreGeneratedOutput,
+  toggleApproval,
+} from "@/lib/deliverables/generation-actions";
+import { DeliverableRenderer } from "@/components/deliverables/DeliverableRenderer";
+import { ProjectContextBanner } from "@/components/deliverables/ProjectContextBanner";
 
 export const Route = createFileRoute("/_authenticated/tools/email-sequences")({
   head: () => ({ meta: [{ title: "Email Sequences — PostulPro" }] }),
+  validateSearch: (search: Record<string, unknown>): { projectId?: string; stepId?: string } => ({
+    projectId: typeof search.projectId === "string" ? search.projectId : undefined,
+    stepId: typeof search.stepId === "string" ? search.stepId : undefined,
+  }),
   component: EmailSequencesPage,
 });
 
@@ -19,6 +31,11 @@ const SEQUENCE_TYPES = [
 ] as const;
 
 function EmailSequencesPage() {
+  const { projectId, stepId } = Route.useSearch();
+  const stepCtx = useProjectStepContext(projectId, stepId);
+  const [gen, setGen] = useState<StepGeneration | null>(null);
+  const prefilledRef = useRef(false);
+
   const { output, streaming, generate } = useAiStream("email-sequences");
   const [sequenceId, setSequenceId] = useState<(typeof SEQUENCE_TYPES)[number]["id"]>("bienvenida");
   const [product, setProduct] = useState("");
@@ -28,6 +45,44 @@ function EmailSequencesPage() {
 
   const sequence = SEQUENCE_TYPES.find((s) => s.id === sequenceId)!;
   const sections = useMemo(() => parseSections(output), [output]);
+
+  useEffect(() => setGen(stepCtx.generation), [stepCtx.generation]);
+
+  useEffect(() => {
+    if (stepCtx.loading || stepCtx.generation || prefilledRef.current || !stepCtx.brief) return;
+    prefilledRef.current = true;
+    setProduct(stepCtx.brief.name || stepCtx.brief.description || "");
+    setAudience(stepCtx.brief.audience || "");
+    setObjective(stepCtx.brief.mainCta || "");
+  }, [stepCtx]);
+
+  if (projectId && gen) {
+    return (
+      <div className="max-w-4xl mx-auto px-4 md:px-6 py-8">
+        <ProjectContextBanner projectId={projectId} />
+        <h1 className="font-display text-2xl font-bold mb-4">📬 Email Sequences</h1>
+        <DeliverableRenderer
+          toolKey="email-sequences"
+          output={gen.output}
+          editedOutput={gen.editedOutput}
+          approvals={gen.approvals}
+          title="Email Sequences"
+          onSave={async (text) => {
+            await saveEditedOutput(gen.id, text);
+            setGen({ ...gen, editedOutput: text });
+          }}
+          onRestore={async () => {
+            await restoreGeneratedOutput(gen.id);
+            setGen({ ...gen, editedOutput: null });
+          }}
+          onToggleApproval={async (title, approved) => {
+            const next = await toggleApproval(gen.id, gen.approvals, title, approved);
+            setGen({ ...gen, approvals: next });
+          }}
+        />
+      </div>
+    );
+  }
 
   async function handleGenerate() {
     if (!product.trim() || !audience.trim()) {
@@ -73,13 +128,19 @@ ${blocks}`;
     <div className="max-w-6xl mx-auto px-4 md:px-6 py-8">
       <header className="mb-6">
         <h1 className="font-display text-3xl font-bold">📬 Email Sequences</h1>
-        <p className="mt-1 text-sm text-muted-foreground">3 créditos · secuencias completas de email marketing</p>
+        <p className="mt-1 text-sm text-muted-foreground">
+          3 créditos · secuencias completas de email marketing
+        </p>
       </header>
 
       <div className="grid lg:grid-cols-[380px_1fr] gap-6">
         <aside className="rounded-2xl border border-white/10 bg-white/5 p-5 space-y-4 h-fit">
           <Field label="Tipo de secuencia">
-            <select className="input" value={sequenceId} onChange={(e) => setSequenceId(e.target.value as typeof sequenceId)}>
+            <select
+              className="input"
+              value={sequenceId}
+              onChange={(e) => setSequenceId(e.target.value as typeof sequenceId)}
+            >
               {SEQUENCE_TYPES.map((s) => (
                 <option key={s.id} value={s.id} className="bg-background">
                   {s.label} ({s.count} emails)
@@ -88,13 +149,28 @@ ${blocks}`;
             </select>
           </Field>
           <Field label="Producto / servicio">
-            <input className="input" value={product} onChange={(e) => setProduct(e.target.value)} placeholder="Ej: Curso online" />
+            <input
+              className="input"
+              value={product}
+              onChange={(e) => setProduct(e.target.value)}
+              placeholder="Ej: Curso online"
+            />
           </Field>
           <Field label="Audiencia">
-            <input className="input" value={audience} onChange={(e) => setAudience(e.target.value)} placeholder="Ej: nuevos suscriptores" />
+            <input
+              className="input"
+              value={audience}
+              onChange={(e) => setAudience(e.target.value)}
+              placeholder="Ej: nuevos suscriptores"
+            />
           </Field>
           <Field label="Objetivo">
-            <textarea className="input min-h-[80px] resize-y" value={objective} onChange={(e) => setObjective(e.target.value)} placeholder="¿Qué querés lograr con esta secuencia?" />
+            <textarea
+              className="input min-h-[80px] resize-y"
+              value={objective}
+              onChange={(e) => setObjective(e.target.value)}
+              placeholder="¿Qué querés lograr con esta secuencia?"
+            />
           </Field>
           <button
             type="button"
@@ -125,7 +201,9 @@ ${blocks}`;
                       type="button"
                       onClick={() => setActiveTab(i)}
                       className={`px-3 py-1.5 rounded-md text-xs font-medium whitespace-nowrap transition ${
-                        activeTab === i ? "bg-white/10 text-foreground" : "text-muted-foreground hover:text-foreground"
+                        activeTab === i
+                          ? "bg-white/10 text-foreground"
+                          : "text-muted-foreground hover:text-foreground"
                       }`}
                     >
                       {s.title.replace("EMAIL ", "Email ")}
@@ -159,12 +237,16 @@ ${blocks}`;
                     {sections[activeTab].fields.preview && (
                       <div>
                         <div className="text-xs text-muted-foreground mb-1">Preview</div>
-                        <div className="text-sm text-muted-foreground italic">{sections[activeTab].fields.preview}</div>
+                        <div className="text-sm text-muted-foreground italic">
+                          {sections[activeTab].fields.preview}
+                        </div>
                       </div>
                     )}
                     <div>
                       <div className="text-xs text-muted-foreground mb-1">Cuerpo</div>
-                      <pre className="whitespace-pre-wrap font-sans text-sm leading-relaxed">{sections[activeTab].body}</pre>
+                      <pre className="whitespace-pre-wrap font-sans text-sm leading-relaxed">
+                        {sections[activeTab].body}
+                      </pre>
                     </div>
                   </div>
                 )}
@@ -175,7 +257,9 @@ ${blocks}`;
               {streaming ? (
                 <div>
                   <Loader2 className="w-6 h-6 animate-spin mx-auto mb-3" />
-                  <pre className="whitespace-pre-wrap font-sans text-xs text-left max-w-lg opacity-60">{output}</pre>
+                  <pre className="whitespace-pre-wrap font-sans text-xs text-left max-w-lg opacity-60">
+                    {output}
+                  </pre>
                 </div>
               ) : (
                 <div>

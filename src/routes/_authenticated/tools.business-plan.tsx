@@ -1,17 +1,38 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { ArrowLeft, ArrowRight, Copy, Download, FileDown, Loader2, Sparkles } from "lucide-react";
 import { toast } from "sonner";
 import { useAiStream, downloadTxt } from "@/hooks/use-ai-stream";
 import { exportReportPdf } from "@/lib/pdf-export";
+import { useProjectStepContext, type StepGeneration } from "@/hooks/use-project-step-context";
+import { saveEditedOutput, restoreGeneratedOutput } from "@/lib/deliverables/generation-actions";
+import { DeliverableRenderer } from "@/components/deliverables/DeliverableRenderer";
+import { ProjectContextBanner } from "@/components/deliverables/ProjectContextBanner";
 
 export const Route = createFileRoute("/_authenticated/tools/business-plan")({
   head: () => ({ meta: [{ title: "Business Plan — PostulPro" }] }),
+  validateSearch: (search: Record<string, unknown>): { projectId?: string; stepId?: string } => ({
+    projectId: typeof search.projectId === "string" ? search.projectId : undefined,
+    stepId: typeof search.stepId === "string" ? search.stepId : undefined,
+  }),
   component: BusinessPlanPage,
 });
 
-const REVENUE_STREAMS = ["Suscripción", "Venta única", "Freemium", "Marketplace/Comisión", "Publicidad", "Licencias"];
-const LAUNCH_TYPES = ["Soft launch", "Lanzamiento público", "Beta cerrada", "Product Hunt", "Crowdfunding"];
+const REVENUE_STREAMS = [
+  "Suscripción",
+  "Venta única",
+  "Freemium",
+  "Marketplace/Comisión",
+  "Publicidad",
+  "Licencias",
+];
+const LAUNCH_TYPES = [
+  "Soft launch",
+  "Lanzamiento público",
+  "Beta cerrada",
+  "Product Hunt",
+  "Crowdfunding",
+];
 
 type FormState = {
   name: string;
@@ -102,9 +123,52 @@ IMPORTANTE: cualquier cifra de mercado, proyección financiera o estimación que
 }
 
 function BusinessPlanPage() {
+  const { projectId, stepId } = Route.useSearch();
+  const stepCtx = useProjectStepContext(projectId, stepId);
+  const [gen, setGen] = useState<StepGeneration | null>(null);
+  const prefilledRef = useRef(false);
+
   const { output, streaming, generate } = useAiStream("business-plan");
   const [step, setStep] = useState(1);
   const [form, setForm] = useState<FormState>(EMPTY);
+
+  useEffect(() => setGen(stepCtx.generation), [stepCtx.generation]);
+
+  useEffect(() => {
+    if (stepCtx.loading || stepCtx.generation || prefilledRef.current || !stepCtx.brief) return;
+    prefilledRef.current = true;
+    setForm((f) => ({
+      ...f,
+      name: stepCtx.brief!.name || f.name,
+      oneLiner: stepCtx.brief!.description || f.oneLiner,
+      problem: stepCtx.brief!.problem || f.problem,
+      solution: stepCtx.brief!.solution || f.solution,
+      advantage: stepCtx.brief!.valueProposition || f.advantage,
+    }));
+  }, [stepCtx]);
+
+  if (projectId && gen) {
+    return (
+      <div className="max-w-4xl mx-auto px-4 md:px-6 py-8">
+        <ProjectContextBanner projectId={projectId} />
+        <h1 className="font-display text-2xl font-bold mb-4">📊 {form.name || "Business Plan"}</h1>
+        <DeliverableRenderer
+          toolKey="business-plan"
+          output={gen.output}
+          editedOutput={gen.editedOutput}
+          title={`Business Plan — ${form.name || "PostulPro"}`}
+          onSave={async (text) => {
+            await saveEditedOutput(gen.id, text);
+            setGen({ ...gen, editedOutput: text });
+          }}
+          onRestore={async () => {
+            await restoreGeneratedOutput(gen.id);
+            setGen({ ...gen, editedOutput: null });
+          }}
+        />
+      </div>
+    );
+  }
 
   const canNext =
     (step === 1 && form.name.trim() && form.problem.trim() && form.solution.trim()) ||
@@ -133,7 +197,10 @@ function BusinessPlanPage() {
 
   function handleDownload() {
     if (!output) return;
-    downloadTxt(output, `business-plan-${(form.name || "postulpro").slice(0, 40).replace(/\s+/g, "-")}.txt`);
+    downloadTxt(
+      output,
+      `business-plan-${(form.name || "postulpro").slice(0, 40).replace(/\s+/g, "-")}.txt`,
+    );
   }
 
   if (output || streaming) {
@@ -182,7 +249,9 @@ function BusinessPlanPage() {
             </div>
           )}
           <pre className="whitespace-pre-wrap font-sans text-sm leading-relaxed">{output}</pre>
-          {streaming && <span className="inline-block w-2 h-4 ml-0.5 bg-violet-400 animate-pulse align-middle" />}
+          {streaming && (
+            <span className="inline-block w-2 h-4 ml-0.5 bg-violet-400 animate-pulse align-middle" />
+          )}
         </div>
       </div>
     );
@@ -192,7 +261,9 @@ function BusinessPlanPage() {
     <div className="max-w-2xl mx-auto px-4 md:px-6 py-8">
       <header className="mb-6">
         <h1 className="font-display text-3xl font-bold">📊 Business Plan IA</h1>
-        <p className="mt-1 text-sm text-muted-foreground">5 créditos · wizard de 5 pasos · exportable a PDF</p>
+        <p className="mt-1 text-sm text-muted-foreground">
+          5 créditos · wizard de 5 pasos · exportable a PDF
+        </p>
       </header>
 
       <ProgressBar step={step} total={5} />
@@ -202,19 +273,44 @@ function BusinessPlanPage() {
           <>
             <h2 className="font-display font-bold text-lg">Paso 1 · Idea</h2>
             <Field label="Nombre">
-              <input className="input" value={form.name} onChange={(e) => update("name", e.target.value)} placeholder="Nombre de tu negocio" />
+              <input
+                className="input"
+                value={form.name}
+                onChange={(e) => update("name", e.target.value)}
+                placeholder="Nombre de tu negocio"
+              />
             </Field>
             <Field label="Descripción en una frase">
-              <input className="input" value={form.oneLiner} onChange={(e) => update("oneLiner", e.target.value)} placeholder="¿Qué hace tu negocio?" />
+              <input
+                className="input"
+                value={form.oneLiner}
+                onChange={(e) => update("oneLiner", e.target.value)}
+                placeholder="¿Qué hace tu negocio?"
+              />
             </Field>
             <Field label="Problema">
-              <textarea className="input min-h-[70px] resize-y" value={form.problem} onChange={(e) => update("problem", e.target.value)} placeholder="¿Qué problema resuelve?" />
+              <textarea
+                className="input min-h-[70px] resize-y"
+                value={form.problem}
+                onChange={(e) => update("problem", e.target.value)}
+                placeholder="¿Qué problema resuelve?"
+              />
             </Field>
             <Field label="Solución">
-              <textarea className="input min-h-[70px] resize-y" value={form.solution} onChange={(e) => update("solution", e.target.value)} placeholder="¿Cómo lo resuelve?" />
+              <textarea
+                className="input min-h-[70px] resize-y"
+                value={form.solution}
+                onChange={(e) => update("solution", e.target.value)}
+                placeholder="¿Cómo lo resuelve?"
+              />
             </Field>
             <Field label="Industria">
-              <input className="input" value={form.industry} onChange={(e) => update("industry", e.target.value)} placeholder="Ej: EdTech, FinTech, E-commerce" />
+              <input
+                className="input"
+                value={form.industry}
+                onChange={(e) => update("industry", e.target.value)}
+                placeholder="Ej: EdTech, FinTech, E-commerce"
+              />
             </Field>
           </>
         )}
@@ -223,7 +319,12 @@ function BusinessPlanPage() {
           <>
             <h2 className="font-display font-bold text-lg">Paso 2 · Mercado</h2>
             <Field label="País">
-              <input className="input" value={form.country} onChange={(e) => update("country", e.target.value)} placeholder="Ej: Argentina" />
+              <input
+                className="input"
+                value={form.country}
+                onChange={(e) => update("country", e.target.value)}
+                placeholder="Ej: Argentina"
+              />
             </Field>
             <Field label="Tipo">
               <div className="flex gap-2">
@@ -233,7 +334,9 @@ function BusinessPlanPage() {
                     type="button"
                     onClick={() => update("model", m)}
                     className={`flex-1 h-10 rounded-lg text-sm font-medium transition ${
-                      form.model === m ? "bg-violet-500/20 border border-violet-500/50 text-violet-200" : "bg-white/5 border border-white/10 text-muted-foreground"
+                      form.model === m
+                        ? "bg-violet-500/20 border border-violet-500/50 text-violet-200"
+                        : "bg-white/5 border border-white/10 text-muted-foreground"
                     }`}
                   >
                     {m}
@@ -242,10 +345,20 @@ function BusinessPlanPage() {
               </div>
             </Field>
             <Field label="Tamaño de mercado (opcional)">
-              <input className="input" value={form.marketSize} onChange={(e) => update("marketSize", e.target.value)} placeholder="Si tenés un dato propio, indicalo" />
+              <input
+                className="input"
+                value={form.marketSize}
+                onChange={(e) => update("marketSize", e.target.value)}
+                placeholder="Si tenés un dato propio, indicalo"
+              />
             </Field>
             <Field label="Hasta 3 competidores">
-              <input className="input" value={form.competitors} onChange={(e) => update("competitors", e.target.value)} placeholder="Separados por coma" />
+              <input
+                className="input"
+                value={form.competitors}
+                onChange={(e) => update("competitors", e.target.value)}
+                placeholder="Separados por coma"
+              />
             </Field>
           </>
         )}
@@ -262,10 +375,17 @@ function BusinessPlanPage() {
                       key={r}
                       type="button"
                       onClick={() =>
-                        update("revenueStreams", active ? form.revenueStreams.filter((x) => x !== r) : [...form.revenueStreams, r])
+                        update(
+                          "revenueStreams",
+                          active
+                            ? form.revenueStreams.filter((x) => x !== r)
+                            : [...form.revenueStreams, r],
+                        )
                       }
                       className={`px-3 h-8 rounded-full text-xs font-medium transition ${
-                        active ? "bg-violet-500/20 border border-violet-500/50 text-violet-200" : "bg-white/5 border border-white/10 text-muted-foreground"
+                        active
+                          ? "bg-violet-500/20 border border-violet-500/50 text-violet-200"
+                          : "bg-white/5 border border-white/10 text-muted-foreground"
                       }`}
                     >
                       {r}
@@ -275,13 +395,28 @@ function BusinessPlanPage() {
               </div>
             </Field>
             <Field label="Precio">
-              <input className="input" value={form.price} onChange={(e) => update("price", e.target.value)} placeholder="Ej: $29/mes" />
+              <input
+                className="input"
+                value={form.price}
+                onChange={(e) => update("price", e.target.value)}
+                placeholder="Ej: $29/mes"
+              />
             </Field>
             <Field label="CAC estimado">
-              <input className="input" value={form.cac} onChange={(e) => update("cac", e.target.value)} placeholder="Costo de adquisición de cliente" />
+              <input
+                className="input"
+                value={form.cac}
+                onChange={(e) => update("cac", e.target.value)}
+                placeholder="Costo de adquisición de cliente"
+              />
             </Field>
             <Field label="Canal principal">
-              <input className="input" value={form.channel} onChange={(e) => update("channel", e.target.value)} placeholder="Ej: Ads, contenido, referidos" />
+              <input
+                className="input"
+                value={form.channel}
+                onChange={(e) => update("channel", e.target.value)}
+                placeholder="Ej: Ads, contenido, referidos"
+              />
             </Field>
           </>
         )}
@@ -290,21 +425,46 @@ function BusinessPlanPage() {
           <>
             <h2 className="font-display font-bold text-lg">Paso 4 · Finanzas</h2>
             <Field label="Inversión inicial">
-              <input className="input" value={form.initialInvestment} onChange={(e) => update("initialInvestment", e.target.value)} placeholder="Ej: $5,000" />
+              <input
+                className="input"
+                value={form.initialInvestment}
+                onChange={(e) => update("initialInvestment", e.target.value)}
+                placeholder="Ej: $5,000"
+              />
             </Field>
             <div className="grid grid-cols-3 gap-3">
               <Field label="Meta mes 1">
-                <input className="input" value={form.goalMonth1} onChange={(e) => update("goalMonth1", e.target.value)} placeholder="$" />
+                <input
+                  className="input"
+                  value={form.goalMonth1}
+                  onChange={(e) => update("goalMonth1", e.target.value)}
+                  placeholder="$"
+                />
               </Field>
               <Field label="Meta mes 6">
-                <input className="input" value={form.goalMonth6} onChange={(e) => update("goalMonth6", e.target.value)} placeholder="$" />
+                <input
+                  className="input"
+                  value={form.goalMonth6}
+                  onChange={(e) => update("goalMonth6", e.target.value)}
+                  placeholder="$"
+                />
               </Field>
               <Field label="Meta mes 12">
-                <input className="input" value={form.goalMonth12} onChange={(e) => update("goalMonth12", e.target.value)} placeholder="$" />
+                <input
+                  className="input"
+                  value={form.goalMonth12}
+                  onChange={(e) => update("goalMonth12", e.target.value)}
+                  placeholder="$"
+                />
               </Field>
             </div>
             <Field label="Costos fijos mensuales">
-              <input className="input" value={form.fixedCosts} onChange={(e) => update("fixedCosts", e.target.value)} placeholder="Ej: $800/mes" />
+              <input
+                className="input"
+                value={form.fixedCosts}
+                onChange={(e) => update("fixedCosts", e.target.value)}
+                placeholder="Ej: $800/mes"
+              />
             </Field>
           </>
         )}
@@ -313,10 +473,19 @@ function BusinessPlanPage() {
           <>
             <h2 className="font-display font-bold text-lg">Paso 5 · Estrategia</h2>
             <Field label="Ventaja competitiva">
-              <textarea className="input min-h-[70px] resize-y" value={form.advantage} onChange={(e) => update("advantage", e.target.value)} placeholder="¿Por qué vos y no otro?" />
+              <textarea
+                className="input min-h-[70px] resize-y"
+                value={form.advantage}
+                onChange={(e) => update("advantage", e.target.value)}
+                placeholder="¿Por qué vos y no otro?"
+              />
             </Field>
             <Field label="Tipo de lanzamiento">
-              <select className="input" value={form.launchType} onChange={(e) => update("launchType", e.target.value)}>
+              <select
+                className="input"
+                value={form.launchType}
+                onChange={(e) => update("launchType", e.target.value)}
+              >
                 {LAUNCH_TYPES.map((t) => (
                   <option key={t} value={t} className="bg-background">
                     {t}
@@ -325,7 +494,12 @@ function BusinessPlanPage() {
               </select>
             </Field>
             <Field label="Timeline (1-12 meses)">
-              <textarea className="input min-h-[70px] resize-y" value={form.timeline} onChange={(e) => update("timeline", e.target.value)} placeholder="Hitos clave por mes" />
+              <textarea
+                className="input min-h-[70px] resize-y"
+                value={form.timeline}
+                onChange={(e) => update("timeline", e.target.value)}
+                placeholder="Hitos clave por mes"
+              />
             </Field>
           </>
         )}
@@ -343,7 +517,9 @@ function BusinessPlanPage() {
         {step < 5 ? (
           <button
             type="button"
-            onClick={() => (canNext ? setStep((s) => s + 1) : toast.error("Completa los campos requeridos"))}
+            onClick={() =>
+              canNext ? setStep((s) => s + 1) : toast.error("Completa los campos requeridos")
+            }
             className="inline-flex items-center gap-2 h-11 px-6 rounded-lg bg-gradient-to-r from-violet-500 to-fuchsia-500 text-white font-semibold text-sm hover:opacity-95 transition"
           >
             Siguiente <ArrowRight className="w-4 h-4" />
@@ -381,7 +557,10 @@ function ProgressBar({ step, total }: { step: number; total: number }) {
         <span>{Math.round((step / total) * 100)}%</span>
       </div>
       <div className="h-1.5 rounded-full bg-white/5 overflow-hidden">
-        <div className="h-full bg-gradient-to-r from-violet-500 to-fuchsia-500 transition-all" style={{ width: `${(step / total) * 100}%` }} />
+        <div
+          className="h-full bg-gradient-to-r from-violet-500 to-fuchsia-500 transition-all"
+          style={{ width: `${(step / total) * 100}%` }}
+        />
       </div>
     </div>
   );
