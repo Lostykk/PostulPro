@@ -141,6 +141,27 @@ describe("generateProjectPlan — malformed / empty / invalid-schema responses",
     });
   });
 
+  it("regression: a schema failure retry cites the exact field/constraint instead of a generic 'not valid JSON' message (real bug: brief.tone too_big)", async () => {
+    const tooLongTone = "a".repeat(250); // schema caps brief.tone at 200
+    const badTone = {
+      brief: { tone: tooLongTone },
+      plan: {
+        title: "Plan de prueba",
+        deliverables: [{ toolKey: "copywriter", title: "Post de LinkedIn", description: "Un post breve" }],
+      },
+    };
+    const spy = mockModelOnce([
+      { text: JSON.stringify(badTone), stopReason: "end_turn" },
+      { text: JSON.stringify(VALID_RESPONSE), stopReason: "end_turn" },
+    ]);
+    const result = await generateProjectPlan(BASE_INPUT);
+    expect(result.plan.title).toBe("Plan de prueba");
+    const retryPrompt = spy.mock.calls[1][1] as string;
+    expect(retryPrompt).toMatch(/brief\.tone/);
+    expect(retryPrompt).toMatch(/200/);
+    expect(retryPrompt).not.toMatch(/no era JSON válido/);
+  });
+
   it("9. classifies a genuinely empty response as empty_response", async () => {
     mockModelOnce([
       { text: "", stopReason: "end_turn" },

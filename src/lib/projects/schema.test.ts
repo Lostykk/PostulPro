@@ -100,4 +100,17 @@ describe("ProjectBriefSchema", () => {
     expect(result.knownFacts).toEqual([]);
     expect(result.language).toBe("es");
   });
+
+  it("accepts a real-world tone phrase up to 200 chars (a real planner run showed ~180 chars is normal, not exceptional)", () => {
+    const realisticTone =
+      "Profesional pero cercano y accesible, transmitiendo confianza y expertise sin ser intimidante, con un toque de calidez humana en cada interacción";
+    expect(realisticTone.length).toBeLessThanOrEqual(200);
+    const result = ProjectBriefSchema.parse({ tone: realisticTone });
+    expect(result.tone).toBe(realisticTone);
+  });
+
+  it("still rejects a tone field beyond the 200-char cap", () => {
+    const result = ProjectBriefSchema.safeParse({ tone: "a".repeat(201) });
+    expect(result.success).toBe(false);
+  });
 });

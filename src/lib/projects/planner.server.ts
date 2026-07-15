@@ -106,6 +106,7 @@ Reglas estrictas:
 - "brief" es el contexto canónico que van a usar TODOS los entregables — tiene que ser coherente (misma audiencia, mismo tono, misma propuesta de valor) para que los entregables no se contradigan entre sí.
 - Cada deliverable.input es el conjunto de datos concretos que esa herramienta va a necesitar (ej: para landing-copy, el producto y el ICP; para business-plan, nombre/problema/solución/país).
 - estimatedCredits es solo orientativo — el servidor va a recalcular el costo real, no dependas de que ese número se use tal cual.
+- "tone" es solo una etiqueta breve (2 a 6 palabras, ej. "profesional y cercano" o "directo y sin rodeos") — nunca una oración completa ni una lista de adjetivos con explicación.
 
 Formato exacto de salida (JSON):
 {
@@ -211,7 +212,7 @@ type PlannerRetryableCode = Exclude<PlannerErrorCode, "no_valid_deliverables" | 
 
 type ParseOutcome =
   | { ok: true; data: PlannerResult }
-  | { ok: false; code: PlannerRetryableCode; detail: string };
+  | { ok: false; code: PlannerRetryableCode; detail: string; issues?: z.ZodIssue[] };
 
 // Classifies exactly why a response didn't produce a usable plan, using the
 // provider's own stop_reason as the signal for "was this actually cut off"
@@ -237,15 +238,38 @@ function classifyResponse(raw: string, stopReason: string | null): ParseOutcome 
 
   const result = PlannerResponseSchema.safeParse(json);
   if (!result.success) {
-    const issue = result.error.issues[0];
+    const issues = result.error.issues;
+    const issue = issues[0];
     return {
       ok: false,
       code: "schema_validation_failed",
       detail: issue ? `${issue.path.join(".") || "(root)"}: ${issue.code}` : "schema mismatch",
+      issues,
     };
   }
 
   return { ok: true, data: result.data };
+}
+
+// Turns a zod issue into an instruction the model can actually act on —
+// naming the exact field and constraint it violated, not just "fix the
+// JSON". A real run showed the retry repeating the identical mistake
+// ("brief.tone" over the old 120-char cap) twice in a row because the
+// generic "not valid JSON" retry text never told it what was actually wrong.
+function describeIssue(issue: z.ZodIssue): string {
+  const path = issue.path.join(".") || "(root)";
+  if (issue.code === "too_big") {
+    const unit = issue.type === "array" ? "elementos" : "caracteres";
+    return `"${path}" no puede tener más de ${issue.maximum} ${unit} — está superando ese límite, acortalo manteniendo el sentido.`;
+  }
+  if (issue.code === "too_small") {
+    const unit = issue.type === "array" ? "elementos" : "caracteres";
+    return `"${path}" necesita al menos ${issue.minimum} ${unit}.`;
+  }
+  if (issue.code === "invalid_type") {
+    return `"${path}" debe ser de tipo ${issue.expected}, no ${issue.received}.`;
+  }
+  return `"${path}": ${issue.message}`;
 }
 
 // Safe, structured diagnostic — never the prompt, never the raw response.
@@ -263,9 +287,16 @@ function logPlannerParseFailure(attempt: number, code: string, detail: string, r
   );
 }
 
-function buildRetryPrompt(userPrompt: string, code: PlannerRetryableCode): string {
-  if (code === "truncated_response") {
+function buildRetryPrompt(
+  userPrompt: string,
+  outcome: Extract<ParseOutcome, { ok: false }>,
+): string {
+  if (outcome.code === "truncated_response") {
     return `${userPrompt}\n\nTu respuesta anterior se cortó por exceder el límite de longitud antes de terminar el JSON. Esta vez respondé de forma MÁS BREVE para que entre completo: máximo 4 entregables, "knownFacts"/"assumptions" con máximo 3 elementos cada uno, descripciones de una sola oración. Seguí devolviendo ÚNICAMENTE el objeto JSON exacto descripto arriba, sin texto adicional, y asegurate de cerrar todas las llaves y corchetes.`;
+  }
+  if (outcome.code === "schema_validation_failed" && outcome.issues?.length) {
+    const corrections = outcome.issues.slice(0, 5).map((i) => `- ${describeIssue(i)}`).join("\n");
+    return `${userPrompt}\n\nTu respuesta anterior era JSON válido pero no cumplía el formato exacto pedido. Corregí específicamente esto y volvé a mandar el objeto completo:\n${corrections}\n\nRespondé ÚNICAMENTE con el objeto JSON corregido, sin texto adicional.`;
   }
   return `${userPrompt}\n\nTu respuesta anterior no era JSON válido. Respondé ÚNICAMENTE con el objeto JSON exacto descripto arriba, sin texto adicional antes o después, sin bloques de markdown.`;
 }
@@ -289,7 +320,7 @@ export async function generateProjectPlan(input: PlannerInput): Promise<PlannerR
     // Exactly one controlled retry, regardless of which of the four
     // classified failure modes occurred — never more than one extra model
     // call per submit, so a stuck provider can't multiply cost or latency.
-    const retryPrompt = buildRetryPrompt(userPrompt, outcome.code);
+    const retryPrompt = buildRetryPrompt(userPrompt, outcome);
     ({ text, stopReason } = await callPlannerModel(systemPrompt, retryPrompt, PLANNER_MAX_TOKENS));
     outcome = classifyResponse(text, stopReason);
   }

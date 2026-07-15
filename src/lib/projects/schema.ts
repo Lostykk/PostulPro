@@ -27,7 +27,12 @@ export const ProjectBriefSchema = z.object({
   audience: z.string().trim().max(300).default(""),
   valueProposition: z.string().trim().max(400).default(""),
   offer: z.string().trim().max(300).default(""),
-  tone: z.string().trim().max(120).default(""),
+  // 200 (not the original 120) with real headroom: a real planner run
+  // showed the model consistently writing a short descriptive phrase here
+  // ("profesional pero cercano y accesible, transmitiendo confianza...")
+  // rather than a couple of words — 120 rejected valid, well-formed
+  // responses on both the first attempt and the identical retry.
+  tone: z.string().trim().max(200).default(""),
   language: z.string().trim().min(2).max(10).default("es"),
   constraints: z.array(z.string().trim().max(200)).max(10).default([]),
   knownFacts: z.array(z.string().trim().max(300)).max(15).default([]),
