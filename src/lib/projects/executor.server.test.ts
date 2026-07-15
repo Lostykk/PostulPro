@@ -6,7 +6,10 @@ import * as callModelModule from "@/lib/ai/call-model.server";
 // actually uses: .rpc(name, args) and .from(table).select/insert/eq/maybeSingle.
 // Each test configures rpcResults[name] to control what that RPC "returns",
 // and asserts on the recorded call log instead of a real database.
-function createMockSupabase(rpcResults: Record<string, { data: unknown; error: unknown }>) {
+function createMockSupabase(
+  rpcResults: Record<string, { data: unknown; error: unknown }>,
+  usersRowOverride?: Record<string, unknown>,
+) {
   const calls: { type: "rpc" | "from"; name: string; args?: unknown }[] = [];
 
   const rpc = vi.fn((name: string, args?: unknown) => {
@@ -28,7 +31,7 @@ function createMockSupabase(rpcResults: Record<string, { data: unknown; error: u
         if (table === "generations") return Promise.resolve({ data: { id: "gen-1" }, error: null });
         if (table === "users")
           return Promise.resolve({
-            data: { plan: "free", credits_used: 1, credits_limit: 60 },
+            data: { plan: "free", credits_used: 1, credits_limit: 60, role: "user", ...usersRowOverride },
             error: null,
           });
         if (table === "ai_projects")
@@ -275,14 +278,38 @@ describe("runProjectStep — provider failure after credits were reserved", () =
 });
 
 describe("runProjectStep — preview allowlist gate short-circuits everything else", () => {
-  it("rejects a non-allowlisted user in preview before even claiming the step", async () => {
+  it("rejects a non-allowlisted, non-admin user in preview before even claiming the step", async () => {
     process.env.APP_ENV = "preview";
     process.env.AI_GENERATION_ENABLED = "true";
     process.env.PREVIEW_AI_ALLOWED_USER_ID = "the-qa-user";
-    const supabase = createMockSupabase({});
+    const supabase = createMockSupabase({}, { role: "user" });
     const res = await runProjectStep(supabase, "someone-else", "proj-1", "step-1");
     expect(res.status).toBe(403);
-    expect(supabase.calls).toHaveLength(0);
+    // The only DB interaction allowed before rejection is the role lookup
+    // itself (needed to know the caller isn't an admin) — the claim/reserve
+    // RPCs that actually do something must never be reached.
+    expect(supabase.calls.filter((c) => c.type === "rpc")).toHaveLength(0);
+    delete process.env.APP_ENV;
+    delete process.env.AI_GENERATION_ENABLED;
+    delete process.env.PREVIEW_AI_ALLOWED_USER_ID;
+  });
+
+  it("allows an admin who is NOT the allowlisted QA user to proceed past the gate", async () => {
+    process.env.APP_ENV = "preview";
+    process.env.AI_GENERATION_ENABLED = "true";
+    process.env.PREVIEW_AI_ALLOWED_USER_ID = "the-qa-user";
+    const supabase = createMockSupabase(
+      {
+        claim_ai_project_step: { data: [{ claimed: false, reason: "forbidden" }], error: null },
+      },
+      { role: "admin" },
+    );
+    const res = await runProjectStep(supabase, "founder-not-qa", "proj-1", "step-1");
+    // Proved past the gate: it reached the claim RPC (and got a normal 403
+    // for an unrelated reason — "forbidden" ownership — not the preview
+    // allowlist 403). A blocked-by-gate call never reaches claim at all.
+    expect(supabase.calls.some((c) => c.name === "claim_ai_project_step")).toBe(true);
+    expect(res.status).toBe(403);
     delete process.env.APP_ENV;
     delete process.env.AI_GENERATION_ENABLED;
     delete process.env.PREVIEW_AI_ALLOWED_USER_ID;

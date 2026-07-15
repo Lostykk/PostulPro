@@ -123,3 +123,44 @@ describe("checkAiExecutionAllowed — preview, allowlist not configured (fails c
     expect(checkAiExecutionAllowed(OTHER_USER_ID)).toMatchObject({ allowed: false, status: 403 });
   });
 });
+
+describe("checkAiExecutionAllowed — admin bypass (second argument)", () => {
+  beforeEach(() => {
+    process.env.APP_ENV = "preview";
+    process.env.AI_GENERATION_ENABLED = "true";
+    process.env.PREVIEW_AI_ALLOWED_USER_ID = QA_USER_ID;
+  });
+
+  it("allows a non-allowlisted user when isAdmin is true — the QA allowlist is preserved, not replaced", () => {
+    expect(checkAiExecutionAllowed(OTHER_USER_ID, true)).toEqual({ allowed: true });
+    // The original allowlisted QA user still works too, independent of admin status.
+    expect(checkAiExecutionAllowed(QA_USER_ID, false)).toEqual({ allowed: true });
+  });
+
+  it("defaults isAdmin to false when omitted — non-allowlisted callers still rejected", () => {
+    expect(checkAiExecutionAllowed(OTHER_USER_ID)).toMatchObject({ allowed: false, status: 403 });
+  });
+
+  it("still blocks a non-admin, non-allowlisted user even when isAdmin is explicitly false", () => {
+    expect(checkAiExecutionAllowed(OTHER_USER_ID, false)).toMatchObject({
+      allowed: false,
+      status: 403,
+      code: "ai_restricted_in_preview",
+    });
+  });
+
+  it("the kill switch still blocks admins — it is an operational switch, not a per-user restriction", () => {
+    process.env.AI_GENERATION_ENABLED = "false";
+    expect(checkAiExecutionAllowed(OTHER_USER_ID, true)).toMatchObject({
+      allowed: false,
+      status: 503,
+      code: "ai_disabled_in_preview",
+    });
+  });
+
+  it("production ignores isAdmin entirely — already unrestricted regardless", () => {
+    delete process.env.APP_ENV;
+    expect(checkAiExecutionAllowed(OTHER_USER_ID, false)).toEqual({ allowed: true });
+    expect(checkAiExecutionAllowed(OTHER_USER_ID, true)).toEqual({ allowed: true });
+  });
+});

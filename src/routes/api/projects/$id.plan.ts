@@ -4,7 +4,7 @@ import { generateProjectPlan, PlannerError } from "@/lib/projects/planner.server
 import { isProjectCapability, realCreditsFor } from "@/lib/projects/capabilities.server";
 import { PlanDeliverableSchema, MAX_DELIVERABLES } from "@/lib/projects/schema";
 import { claimPlanRateLimit, rateLimitHeaders } from "@/lib/rate-limit.server";
-import { checkAiExecutionAllowed } from "@/lib/ai/preview-guard.server";
+import { checkAiExecutionAllowed, isPreviewEnvironment } from "@/lib/ai/preview-guard.server";
 import { isOwner } from "@/lib/auth/is-owner";
 import { z } from "zod";
 
@@ -124,8 +124,19 @@ export const Route = createFileRoute("/api/projects/$id/plan")({
         }
 
         // Preview-only allowlist gate — checked before rate limiting/credits
-        // so a disallowed caller never even reaches those. No-op in production.
-        const guard = checkAiExecutionAllowed(userId);
+        // so a disallowed caller never even reaches those. Admins bypass the
+        // single-QA-user restriction without replacing it. The role lookup
+        // only runs in preview, so production pays zero extra cost.
+        let isAdminForGuard = false;
+        if (isPreviewEnvironment()) {
+          const { data: guardProfile } = await supabase
+            .from("users")
+            .select("role")
+            .eq("id", userId)
+            .maybeSingle();
+          isAdminForGuard = isOwner(guardProfile);
+        }
+        const guard = checkAiExecutionAllowed(userId, isAdminForGuard);
         if (!guard.allowed) {
           return json({ error: guard.message, code: guard.code }, guard.status);
         }

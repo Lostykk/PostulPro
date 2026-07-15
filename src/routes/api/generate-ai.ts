@@ -42,8 +42,20 @@ export const Route = createFileRoute("/api/generate-ai")({
         if (userErr || !userData?.user) return json({ error: "Unauthorized" }, 401);
         const userId = userData.user.id;
 
-        // Preview-only allowlist gate — no-op in production.
-        const guard = checkAiExecutionAllowed(userId);
+        // Fetch user's plan/role once, up front — needed both for the
+        // preview allowlist gate (admins bypass it) and the plan gate below.
+        const { data: profile, error: profErr } = await supabase
+          .from("users")
+          .select("plan,role")
+          .eq("id", userId)
+          .maybeSingle();
+        if (profErr || !profile) return json({ error: "Profile not found" }, 404);
+        const owner = isOwner(profile);
+
+        // Preview-only allowlist gate — admins bypass the single-QA-user
+        // restriction without replacing it; the kill switch still applies to
+        // everyone. No-op in production.
+        const guard = checkAiExecutionAllowed(userId, owner);
         if (!guard.allowed) return json({ error: guard.message, code: guard.code }, guard.status);
 
         let body: { tool?: string; prompt?: string; title?: string };
@@ -59,15 +71,6 @@ export const Route = createFileRoute("/api/generate-ai")({
 
         const tool = getTool(toolId);
         if (!tool) return json({ error: `Unknown tool: ${toolId}` }, 400);
-
-        // Fetch user's plan
-        const { data: profile, error: profErr } = await supabase
-          .from("users")
-          .select("plan,role")
-          .eq("id", userId)
-          .maybeSingle();
-        if (profErr || !profile) return json({ error: "Profile not found" }, 404);
-        const owner = isOwner(profile);
 
         // Plan gate — owners get full internal tool access without a plan change.
         if (tool.planGate && !owner) {

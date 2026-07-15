@@ -2,7 +2,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database } from "@/integrations/supabase/types";
 import { getTool } from "@/lib/ai/tools-config.server";
 import { callModel, logModelUsage, type ModelUsage } from "@/lib/ai/call-model.server";
-import { checkAiExecutionAllowed } from "@/lib/ai/preview-guard.server";
+import { checkAiExecutionAllowed, isPreviewEnvironment } from "@/lib/ai/preview-guard.server";
 import { maybeSendLowCreditsEmail } from "@/lib/notifications/low-credits.server";
 import { buildStepPrompt } from "@/lib/projects/step-prompts.server";
 import { getCapabilityMeta } from "@/lib/projects/capabilities.server";
@@ -48,9 +48,16 @@ export async function runProjectStep(
   appOrigin?: string,
 ): Promise<Response> {
   // Preview-only allowlist gate — checked before the atomic claim so a
-  // disallowed caller never puts a step into "claimed" state. No-op in
-  // production.
-  const guard = checkAiExecutionAllowed(userId);
+  // disallowed caller never puts a step into "claimed" state. Admins bypass
+  // the single-QA-user restriction without replacing it. The extra role
+  // lookup only runs in preview, so production pays zero cost for it — this
+  // whole block is a no-op there, same as before.
+  let isAdminForGuard = false;
+  if (isPreviewEnvironment()) {
+    const { data: guardProfile } = await supabase.from("users").select("role").eq("id", userId).maybeSingle();
+    isAdminForGuard = isOwner(guardProfile);
+  }
+  const guard = checkAiExecutionAllowed(userId, isAdminForGuard);
   if (!guard.allowed) return json({ error: guard.message, code: guard.code }, guard.status);
 
   const { data: claimRows, error: claimErr } = await supabase.rpc("claim_ai_project_step", {

@@ -60,6 +60,17 @@ describe("listProjectCapabilities plan gating", () => {
     const business = listProjectCapabilities("business");
     expect(business.length).toBeGreaterThanOrEqual(free.length);
   });
+
+  it("owner override lifts every plan gate without changing the caller's plan", () => {
+    const freeAsOwner = listProjectCapabilities("free", true);
+    const business = listProjectCapabilities("business");
+    expect(freeAsOwner.length).toBe(Object.keys(TOOLS).filter((k) => k !== "consultant").length);
+    expect(freeAsOwner.length).toBeGreaterThanOrEqual(business.length);
+  });
+
+  it("owner override defaults to off — omitting it behaves exactly like a plain free plan", () => {
+    expect(listProjectCapabilities("free")).toEqual(listProjectCapabilities("free", false));
+  });
 });
 
 describe("getCapabilityMeta", () => {
