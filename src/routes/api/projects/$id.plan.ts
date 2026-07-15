@@ -6,6 +6,7 @@ import { PlanDeliverableSchema, MAX_DELIVERABLES } from "@/lib/projects/schema";
 import { claimPlanRateLimit, rateLimitHeaders } from "@/lib/rate-limit.server";
 import { checkAiExecutionAllowed, isPreviewEnvironment } from "@/lib/ai/preview-guard.server";
 import { isOwner } from "@/lib/auth/is-owner";
+import { canRetryPlanning } from "@/lib/projects/planning-gate";
 import { z } from "zod";
 
 // POST  /api/projects/:id/plan — run the planner against the project's
@@ -107,13 +108,20 @@ export const Route = createFileRoute("/api/projects/$id/plan")({
 
         const { data: project, error: loadErr } = await supabase
           .from("ai_projects")
-          .select("id,status,original_idea,objective,target_audience,language")
+          .select("id,status,original_idea,objective,target_audience,language,plan_json")
           .eq("id", params.id)
           .eq("user_id", userId)
           .maybeSingle();
         if (loadErr) return json({ error: "No se pudo cargar el proyecto." }, 500);
         if (!project) return json({ error: "Proyecto no encontrado." }, 404);
-        if (!["planning", "awaiting_confirmation"].includes(project.status)) {
+        // A project that failed during planning (no plan_json ever saved) is
+        // retriable on this same id — that's the whole point of persisting a
+        // real 'failed' state instead of leaving it stuck in 'planning'. A
+        // project that failed later, during step execution (plan_json
+        // exists, steps/credits already in play), is NOT retriable here —
+        // regenerating the plan would silently wipe real progress; that case
+        // goes through the step-level retry endpoints instead.
+        if (!canRetryPlanning(project.status, Boolean(project.plan_json))) {
           return json(
             {
               error: `El proyecto no está en un estado planificable (${project.status}).`,
@@ -184,6 +192,19 @@ export const Route = createFileRoute("/api/projects/$id/plan")({
             userContext: { primaryGoal: profile?.primary_goal, companyName: profile?.company_name },
           });
         } catch (err) {
+          // Persist the failure so the project is a real, revisitable
+          // "failed" state instead of staying stuck in "planning" forever
+          // with no plan/steps and no way to tell "still running" apart
+          // from "silently died". Best-effort: if this write itself fails,
+          // the original planner error still reaches the client below.
+          const errorCode = err instanceof PlannerError ? err.code : "unknown_error";
+          await supabase
+            .rpc("fail_ai_project_planning", { p_project_id: params.id, p_error_code: errorCode })
+            .then(
+              () => {},
+              () => {},
+            );
+
           if (err instanceof PlannerError) {
             return json(
               { error: err.message, code: err.code },
@@ -228,6 +249,15 @@ export const Route = createFileRoute("/api/projects/$id/plan")({
               projectId: params.id,
             }),
           );
+          await supabase
+            .rpc("fail_ai_project_planning", {
+              p_project_id: params.id,
+              p_error_code: "persistence_failed",
+            })
+            .then(
+              () => {},
+              () => {},
+            );
           return json(
             {
               error: "No pudimos terminar el diseño del proyecto. Tu saldo no fue afectado.",

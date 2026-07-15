@@ -1,10 +1,8 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
-import { Sparkles, Loader2, ChevronDown, ArrowRight, X, Plus, GripVertical } from "lucide-react";
-import { useProfile } from "@/hooks/use-profile";
+import { Sparkles, Loader2, ChevronDown, ArrowRight } from "lucide-react";
 import { projectsApiFetch, ApiError } from "@/lib/projects/api-client";
-import type { ProjectBrief, ProjectPlan, PlanDeliverable } from "@/lib/projects/schema";
 
 export const Route = createFileRoute("/_authenticated/build")({
   head: () => ({ meta: [{ title: "Construir con IA — PostulPro" }] }),
@@ -27,23 +25,22 @@ const PRESETS = [
   { label: "Otro", template: "" },
 ];
 
-type Phase = "idea" | "planning" | "plan";
-
+// This page's only job is: create the bare project row and navigate to its
+// workspace immediately — it does NOT wait for the plan to be generated.
+// The workspace (/projects/$id) owns the entire planning lifecycle (trigger,
+// progress, retry, review, confirm) so a slow/failed planner call is always
+// tied to a real, revisitable project instead of stranding the user on this
+// form with no way back to what was already created.
 function BuildPage() {
   const navigate = useNavigate();
-  const { profile } = useProfile();
-  const [phase, setPhase] = useState<Phase>("idea");
   const [idea, setIdea] = useState("");
   const [objective, setObjective] = useState("");
   const [audience, setAudience] = useState("");
   const [language, setLanguage] = useState("es");
   const [showMore, setShowMore] = useState(false);
   const [exampleIdx, setExampleIdx] = useState(0);
-  const [projectId, setProjectId] = useState<string | null>(null);
-  const [brief, setBrief] = useState<ProjectBrief | null>(null);
-  const [plan, setPlan] = useState<ProjectPlan | null>(null);
   const [executionMode, setExecutionMode] = useState<"guided" | "automatic">("guided");
-  const [confirming, setConfirming] = useState(false);
+  const [creating, setCreating] = useState(false);
 
   useEffect(() => {
     if (idea.length > 0) return;
@@ -56,7 +53,7 @@ function BuildPage() {
       toast.error("Contanos un poco más sobre tu idea.");
       return;
     }
-    setPhase("planning");
+    setCreating(true);
     try {
       const created = await projectsApiFetch<{ id: string }>("/api/projects", {
         method: "POST",
@@ -68,68 +65,12 @@ function BuildPage() {
           executionMode,
         }),
       });
-      setProjectId(created.id);
-
-      const planned = await projectsApiFetch<{ brief: ProjectBrief; plan: ProjectPlan }>(
-        `/api/projects/${created.id}/plan`,
-        { method: "POST" },
-      );
-      setBrief(planned.brief);
-      setPlan(planned.plan);
-      setPhase("plan");
+      navigate({ to: "/projects/$id", params: { id: created.id } });
     } catch (err) {
-      toast.error(err instanceof ApiError ? err.message : "No se pudo diseñar el proyecto.");
-      setPhase("idea");
-    }
-  }
-
-  async function handleConfirm() {
-    if (!projectId) return;
-    setConfirming(true);
-    try {
-      await projectsApiFetch(`/api/projects/${projectId}/confirm`, { method: "POST" });
-      navigate({ to: "/projects/$id", params: { id: projectId } });
-    } catch (err) {
-      toast.error(err instanceof ApiError ? err.message : "No se pudo confirmar el plan.");
+      toast.error(err instanceof ApiError ? err.message : "No se pudo crear el proyecto.");
     } finally {
-      setConfirming(false);
+      setCreating(false);
     }
-  }
-
-  function removeDeliverable(index: number) {
-    if (!plan) return;
-    setPlan({ ...plan, deliverables: plan.deliverables.filter((_, i) => i !== index) });
-  }
-
-  async function saveEditedPlan(next: PlanDeliverable[]) {
-    if (!projectId || !plan) return;
-    try {
-      const result = await projectsApiFetch<{ plan: ProjectPlan }>(`/api/projects/${projectId}/plan`, {
-        method: "PATCH",
-        body: JSON.stringify({ deliverables: next.map(({ estimatedCredits: _drop, ...rest }) => rest) }),
-      });
-      setPlan(result.plan);
-    } catch (err) {
-      toast.error(err instanceof ApiError ? err.message : "No se pudo actualizar el plan.");
-    }
-  }
-
-  if (phase === "plan" && plan && brief && projectId) {
-    return (
-      <PlanReview
-        brief={brief}
-        plan={plan}
-        creditsRemaining={profile ? profile.credits_limit - profile.credits_used : null}
-        executionMode={executionMode}
-        onExecutionModeChange={setExecutionMode}
-        onRemoveDeliverable={(i) => {
-          removeDeliverable(i);
-          void saveEditedPlan(plan.deliverables.filter((_, idx) => idx !== i));
-        }}
-        onConfirm={handleConfirm}
-        confirming={confirming}
-      />
-    );
   }
 
   return (
@@ -152,7 +93,7 @@ function BuildPage() {
           rows={4}
           maxLength={4000}
           className="input min-h-[120px] resize-y text-base"
-          disabled={phase === "planning"}
+          disabled={creating}
         />
         <div className="mt-3 flex flex-wrap gap-2">
           {PRESETS.map((p) => (
@@ -199,12 +140,12 @@ function BuildPage() {
         <button
           type="button"
           onClick={handleDesign}
-          disabled={phase === "planning" || idea.trim().length < 8}
+          disabled={creating || idea.trim().length < 8}
           className="mt-6 w-full inline-flex items-center justify-center gap-2 h-12 rounded-xl bg-gradient-to-r from-violet-500 to-fuchsia-500 text-white font-semibold text-sm hover:opacity-95 transition disabled:opacity-50"
         >
-          {phase === "planning" ? (
+          {creating ? (
             <>
-              <Loader2 className="w-4 h-4 animate-spin" /> Interpretando tu idea…
+              <Loader2 className="w-4 h-4 animate-spin" /> Creando tu proyecto…
             </>
           ) : (
             <>
@@ -214,165 +155,5 @@ function BuildPage() {
         </button>
       </div>
     </div>
-  );
-}
-
-function PlanReview({
-  brief,
-  plan,
-  creditsRemaining,
-  executionMode,
-  onExecutionModeChange,
-  onRemoveDeliverable,
-  onConfirm,
-  confirming,
-}: {
-  brief: ProjectBrief;
-  plan: ProjectPlan;
-  creditsRemaining: number | null;
-  executionMode: "guided" | "automatic";
-  onExecutionModeChange: (m: "guided" | "automatic") => void;
-  onRemoveDeliverable: (index: number) => void;
-  onConfirm: () => void;
-  confirming: boolean;
-}) {
-  const insufficientCredits = creditsRemaining !== null && creditsRemaining < plan.totalEstimatedCredits;
-
-  return (
-    <div className="max-w-3xl mx-auto px-4 md:px-6 py-10 space-y-6">
-      <header>
-        <span className="text-xs font-semibold uppercase tracking-wide text-violet-400">Plan de proyecto</span>
-        <h1 className="font-display text-2xl md:text-3xl font-bold mt-1">{plan.title}</h1>
-        {plan.summary && <p className="mt-2 text-sm text-muted-foreground">{plan.summary}</p>}
-      </header>
-
-      <div className="grid sm:grid-cols-2 gap-3">
-        <InfoCard label="Audiencia" value={brief.audience || "No especificada"} />
-        <InfoCard label="Propuesta de valor" value={brief.valueProposition || "No especificada"} />
-      </div>
-
-      {(plan.assumptions.length > 0 || plan.questionsOrWarnings.length > 0) && (
-        <div className="rounded-xl border border-amber-500/20 bg-amber-500/5 p-4 space-y-2">
-          {plan.assumptions.length > 0 && (
-            <div>
-              <p className="text-xs font-semibold text-amber-300 mb-1">Supuestos</p>
-              <ul className="text-xs text-muted-foreground space-y-0.5">
-                {plan.assumptions.map((a, i) => <li key={i}>• {a}</li>)}
-              </ul>
-            </div>
-          )}
-          {plan.questionsOrWarnings.length > 0 && (
-            <div>
-              <p className="text-xs font-semibold text-amber-300 mb-1">Para tener en cuenta</p>
-              <ul className="text-xs text-muted-foreground space-y-0.5">
-                {plan.questionsOrWarnings.map((q, i) => <li key={i}>• {q}</li>)}
-              </ul>
-            </div>
-          )}
-        </div>
-      )}
-
-      <div>
-        <h2 className="font-display font-bold mb-3">Entregables ({plan.deliverables.length})</h2>
-        <div className="space-y-2">
-          {plan.deliverables.map((d, i) => (
-            <div key={`${d.toolKey}-${i}`} className="rounded-xl border border-white/10 bg-white/5 p-4 flex items-start gap-3">
-              <GripVertical className="w-4 h-4 text-muted-foreground mt-1 shrink-0" />
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-2">
-                  <span className="text-xs font-semibold px-2 py-0.5 rounded-md bg-violet-500/15 text-violet-300">{i + 1}</span>
-                  <span className="font-semibold text-sm">{d.title}</span>
-                </div>
-                <p className="mt-1 text-xs text-muted-foreground">{d.description}</p>
-                {d.reason && <p className="mt-1 text-[11px] text-muted-foreground/70 italic">{d.reason}</p>}
-              </div>
-              <div className="flex items-center gap-2 shrink-0">
-                <span className="text-xs text-muted-foreground">{d.estimatedCredits} créd.</span>
-                {plan.deliverables.length > 1 && (
-                  <button
-                    type="button"
-                    onClick={() => onRemoveDeliverable(i)}
-                    aria-label="Quitar entregable"
-                    className="w-7 h-7 grid place-items-center rounded-md text-muted-foreground hover:text-foreground hover:bg-white/10 transition"
-                  >
-                    <X className="w-3.5 h-3.5" />
-                  </button>
-                )}
-              </div>
-            </div>
-          ))}
-        </div>
-      </div>
-
-      <div className="rounded-xl border border-white/10 bg-white/5 p-4 flex items-center justify-between">
-        <div>
-          <p className="text-xs text-muted-foreground">Costo estimado del proyecto</p>
-          <p className="font-display text-xl font-bold">{plan.totalEstimatedCredits} créditos</p>
-        </div>
-        <div className="text-right">
-          <p className="text-xs text-muted-foreground">Tu saldo</p>
-          <p className={`font-semibold ${insufficientCredits ? "text-red-400" : ""}`}>
-            {creditsRemaining !== null ? `${creditsRemaining} créditos` : "—"}
-          </p>
-        </div>
-      </div>
-      {insufficientCredits && (
-        <p className="text-xs text-red-400">
-          No tenés créditos suficientes para todo el plan. Podés confirmar igual y ejecutar los pasos que alcances, o sacar entregables.
-        </p>
-      )}
-
-      <div>
-        <h2 className="font-display font-bold mb-3">Modo de ejecución</h2>
-        <div className="grid sm:grid-cols-2 gap-3">
-          <ModeCard
-            active={executionMode === "guided"}
-            title="Guiado"
-            desc="Aprobás cada entregable antes de que se genere. Podés editar, saltar o regenerar en el camino."
-            onClick={() => onExecutionModeChange("guided")}
-          />
-          <ModeCard
-            active={executionMode === "automatic"}
-            title="Automático"
-            desc="Se ejecutan los pasos en orden, uno por vez. Se detiene ante un error o falta de créditos."
-            onClick={() => onExecutionModeChange("automatic")}
-          />
-        </div>
-      </div>
-
-      <button
-        type="button"
-        onClick={onConfirm}
-        disabled={confirming}
-        className="w-full inline-flex items-center justify-center gap-2 h-12 rounded-xl bg-gradient-to-r from-violet-500 to-fuchsia-500 text-white font-semibold text-sm hover:opacity-95 transition disabled:opacity-60"
-      >
-        {confirming ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
-        Construir proyecto
-      </button>
-    </div>
-  );
-}
-
-function InfoCard({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="rounded-xl border border-white/10 bg-white/5 p-4">
-      <p className="text-xs text-muted-foreground">{label}</p>
-      <p className="mt-1 text-sm font-medium">{value}</p>
-    </div>
-  );
-}
-
-function ModeCard({ active, title, desc, onClick }: { active: boolean; title: string; desc: string; onClick: () => void }) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={`text-left p-4 rounded-xl border transition-all ${
-        active ? "border-violet-500 bg-violet-500/10" : "border-white/10 bg-white/5 hover:border-white/20"
-      }`}
-    >
-      <p className="font-semibold text-sm">{title}</p>
-      <p className="mt-1 text-xs text-muted-foreground">{desc}</p>
-    </button>
   );
 }

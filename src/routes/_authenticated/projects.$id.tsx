@@ -1,5 +1,5 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import {
   Loader2,
@@ -17,6 +17,10 @@ import {
   Circle,
   Sparkles,
   ArrowRight,
+  X,
+  GripVertical,
+  Plus,
+  AlertTriangle,
 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useProfile } from "@/hooks/use-profile";
@@ -24,7 +28,7 @@ import { useProjectStepStream } from "@/hooks/use-project-step-stream";
 import { projectsApiFetch, ApiError } from "@/lib/projects/api-client";
 import { downloadTxt } from "@/hooks/use-ai-stream";
 import { canClaimStep, canSkipStep, canPause, canResume } from "@/lib/projects/state-machine";
-import type { ProjectBrief, ProjectStatus, StepStatus } from "@/lib/projects/schema";
+import type { ProjectBrief, ProjectPlan, ProjectStatus, StepStatus } from "@/lib/projects/schema";
 
 export const Route = createFileRoute("/_authenticated/projects/$id")({
   head: () => ({ meta: [{ title: "Proyecto — PostulPro" }] }),
@@ -38,12 +42,21 @@ type ProjectRow = {
   status: string;
   execution_mode: string;
   brief_json: ProjectBrief | null;
+  plan_json: ProjectPlan | null;
   estimated_credits: number;
   spent_credits: number;
   progress_percent: number;
   current_step_id: string | null;
   last_error_code: string | null;
 };
+
+// Shown while the workspace has triggered (or is waiting on) plan
+// generation — rotates so a slow provider call doesn't look frozen.
+const PLANNING_MESSAGES = [
+  "Creando la estructura de tu proyecto…",
+  "Diseñando la estrategia…",
+  "Organizando los entregables…",
+];
 
 type StepRow = {
   id: string;
@@ -82,12 +95,19 @@ const STATUS_LABEL: Record<string, string> = {
 
 function WorkspacePage() {
   const { id } = Route.useParams();
-  const { refresh: refreshProfile } = useProfile();
+  const { profile, refresh: refreshProfile } = useProfile();
   const [project, setProject] = useState<ProjectRow | null>(null);
   const [steps, setSteps] = useState<StepRow[] | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [outputCache, setOutputCache] = useState<Record<string, string>>({});
   const [autoRunning, setAutoRunning] = useState(false);
+  const [planningInFlight, setPlanningInFlight] = useState(false);
+  const [planningMessageIdx, setPlanningMessageIdx] = useState(0);
+  // Guards against re-firing the automatic trigger on every re-render/reload
+  // of the same mounted page — exactly one automatic attempt per page load
+  // while status is "planning". A user-initiated retry (button) bypasses
+  // this ref deliberately, since that's an explicit, separate action.
+  const planAutoTriggeredRef = useRef(false);
   const { output: liveOutput, streaming, activeStepId, run } = useProjectStepStream();
 
   const load = useCallback(async () => {
@@ -104,6 +124,47 @@ function WorkspacePage() {
   useEffect(() => {
     void load();
   }, [load]);
+
+  // Rotates the "planning" copy so a slow provider call reads as progress,
+  // not a frozen screen. Only runs while there's actually something to wait
+  // on — no interval left running once the page moves past this state.
+  useEffect(() => {
+    if (!planningInFlight) return;
+    const t = window.setInterval(
+      () => setPlanningMessageIdx((i) => (i + 1) % PLANNING_MESSAGES.length),
+      2200,
+    );
+    return () => window.clearInterval(t);
+  }, [planningInFlight]);
+
+  const triggerPlanning = useCallback(async () => {
+    setPlanningInFlight(true);
+    try {
+      await projectsApiFetch(`/api/projects/${id}/plan`, { method: "POST" });
+    } catch {
+      // The server already persisted a real "failed" state (see
+      // fail_ai_project_planning) — the reload below picks that up and
+      // renders the retry UI with the server's own safe error message, so
+      // nothing needs to be re-derived or toasted here.
+    } finally {
+      setPlanningInFlight(false);
+      await load();
+    }
+  }, [id, load]);
+
+  // Exactly one automatic attempt per page load while the project is still
+  // "planning" — this is what recovers a project that was left stranded by
+  // a previous failed attempt (see docs on fail_ai_project_planning): simply
+  // opening its workspace re-triggers planning on the SAME project id,
+  // never a new one. Does not fire for "awaiting_confirmation" (a plan
+  // already exists there — see the render branch below) or "failed" (that
+  // state requires an explicit "Reintentar" click, not another silent auto-retry).
+  useEffect(() => {
+    if (!project || planAutoTriggeredRef.current) return;
+    if (project.status !== "planning") return;
+    planAutoTriggeredRef.current = true;
+    void triggerPlanning();
+  }, [project, triggerPlanning]);
 
   const selected = steps?.find((s) => s.id === selectedId) ?? null;
 
@@ -193,6 +254,40 @@ function WorkspacePage() {
         <div className="h-10 w-2/3 rounded-lg bg-white/5 animate-pulse" />
         <div className="h-40 rounded-xl bg-white/5 animate-pulse" />
       </div>
+    );
+  }
+
+  // The plan hasn't been generated yet (or is being regenerated after a
+  // retry) — this is the state the project sits in immediately after
+  // /build creates it and navigates here, before any deliverable exists.
+  if (project.status === "planning") {
+    return <PlanningInProgress idea={project.original_idea} messageIdx={planningMessageIdx} />;
+  }
+
+  // Failed specifically during planning (no plan_json was ever saved) —
+  // distinct from a step-execution failure, which keeps the normal
+  // steps/credits view below (plan_json exists there) so real progress is
+  // never hidden behind this screen.
+  if (project.status === "failed" && !project.plan_json) {
+    return (
+      <PlanningFailed
+        idea={project.original_idea}
+        retrying={planningInFlight}
+        onRetry={() => void triggerPlanning()}
+      />
+    );
+  }
+
+  if (project.status === "awaiting_confirmation" && project.brief_json && project.plan_json) {
+    return (
+      <PlanConfirmation
+        projectId={project.id}
+        brief={project.brief_json}
+        plan={project.plan_json}
+        initialExecutionMode={(project.execution_mode as "guided" | "automatic") ?? "guided"}
+        creditsRemaining={profile ? profile.credits_limit - profile.credits_used : null}
+        onConfirmed={load}
+      />
     );
   }
 
@@ -429,5 +524,237 @@ function CompletionBanner({ stepsCount }: { stepsCount: number }) {
         Crear otro proyecto <ArrowRight className="w-3.5 h-3.5" />
       </Link>
     </div>
+  );
+}
+
+function PlanningInProgress({ idea, messageIdx }: { idea: string; messageIdx: number }) {
+  return (
+    <div className="max-w-2xl mx-auto px-4 md:px-6 py-20 text-center">
+      <div className="rounded-3xl border border-white/10 bg-gradient-to-br from-violet-500/10 to-fuchsia-500/5 p-10">
+        <Loader2 className="w-10 h-10 mx-auto mb-4 text-violet-300 animate-spin" />
+        <h1 className="font-display text-xl font-bold">{PLANNING_MESSAGES[messageIdx]}</h1>
+        <p className="mt-3 text-sm text-muted-foreground line-clamp-2">{idea}</p>
+      </div>
+    </div>
+  );
+}
+
+function PlanningFailed({
+  idea,
+  retrying,
+  onRetry,
+}: {
+  idea: string;
+  retrying: boolean;
+  onRetry: () => void;
+}) {
+  return (
+    <div className="max-w-2xl mx-auto px-4 md:px-6 py-16 text-center">
+      <div className="rounded-3xl border border-white/10 bg-gradient-to-br from-red-500/10 to-red-500/5 p-10">
+        <AlertTriangle className="w-10 h-10 mx-auto mb-4 text-red-300" />
+        <h1 className="font-display text-xl font-bold">
+          No pudimos completar la planificación. Tu saldo no fue afectado. Podés reintentar este mismo proyecto.
+        </h1>
+        <p className="mt-3 text-sm text-muted-foreground line-clamp-2">{idea}</p>
+        <button
+          type="button"
+          onClick={onRetry}
+          disabled={retrying}
+          className="mt-6 inline-flex items-center justify-center gap-2 h-11 px-6 rounded-lg bg-gradient-to-r from-violet-500 to-fuchsia-500 text-white font-semibold text-sm hover:opacity-95 transition disabled:opacity-60"
+        >
+          {retrying ? <Loader2 className="w-4 h-4 animate-spin" /> : <RotateCcw className="w-4 h-4" />}
+          Reintentar
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function PlanConfirmation({
+  projectId,
+  brief,
+  plan: initialPlan,
+  initialExecutionMode,
+  creditsRemaining,
+  onConfirmed,
+}: {
+  projectId: string;
+  brief: ProjectBrief;
+  plan: ProjectPlan;
+  initialExecutionMode: "guided" | "automatic";
+  creditsRemaining: number | null;
+  onConfirmed: () => void | Promise<void>;
+}) {
+  const [plan, setPlan] = useState(initialPlan);
+  const [executionMode, setExecutionMode] = useState(initialExecutionMode);
+  const [confirming, setConfirming] = useState(false);
+  const insufficientCredits = creditsRemaining !== null && creditsRemaining < plan.totalEstimatedCredits;
+
+  async function saveEditedPlan(next: typeof plan.deliverables) {
+    try {
+      const result = await projectsApiFetch<{ plan: ProjectPlan }>(`/api/projects/${projectId}/plan`, {
+        method: "PATCH",
+        body: JSON.stringify({ deliverables: next.map(({ estimatedCredits: _drop, ...rest }) => rest) }),
+      });
+      setPlan(result.plan);
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.message : "No se pudo actualizar el plan.");
+    }
+  }
+
+  function removeDeliverable(index: number) {
+    const next = plan.deliverables.filter((_, i) => i !== index);
+    setPlan({ ...plan, deliverables: next });
+    void saveEditedPlan(next);
+  }
+
+  async function handleConfirm() {
+    setConfirming(true);
+    try {
+      await projectsApiFetch(`/api/projects/${projectId}/confirm`, { method: "POST" });
+      await onConfirmed();
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.message : "No se pudo confirmar el plan.");
+    } finally {
+      setConfirming(false);
+    }
+  }
+
+  return (
+    <div className="max-w-3xl mx-auto px-4 md:px-6 py-10 space-y-6">
+      <header>
+        <span className="text-xs font-semibold uppercase tracking-wide text-violet-400">Plan de proyecto</span>
+        <h1 className="font-display text-2xl md:text-3xl font-bold mt-1">{plan.title}</h1>
+        {plan.summary && <p className="mt-2 text-sm text-muted-foreground">{plan.summary}</p>}
+      </header>
+
+      <div className="grid sm:grid-cols-2 gap-3">
+        <InfoCard label="Audiencia" value={brief.audience || "No especificada"} />
+        <InfoCard label="Propuesta de valor" value={brief.valueProposition || "No especificada"} />
+      </div>
+
+      {(plan.assumptions.length > 0 || plan.questionsOrWarnings.length > 0) && (
+        <div className="rounded-xl border border-amber-500/20 bg-amber-500/5 p-4 space-y-2">
+          {plan.assumptions.length > 0 && (
+            <div>
+              <p className="text-xs font-semibold text-amber-300 mb-1">Supuestos</p>
+              <ul className="text-xs text-muted-foreground space-y-0.5">
+                {plan.assumptions.map((a, i) => <li key={i}>• {a}</li>)}
+              </ul>
+            </div>
+          )}
+          {plan.questionsOrWarnings.length > 0 && (
+            <div>
+              <p className="text-xs font-semibold text-amber-300 mb-1">Para tener en cuenta</p>
+              <ul className="text-xs text-muted-foreground space-y-0.5">
+                {plan.questionsOrWarnings.map((q, i) => <li key={i}>• {q}</li>)}
+              </ul>
+            </div>
+          )}
+        </div>
+      )}
+
+      <div>
+        <h2 className="font-display font-bold mb-3">Entregables ({plan.deliverables.length})</h2>
+        <div className="space-y-2">
+          {plan.deliverables.map((d, i) => (
+            <div key={`${d.toolKey}-${i}`} className="rounded-xl border border-white/10 bg-white/5 p-4 flex items-start gap-3">
+              <GripVertical className="w-4 h-4 text-muted-foreground mt-1 shrink-0" />
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-semibold px-2 py-0.5 rounded-md bg-violet-500/15 text-violet-300">{i + 1}</span>
+                  <span className="font-semibold text-sm">{d.title}</span>
+                </div>
+                <p className="mt-1 text-xs text-muted-foreground">{d.description}</p>
+                {d.reason && <p className="mt-1 text-[11px] text-muted-foreground/70 italic">{d.reason}</p>}
+              </div>
+              <div className="flex items-center gap-2 shrink-0">
+                <span className="text-xs text-muted-foreground">{d.estimatedCredits} créd.</span>
+                {plan.deliverables.length > 1 && (
+                  <button
+                    type="button"
+                    onClick={() => removeDeliverable(i)}
+                    aria-label="Quitar entregable"
+                    className="w-7 h-7 grid place-items-center rounded-md text-muted-foreground hover:text-foreground hover:bg-white/10 transition"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <div className="rounded-xl border border-white/10 bg-white/5 p-4 flex items-center justify-between">
+        <div>
+          <p className="text-xs text-muted-foreground">Costo estimado del proyecto</p>
+          <p className="font-display text-xl font-bold">{plan.totalEstimatedCredits} créditos</p>
+        </div>
+        <div className="text-right">
+          <p className="text-xs text-muted-foreground">Tu saldo</p>
+          <p className={`font-semibold ${insufficientCredits ? "text-red-400" : ""}`}>
+            {creditsRemaining !== null ? `${creditsRemaining} créditos` : "—"}
+          </p>
+        </div>
+      </div>
+      {insufficientCredits && (
+        <p className="text-xs text-red-400">
+          No tenés créditos suficientes para todo el plan. Podés confirmar igual y ejecutar los pasos que alcances, o sacar entregables.
+        </p>
+      )}
+
+      <div>
+        <h2 className="font-display font-bold mb-3">Modo de ejecución</h2>
+        <div className="grid sm:grid-cols-2 gap-3">
+          <ModeCard
+            active={executionMode === "guided"}
+            title="Guiado"
+            desc="Aprobás cada entregable antes de que se genere. Podés editar, saltar o regenerar en el camino."
+            onClick={() => setExecutionMode("guided")}
+          />
+          <ModeCard
+            active={executionMode === "automatic"}
+            title="Automático"
+            desc="Se ejecutan los pasos en orden, uno por vez. Se detiene ante un error o falta de créditos."
+            onClick={() => setExecutionMode("automatic")}
+          />
+        </div>
+      </div>
+
+      <button
+        type="button"
+        onClick={handleConfirm}
+        disabled={confirming}
+        className="w-full inline-flex items-center justify-center gap-2 h-12 rounded-xl bg-gradient-to-r from-violet-500 to-fuchsia-500 text-white font-semibold text-sm hover:opacity-95 transition disabled:opacity-60"
+      >
+        {confirming ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
+        Construir proyecto
+      </button>
+    </div>
+  );
+}
+
+function InfoCard({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-xl border border-white/10 bg-white/5 p-4">
+      <p className="text-xs text-muted-foreground">{label}</p>
+      <p className="mt-1 text-sm font-medium">{value}</p>
+    </div>
+  );
+}
+
+function ModeCard({ active, title, desc, onClick }: { active: boolean; title: string; desc: string; onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`text-left p-4 rounded-xl border transition-all ${
+        active ? "border-violet-500 bg-violet-500/10" : "border-white/10 bg-white/5 hover:border-white/20"
+      }`}
+    >
+      <p className="font-semibold text-sm">{title}</p>
+      <p className="mt-1 text-xs text-muted-foreground">{desc}</p>
+    </button>
   );
 }

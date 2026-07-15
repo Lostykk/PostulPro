@@ -954,6 +954,10 @@ export type Database = {
         };
         Returns: string;
       };
+      fail_ai_project_planning: {
+        Args: { p_error_code: string; p_project_id: string };
+        Returns: undefined;
+      };
       fail_ai_project_step: {
         Args: {
           p_error_code: string;
