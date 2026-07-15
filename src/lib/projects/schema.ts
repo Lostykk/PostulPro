@@ -50,8 +50,12 @@ export const PlanDeliverableSchema = z.object({
   dependencies: z.array(z.string()).max(MAX_DELIVERABLES).default([]),
   input: z.record(z.string(), z.unknown()).default({}),
   // Untrusted — the server always recalculates this from the real tool
-  // registry before persisting or charging anything.
-  estimatedCredits: z.number().int().min(0).max(50).default(0),
+  // registry before persisting or charging anything, so this cap only
+  // needs to keep the type sane (non-negative integer), not tight — a real
+  // planner run showed the model's own (later-discarded) estimate for a
+  // single deliverable exceeding the old cap of 50, rejecting an otherwise
+  // valid plan over a number nothing ever actually uses.
+  estimatedCredits: z.number().int().min(0).max(999).default(0),
 });
 export type PlanDeliverable = z.infer<typeof PlanDeliverableSchema>;
 
