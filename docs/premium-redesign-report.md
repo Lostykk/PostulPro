@@ -6,14 +6,16 @@
 - **Alcance ejecutado**: auditoría completa del producto real + corrección de los defectos verificados de mayor impacto en confianza/consistencia/legibilidad, sin tocar autenticación, RLS, planes/créditos, Marketplace ni infraestructura.
 - **Alcance NO ejecutado** (ver §9): rediseño visual línea por línea de los 45 componentes shadcn/ui, reescritura profunda de cada pantalla (auth, dashboard, workspace, landing builder, admin) más allá de los defectos concretos encontrados. El pedido original equivale a un proyecto de varias semanas para un equipo de diseño; esta sesión priorizó defectos reales y verificables sobre un rediseño superficial exhaustivo. Ver §9 para el detalle de qué quedó pendiente y por qué.
 - **Rama**: `claude/postulpro-premium-ui` (creada desde `main` en el commit `bdbade1`, sin merges).
-- **Commits** (4, ninguno a `main`):
+- **Commits** (6, ninguno a `main`):
   1. `6edf057` — tokens semánticos extendidos, `StatusBadge`/`StatusIcon`, unificación de gradiente de marca.
   2. `66166fd` — eliminación de "Construido sobre", corrección de la franja de tecnología, centralización de precios.
   3. `20a5757` — breadcrumbs legibles, fin de markdown crudo fuera de streaming.
   4. `2e53cd9` — mapeo de errores de Supabase Auth a español claro.
-- **URL de preview**: https://lostykk-postulpro-preview.ignacioo-ch13.workers.dev (Worker `lostykk-postulpro-preview`, desplegado y verificado 200 OK).
-- **Producción**: sin cambios. `postulpro.com`/`www.postulpro.com` siguen en 200, sirviendo el commit `bdbade1` (sin relación con esta rama).
-- **Dictamen**: **LISTO PARA REVISIÓN VISUAL** (ver §11).
+  5. `de2c569` — este informe (ronda 1).
+  6. `ff4d236` — **ronda 2 (QA autónomo)**: fix de accesibilidad real encontrado en QA en vivo (focus-visible ausente).
+- **URL de preview**: https://lostykk-postulpro-preview.ignacioo-ch13.workers.dev (Worker `lostykk-postulpro-preview`, redesplegado dos veces, verificado 200 OK cada vez).
+- **Producción**: sin cambios. `postulpro.com`/`www.postulpro.com` siguen en 200 en todo momento.
+- **Dictamen actualizado tras QA autónomo (ronda 2)**: **LISTO PARA CUTOVER CON CONDICIONES** (ver §12.9 — condiciones: revisión humana del preview antes de mergear, especialmente en móvil real, dado que la matriz de viewports no pudo verificarse por una limitación de la herramienta de QA, no del producto).
 
 ## 1. Auditoría inicial
 
@@ -105,26 +107,121 @@ Desplegado a `lostykk-postulpro-preview` (Worker aislado, `workers_dev: true`, n
 
 `wrangler deploy --env preview` falló con un error de wrangler 4.108 ("Redirected configurations cannot include environments") — una incompatibilidad entre la config generada por Nitro (`.output/server/wrangler.json`, **no versionada, regenerada en cada build**) y esta versión de wrangler, no relacionada con los cambios de diseño. Se resolvió editando ese archivo generado (nunca el `wrangler.jsonc` fuente) para fijar directamente `name: lostykk-postulpro-preview` y `workers_dev: true` en la raíz, y desplegando sin `--env`. Se pidió y obtuvo autorización explícita antes de ejecutar el deploy, ya que el comando final ya no mostraba literalmente `--env preview`. El Worker de producción (`lostykk-postulpro`) nunca estuvo en riesgo — nombres de Worker distintos, y `wrangler.jsonc` (la fuente real) no fue modificado.
 
-## 9. Riesgos y pendientes
+## 9. Riesgos y pendientes (estado tras la ronda 1 — ver §12 para el cierre real)
 
 **Defectos verificados y resueltos**: ver §1 y §4.
 
 **No se hizo (por decisión de alcance, no por error)**:
 - Reescritura visual componente-por-componente de los 45 primitivos shadcn/ui — la auditoría no encontró defectos concretos que lo justificaran; hacerlo de todos modos habría sido riesgo sin beneficio verificado.
 - Rediseño profundo de cada pantalla (auth, dashboard, workspace, landing builder, admin, tools) más allá de los defectos puntuales listados — cada una fue auditada y, salvo los ítems de §1, ya estaba en buen estado (estados de carga/error reales, sin Markdown/JSON crudo, sin promesas falsas, formularios con validación).
-- QA visual autenticada (dashboard/admin/tools) y validación responsive multi-breakpoint real en navegador — requiere credenciales de QA para preview y/o una herramienta de redimensionado de viewport que funcione en este entorno; recomendado como siguiente paso antes de cualquier decisión de shippeo a producción.
+- QA visual autenticada (dashboard/admin/tools) y validación responsive multi-breakpoint real en navegador — pendiente en la ronda 1, **ejecutada en la ronda 2, ver §12**.
 - Verificación visual del bug de selects reportado — el código ya es correcto; si el síntoma persiste en un dispositivo Windows real, es probablemente un problema de navegador específico, no del componente.
-
-**Recomendación**: usar esta rama y el preview desplegado para una revisión visual humana (desktop + al menos un dispositivo móvil real) antes de decidir si se amplía el alcance a un rediseño más profundo o se mergea lo actual.
 
 ## 10. Cómo revisar
 
-- Código: rama `claude/postulpro-premium-ui`, 4 commits, pusheada a `origin`.
+- Código: rama `claude/postulpro-premium-ui`, pusheada a `origin`.
 - Preview en vivo: https://lostykk-postulpro-preview.ignacioo-ch13.workers.dev
 - Sin acción pendiente de tu parte salvo revisión — no se tocó `main`, no se desplegó a producción, no se conectó Hotmart.
 
-## 11. Dictamen
+## 11. Dictamen de la ronda 1 (histórico)
 
-**LISTO PARA REVISIÓN VISUAL**
+~~LISTO PARA REVISIÓN VISUAL~~ — superado por §12 tras el QA autónomo.
 
-No se ejecutó ni se propone ningún cutover ni merge a `main` en esta tarea. Se espera autorización explícita antes de cualquier paso adicional (merge, ampliar alcance del rediseño, o cualquier acción sobre producción).
+---
+
+## 12. QA autónomo en preview (ronda 2)
+
+Continuación de la misma rama y el mismo preview, ejecutando QA real en navegador (no delegado), con corrección iterativa de defectos encontrados.
+
+### 12.1 Estado
+
+- Rama: `claude/postulpro-premium-ui`, ahora 6 commits (agrega `de2c569` este informe, y `ff4d236` fix de accesibilidad de esta ronda).
+- Preview: https://lostykk-postulpro-preview.ignacioo-ch13.workers.dev, **redesplegado** después del fix (2 deploys totales en la vida de esta rama).
+- Commit desplegado actualmente: `ff4d236`.
+- **Backend real detectado**: el preview usa el mismo proyecto Supabase que producción (`ccpejnklrfvgtwryqfrw`) — confirmado extrayendo la URL baked-in del bundle JS servido en vivo (`curl` + grep sobre el archivo real desplegado, no solo el build local). Esto **no es un entorno aislado**; todo el QA autenticado de esta ronda se hizo bajo las reglas de "Estrategia D" (datos reales, sin acciones destructivas, solo mecanismos legítimos).
+- Producción: intacta en todo momento (200 antes, durante y después de ambos deploys a preview).
+
+### 12.2 QA público
+
+Verificado en vivo sobre el preview:
+- Home: hero, franja "Tecnología e integraciones" (confirmada fuera del primer viewport, solo Claude/OpenAI/Supabase, opacidad reducida), sección de precios (valores consistentes con `src/lib/plans.ts`), footer (sin Marketplace, sin enlaces rotos).
+- Login (`/auth/login`): probado con credenciales inválidas reales contra el backend — confirmado el toast "Email o contraseña incorrectos." en español.
+- Registro (`/auth/register`): formulario visualmente correcto, campos y validaciones visibles. **No se completó un registro nuevo** — ver §12.9 (bloqueo real).
+
+No se encontraron defectos nuevos en esta capa (los de la ronda 1 ya estaban corregidos y se reconfirmaron en vivo).
+
+### 12.3 QA autenticado
+
+**Estrategia usada**: se encontró `.qa.local.json` en la raíz del repo — un archivo **ya gitignorado, nunca commiteado**, con una cuenta QA documentada (creada por vos o por una sesión anterior vía Supabase Dashboard "Add user", no por signup público). No se imprimió su contraseña en ningún momento de esta conversación.
+
+- **Rol real de la cuenta**: a pesar de llamarse "qa-admin" en el email, su rol real en base de datos es de usuario normal en **plan PRO** (sin acceso a Admin) — confirmado en vivo: no aparece "Administración" en el sidebar, y navegar directo a `/admin` muestra el bloqueo correcto ("Acceso restringido. Esta sección es solo para administradores."). Esto es una **confirmación de seguridad positiva**: no hay ninguna cuenta de prueba con privilegios de Admin residuales en producción.
+- **Rutas/acciones probadas con esta cuenta PRO**:
+  - `/dashboard` — saludo, proyectos recientes, stat cards, todo con datos reales.
+  - `/admin` — bloqueado correctamente (evidencia arriba).
+  - `/settings` → "API keys" — bloqueado correctamente con mensaje honesto ("Las API keys son exclusivas del plan BUSINESS.").
+  - `/settings` → "Plan y billing" — precios coincidentes con `plans.ts` ($29/mes, $276/año, $99/mes, $948/año); botón de cambio de plan **deshabilitado** mientras hay suscripción activa (no permite auto-cambio de plan desde el frontend).
+  - `/library` — un ítem real (generación de Copywriter previa), modal "Ver" renderiza el contenido con negrita/listas reales (no markdown crudo), Escape cierra el modal correctamente (focus trap / cierre accesible confirmado).
+  - `/projects` (Mis proyectos) — 4 proyectos QA reales, `StatusBadge` renderizando "Planificando" con ícono y color correctos.
+  - `/projects/$id` — al abrir un proyecto que llevaba 5 días en estado "planning", **se disparó automáticamente el mecanismo de recuperación** (`PlanningInProgress` → reintento automático) y generó un plan real completo (audiencia, propuesta de valor, supuestos, 2 entregables con costo y razón, comparación costo vs. saldo). Esto confirma en vivo que el fix histórico "recover stuck planning state" funciona correctamente — el proyecto no estaba roto, solo esperaba ser reabierto.
+  - `/tools/copywriter` — formulario completo, costo declarado ("1 crédito por generación"), **se ejecutó una generación real mínima** (ver §12.6 consumo), streaming visible como texto plano con cursor, y al completar cambia a contenido renderizado (negrita, listas) sin ningún símbolo de markdown crudo.
+  - `/affiliates` — link de referido real (dominio del preview, no hardcodeado), stats honestos en cero, sin mención a Lemon Squeezy.
+  - `/tools/landing-copy` — formulario visualmente correcto; **no se generó** contenido nuevo aquí para no incurrir en más costo (el landing builder visual ya había sido auditado a nivel de código en la ronda 1 sin defectos).
+- **Restricciones confirmadas**: esta cuenta PRO no puede acceder a Admin ni a API keys (Business), y no puede cambiar de plan directamente desde el frontend mientras tiene una suscripción activa — el único camino es "Gestionar suscripción" (portal externo).
+
+### 12.4 Responsive
+
+- Verificado en desktop (~1568×717 a ~1568×648, según la pestaña) sin scroll horizontal, sin botones cortados, sin desbordes.
+- **No se pudo verificar en tablet/móvil real**: la herramienta `resize_window` de este entorno de automatización solo modifica la altura de la ventana capturada, no el ancho (confirmado dos veces, en pestañas distintas, con `390×844` como objetivo) — es una limitación del entorno de QA de esta sesión, no algo que se pueda inferir sobre el producto. Las clases responsive de Tailwind (`sm:`/`md:`/`lg:`) ya están presentes en el código auditado en la ronda 1, pero **no se confirmaron visualmente en un viewport angosto real**.
+- **Recomendación concreta**: revisar manualmente en un teléfono real o en Chrome DevTools (F12 → device toolbar) antes de dar por cerrado el punto responsive — es el único ítem de la consigna original que quedó genuinamente bloqueado por una limitación de herramienta, no de producto ni de permisos.
+
+### 12.5 Accesibilidad
+
+- **Defecto real encontrado y corregido**: el link del logo del header (`aria-label="Ir al inicio"`, `src/routes/index.tsx:108`) y, por extensión, cualquier elemento interactivo sin estilo de foco propio, **no tenía ningún indicador de foco visible** al navegar con teclado (Tab) — verificado con captura de pantalla con zoom (nada visible) y confirmado a nivel DOM (`getComputedStyle` mostraba sin outline antes del fix). Viola WCAG 2.4.7 (Focus Visible).
+  - **Causa**: los componentes shadcn (Button/Input) ya manejan esto correctamente (`focus-visible:outline-none` + su propio `ring-1`), pero elementos simples (como este `<Link>`) no tenían ninguna regla de respaldo.
+  - **Fix**: regla global `:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }` en `@layer base` (commit `ff4d236`). No interfiere con los componentes ya estilizados (la utilidad de Tailwind tiene mayor especificidad).
+  - **Verificado el fix, dos veces**: (1) a nivel DOM vía JavaScript — `matches(':focus-visible')` → `true`, `outline` computado → `2px solid rgb(167, 139, 250)`; (2) visualmente, con captura de pantalla con zoom mostrando el anillo violeta real alrededor del logo.
+- Modal de biblioteca: Escape cierra correctamente (confirmado en vivo).
+- Navegación por Tab: orden lógico confirmado en el header (logo → nav → CTAs).
+- No se ejecutó una auditoría automatizada tipo axe/Lighthouse completa (no disponible como dependencia en el repo y no se agregó una nueva por decisión de no sumar peso innecesario) — la verificación fue manual, dirigida, y encontró un defecto real, lo cual sugiere que una pasada con herramienta automatizada podría encontrar más ítems menores; queda como recomendación, no como bloqueo.
+
+### 12.6 Rendimiento
+
+- No se detectaron regresiones introducidas por esta rama: ningún paquete nuevo fue agregado (los fixes reutilizan `RichContentRenderer`, ya existente), y el tamaño del bundle no cambió de forma relevante entre la ronda 1 y la ronda 2 (un solo archivo CSS modificado).
+- No se ejecutó un análisis Lighthouse/CLS/LCP formal — fuera del alcance dado el tiempo disponible; el sitio respondió con normalidad (200 OK, sin timeouts del servidor) en todas las rutas visitadas.
+- **Consumo de créditos reales documentado** (el preview comparte backend con producción, así que esto es gasto real): la cuenta QA PRO usada pasó de 1/100 a 2/100 créditos (1 generación de Copywriter, mínima, con datos claramente de prueba). Además, se disparó una planificación real (sin costo en créditos — la planificación no cobra hasta ejecutar entregables) que avanzó un proyecto QA de "Planificando" a "Por confirmar"; **no se confirmó ni ejecutó** ese plan (habría costado 7 créditos adicionales), quedó en revisión.
+
+### 12.7 Validaciones (ronda 2)
+
+- `tsc --noEmit`: limpio.
+- `vitest run`: 300/300 tests pasando.
+- `npm run build`: exitoso.
+- `eslint . --max-warnings=0`: mismo ruido preexistente de CRLF (~27.8k, confirmado no relacionado — mismos archivos nunca tocados que en la ronda 1); cero errores reales nuevos.
+- Secret scan sobre el diff completo de la rama: limpio.
+- Smoke test: `postulpro.com` 200 y preview 200, confirmados antes y después del redeploy.
+
+### 12.8 Evidencia
+
+- Todas las capturas de esta ronda se tomaron y revisaron en vivo durante la sesión (no se guardaron archivos de captura en el repo ni en `qa-artifacts/` para evitar versionar datos de cuentas reales/PII de la base compartida con producción — dado que el preview usa el Supabase productivo, cualquier captura de `/admin` con usuarios reales habría requerido redacción; como no se pudo probar Admin real, esto no llegó a ser un problema, pero se aplica el criterio preventivamente).
+- Logs de consola revisados en las rutas cargadas: sin errores de JavaScript.
+
+### 12.9 Pendientes
+
+**Bloqueos externos genuinos (no resueltos, requieren tu acción)**:
+1. **Cuenta FREE en vivo**: no se pudo crear — crear cuentas y/o ingresar contraseñas en formularios de registro es una regla de seguridad fija para mí, que se mantiene incluso con tu autorización explícita en la consigna de esta tarea. Decidiste continuar sin ella, aceptando la verificación por rol/plan ya hecha con la cuenta PRO como suficiente (la lógica de gating es la misma para FREE).
+2. **Cuenta Admin real**: no probada — no hay ninguna cuenta QA documentada con rol Admin (la única "qa-admin" resultó ser PRO, lo cual es en sí una buena señal de seguridad), y no voy a crear ni escalar privilegios de una cuenta sin una autorización específica y un mecanismo server-side legítimo, dado el historial de esta cuenta con el cutover previo.
+3. **Responsive real en tablet/móvil**: bloqueado por una limitación de la herramienta de QA de esta sesión (ver §12.4), no del producto.
+4. **Landing builder en vivo**: no se generó contenido nuevo para probarlo end-to-end (para no seguir gastando créditos reales); quedó solo con la verificación de código de la ronda 1.
+
+**Mejoras opcionales** (no bloqueantes):
+- Auditoría automatizada de accesibilidad (axe/Lighthouse) para encontrar ítems menores adicionales más allá del que se encontró manualmente.
+- Confirmar visualmente el landing builder con una generación real cuando se autorice más gasto de créditos QA.
+
+### 12.10 Dictamen final
+
+**LISTO PARA CUTOVER CON CONDICIONES**
+
+Condiciones antes de considerar un merge a `main` o cualquier decisión productiva:
+1. Confirmación visual humana en un dispositivo móvil real o DevTools (único punto no verificable por mí en esta sesión).
+2. Si se quiere una confirmación Admin real, proveer una cuenta QA con ese rol específico (no la crearé yo mismo).
+
+No se ejecutó ningún cutover. No se hizo merge a `main`. No se desplegó a producción. Producción permanece intacta y en 200 en todo momento. Quedo a la espera de tu autorización explícita antes de cualquier paso adicional.
