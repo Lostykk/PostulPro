@@ -6,6 +6,7 @@ import { callModel, logModelUsage, type ModelUsage } from "@/lib/ai/call-model.s
 import { checkAiExecutionAllowed } from "@/lib/ai/preview-guard.server";
 import { maybeSendLowCreditsEmail } from "@/lib/notifications/low-credits.server";
 import { isOwner } from "@/lib/auth/is-owner";
+import { confirmConsumedOrLog, getWaitUntil, refundInBackground } from "@/lib/ai/credit-reservation.server";
 
 // Streaming proxy to Anthropic / OpenAI. API keys stay server-side.
 // Contract: POST /api/generate-ai with Bearer token + JSON:
@@ -86,11 +87,16 @@ export const Route = createFileRoute("/api/generate-ai")({
           }
         }
 
-        // Reserve credits atomically BEFORE streaming. The overspend guard
-        // lives inside the DB function's UPDATE...WHERE clause, so parallel
-        // requests can't both pass a stale "remaining credits" check.
-        const { data: reserveRows, error: reserveErr } = await supabase.rpc("reserve_credits", {
+        // Reserve credits atomically BEFORE streaming, AND record the
+        // reservation itself (reserve_credits_v2, from
+        // 20260727000000_credit_reservations_idempotent_refund.sql) — the
+        // overspend guard still lives inside the DB function's
+        // UPDATE...WHERE clause, so parallel requests can't both pass a
+        // stale "remaining credits" check. The old reserve_credits stays
+        // untouched and unused from here on.
+        const { data: reserveRows, error: reserveErr } = await supabase.rpc("reserve_credits_v2", {
           p_cost: tool.credits,
+          p_tool: toolId,
         });
         if (reserveErr) return json({ error: "Failed to reserve credits" }, 500);
         const reserve = reserveRows?.[0];
@@ -107,6 +113,7 @@ export const Route = createFileRoute("/api/generate-ai")({
             402,
           );
         }
+        const reservationId = reserve.reservation_id as string;
 
         await maybeSendLowCreditsEmail(
           supabase,
@@ -126,15 +133,19 @@ export const Route = createFileRoute("/api/generate-ai")({
         // silently keep the reserved credit charged forever.
         const encoder = new TextEncoder();
         const abortController = new AbortController();
-        let refunded = false;
-        const refundOnce = async () => {
-          if (refunded) return;
-          refunded = true;
-          try {
-            await supabase.rpc("refund_credits", { p_cost: tool.credits });
-          } catch {
-            /* best-effort — nothing else to do if the refund call itself fails */
-          }
+        const waitUntil = getWaitUntil(request);
+        // Local-only optimization (skip a redundant network call if both
+        // the catch block and cancel() fire for the same request) — NOT
+        // the idempotency mechanism. That guarantee is entirely
+        // resolve_credit_reservation's atomic compare-and-swap on the
+        // persisted credit_reservations row, which holds even if this
+        // in-memory flag is never set at all (e.g. the isolate is killed
+        // before either path runs).
+        let settled = false;
+        const refundOnce = (reason: string) => {
+          if (settled) return;
+          settled = true;
+          refundInBackground(supabase, reservationId, reason, waitUntil);
         };
 
         const stream = new ReadableStream({
@@ -186,6 +197,38 @@ export const Route = createFileRoute("/api/generate-ai")({
                 .select("id")
                 .maybeSingle();
 
+              // The response about to go out claims the reservation is
+              // settled and the credit spent — that claim must be true
+              // before it's sent, not eventually true. Block on it here
+              // (bounded retries inside confirmConsumedOrLog), rather than
+              // firing it in the background the way the refund path does.
+              settled = true;
+              const confirmed = await confirmConsumedOrLog(supabase, reservationId, gen?.id ?? null, {
+                toolId,
+                userId,
+              });
+
+              if (!confirmed) {
+                // Content was generated and persisted, but the ledger
+                // can't confirm the reservation as consumed. Sending
+                // "done" here would assert a billing fact we don't
+                // actually know to be true, so this is reported as an
+                // error instead — the reservation itself is left
+                // 'reserved' (safe, recoverable, already logged by
+                // confirmConsumedOrLog) rather than guessed at.
+                send({
+                  type: "error",
+                  message:
+                    "El contenido se generó pero no se pudo confirmar el estado del crédito. Contactá soporte si el problema persiste.",
+                });
+                try {
+                  controller.close();
+                } catch {
+                  /* already closed */
+                }
+                return;
+              }
+
               const { data: refreshed } = await supabase
                 .from("users")
                 .select("credits_used,credits_limit")
@@ -215,9 +258,11 @@ export const Route = createFileRoute("/api/generate-ai")({
                 status: "error",
                 errorCode: "provider_error",
               });
-              // Refund on error (atomic decrement, floored at 0) — also
-              // covers the abort-on-disconnect path via cancel() below.
-              await refundOnce();
+              // Refund on error — also covers the abort-on-disconnect path
+              // via cancel() below. Fire-and-forget: an error response
+              // makes no claim about billing state the way "done" does, so
+              // there's nothing to protect by blocking on it here.
+              refundOnce("provider_error");
               send({
                 type: "error",
                 message: err instanceof Error ? err.message : "Model call failed",
@@ -235,7 +280,7 @@ export const Route = createFileRoute("/api/generate-ai")({
             // the start() catch block above also handles — refundOnce()
             // guards against double-refunding if both paths fire.
             abortController.abort(reason);
-            void refundOnce();
+            refundOnce("client_disconnected");
           },
         });
 

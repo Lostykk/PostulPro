@@ -8,6 +8,7 @@ import { buildStepPrompt } from "@/lib/projects/step-prompts.server";
 import { getCapabilityMeta } from "@/lib/projects/capabilities.server";
 import { ProjectBriefSchema } from "@/lib/projects/schema";
 import { isOwner } from "@/lib/auth/is-owner";
+import { confirmConsumedOrLog, getWaitUntil, refundInBackground } from "@/lib/ai/credit-reservation.server";
 
 // Runs exactly one project step end to end: claim -> reserve credits ->
 // stream the model -> persist the generation -> mark the step complete
@@ -45,8 +46,10 @@ export async function runProjectStep(
   userId: string,
   projectId: string,
   stepId: string,
-  appOrigin?: string,
+  request: Request,
 ): Promise<Response> {
+  const appOrigin = new URL(request.url).origin;
+  const waitUntil = getWaitUntil(request);
   // Preview-only allowlist gate — checked before the atomic claim so a
   // disallowed caller never puts a step into "claimed" state. Admins bypass
   // the single-QA-user restriction without replacing it. The extra role
@@ -129,8 +132,13 @@ export async function runProjectStep(
   }
 
   const cost = claim.credits_cost ?? tool.credits;
-  const { data: reserveRows, error: reserveErr } = await supabase.rpc("reserve_credits", {
+  // reserve_credits_v2 (20260727000000_credit_reservations_idempotent_refund.sql)
+  // records a persistent reservation row instead of just decrementing
+  // credits_used — see generate-ai.ts for the same migration applied to
+  // the single-tool flow. The old reserve_credits stays untouched.
+  const { data: reserveRows, error: reserveErr } = await supabase.rpc("reserve_credits_v2", {
     p_cost: cost,
+    p_tool: toolKey,
   });
   const reserve = reserveRows?.[0];
   if (reserveErr || !reserve || !reserve.ok) {
@@ -149,6 +157,7 @@ export async function runProjectStep(
       402,
     );
   }
+  const reservationId = reserve.reservation_id as string;
   await supabase.rpc("mark_step_credits_reserved", { p_step_id: stepId });
   await maybeSendLowCreditsEmail(
     supabase,
@@ -165,16 +174,16 @@ export async function runProjectStep(
 
   const encoder = new TextEncoder();
   const abortController = new AbortController();
+  // Guards against the catch block and cancel() both firing for the same
+  // request — a local optimization only. The actual idempotency guarantee
+  // is resolve_credit_reservation's atomic compare-and-swap on the
+  // persisted reservation row (see credit-reservation.server.ts).
   let settled = false;
 
   const settleFailure = async (errorCode: string, safeMessage: string) => {
     if (settled) return;
     settled = true;
-    try {
-      await supabase.rpc("refund_credits", { p_cost: cost });
-    } catch {
-      /* best-effort */
-    }
+    refundInBackground(supabase, reservationId, errorCode, waitUntil);
     try {
       await supabase.rpc("fail_ai_project_step", {
         p_step_id: stepId,
@@ -239,7 +248,37 @@ export async function runProjectStep(
 
         if (!gen?.id) throw new Error("No se pudo guardar el resultado.");
 
+        // Same "no success claim before it's true" rule as
+        // generate-ai.ts: block on ledger confirmation before marking the
+        // step complete or sending "done".
         settled = true;
+        const confirmed = await confirmConsumedOrLog(supabase, reservationId, gen.id, {
+          toolKey,
+          userId,
+          projectId,
+          stepId,
+        });
+
+        if (!confirmed) {
+          // Content was generated and persisted, but the ledger can't
+          // confirm the reservation as consumed — leave the step
+          // unresolved and the reservation 'reserved' (recoverable,
+          // already logged by confirmConsumedOrLog) rather than
+          // completing the step on an unconfirmed credit claim.
+          send({
+            type: "error",
+            message:
+              "El contenido se generó pero no se pudo confirmar el estado del crédito. Contactá soporte si el problema persiste.",
+            stepId,
+          });
+          try {
+            controller.close();
+          } catch {
+            /* already closed */
+          }
+          return;
+        }
+
         await supabase.rpc("complete_ai_project_step", {
           p_step_id: stepId,
           p_generation_id: gen.id,
