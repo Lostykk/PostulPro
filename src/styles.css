@@ -164,6 +164,17 @@
     font-family: var(--font-sans);
     -webkit-font-smoothing: antialiased;
   }
+  /* Fallback focus-visible ring for plain links/elements that don't define
+     their own (e.g. the header logo link) — confirmed via keyboard QA that
+     these had NO visible focus indicator at all against the dark
+     background. Tailwind's `focus-visible:outline-none` utility (used by
+     shadcn Button/Input, which pair it with their own ring box-shadow) has
+     higher specificity and overrides this, so already-styled components
+     are unaffected. */
+  :focus-visible {
+    outline: 2px solid var(--focus-ring);
+    outline-offset: 2px;
+  }
   h1, h2, h3, h4, h5, h6 {
     font-family: var(--font-display);
     letter-spacing: -0.02em;
