@@ -1,7 +1,13 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { createClient } from "@supabase/supabase-js";
 import type { Database } from "@/integrations/supabase/types";
-import { getStripe } from "@/lib/stripe.server";
+import { getSubscription } from "@/lib/lemon-squeezy.server";
+
+// Lemon Squeezy has no "create a portal session" call like Stripe's — the
+// Customer Portal URL is a pre-signed field (urls.customer_portal) on the
+// subscription resource itself, valid for ~24h. So "opening the portal" is
+// just: look up the user's own subscription id, re-fetch it for a fresh URL,
+// and redirect there.
 
 export const Route = createFileRoute("/api/billing/portal")({
   server: {
@@ -22,26 +28,30 @@ export const Route = createFileRoute("/api/billing/portal")({
         const { data: userData, error: userErr } = await supabase.auth.getUser(token);
         if (userErr || !userData?.user) return json({ error: "Unauthorized" }, 401);
 
+        // .maybeSingle() errors out (returning null data) if more than one
+        // row matches, so this must narrow to exactly one candidate row
+        // itself via status + limit(1) rather than relying on maybeSingle
+        // to enforce cardinality — a user can have multiple historical
+        // subscription rows (e.g. expired + active after a resubscribe).
         const { data: sub } = await supabase
           .from("subscriptions")
-          .select("stripe_customer_id")
+          .select("provider_subscription_id")
           .eq("user_id", userData.user.id)
-          .not("stripe_customer_id", "is", null)
+          .not("status", "in", "(expired,refunded)")
+          .not("provider_subscription_id", "is", null)
           .order("created_at", { ascending: false })
+          .limit(1)
           .maybeSingle();
 
-        if (!sub?.stripe_customer_id) {
-          return json({ error: "Todavía no tenés una suscripción activa con Stripe." }, 404);
+        if (!sub?.provider_subscription_id) {
+          return json({ error: "Todavía no tenés una suscripción activa." }, 404);
         }
 
         try {
-          const stripe = getStripe();
-          const origin = new URL(request.url).origin;
-          const session = await stripe.billingPortal.sessions.create({
-            customer: sub.stripe_customer_id,
-            return_url: `${origin}/settings`,
-          });
-          return json({ url: session.url });
+          const remote = await getSubscription(sub.provider_subscription_id);
+          const url = remote.attributes.urls.customer_portal;
+          if (!url) return json({ error: "Lemon Squeezy no devolvió una URL de portal" }, 501);
+          return json({ url });
         } catch (err) {
           return json({ error: err instanceof Error ? err.message : "Portal failed" }, 501);
         }

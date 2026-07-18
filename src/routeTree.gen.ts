@@ -9,23 +9,35 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
+import { Route as LegalRouteImport } from './routes/legal'
+import { Route as DemoRouteImport } from './routes/demo'
 import { Route as AuthenticatedRouteRouteImport } from './routes/_authenticated/route'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as RefCodeRouteImport } from './routes/ref.$code'
+import { Route as PSlugRouteImport } from './routes/p.$slug'
 import { Route as AuthResetPasswordRouteImport } from './routes/auth.reset-password'
 import { Route as AuthRegisterRouteImport } from './routes/auth.register'
 import { Route as AuthLoginRouteImport } from './routes/auth.login'
 import { Route as AuthCallbackRouteImport } from './routes/auth.callback'
 import { Route as ApiGenerateAiRouteImport } from './routes/api/generate-ai'
 import { Route as ApiDeleteAccountRouteImport } from './routes/api/delete-account'
+import { Route as ApiCspReportRouteImport } from './routes/api/csp-report'
 import { Route as AuthenticatedSettingsRouteImport } from './routes/_authenticated/settings'
 import { Route as AuthenticatedOnboardingRouteImport } from './routes/_authenticated/onboarding'
 import { Route as AuthenticatedMarketplaceRouteImport } from './routes/_authenticated/marketplace'
 import { Route as AuthenticatedLibraryRouteImport } from './routes/_authenticated/library'
 import { Route as AuthenticatedDashboardRouteImport } from './routes/_authenticated/dashboard'
+import { Route as AuthenticatedBuildRouteImport } from './routes/_authenticated/build'
 import { Route as AuthenticatedAffiliatesRouteImport } from './routes/_authenticated/affiliates'
 import { Route as AuthenticatedAdminRouteImport } from './routes/_authenticated/admin'
+import { Route as ApiProjectsIndexRouteImport } from './routes/api/projects/index'
 import { Route as AuthenticatedToolsIndexRouteImport } from './routes/_authenticated/tools.index'
+import { Route as AuthenticatedProjectsIndexRouteImport } from './routes/_authenticated/projects.index'
+import { Route as AuthenticatedMarketplaceIndexRouteImport } from './routes/_authenticated/marketplace.index'
+import { Route as ApiProjectsCapabilitiesRouteImport } from './routes/api/projects/capabilities'
+import { Route as ApiProjectsIdRouteImport } from './routes/api/projects/$id'
+import { Route as ApiNotificationsWelcomeRouteImport } from './routes/api/notifications/welcome'
+import { Route as ApiNotificationsWeeklySummaryQaRouteImport } from './routes/api/notifications/weekly-summary-qa'
 import { Route as ApiBillingWebhookRouteImport } from './routes/api/billing/webhook'
 import { Route as ApiBillingPortalRouteImport } from './routes/api/billing/portal'
 import { Route as ApiBillingCheckoutRouteImport } from './routes/api/billing/checkout'
@@ -36,9 +48,30 @@ import { Route as AuthenticatedToolsEmailSequencesRouteImport } from './routes/_
 import { Route as AuthenticatedToolsCopywriterRouteImport } from './routes/_authenticated/tools.copywriter'
 import { Route as AuthenticatedToolsConsultantRouteImport } from './routes/_authenticated/tools.consultant'
 import { Route as AuthenticatedToolsBusinessPlanRouteImport } from './routes/_authenticated/tools.business-plan'
+import { Route as AuthenticatedProjectsIdRouteImport } from './routes/_authenticated/projects.$id'
 import { Route as AuthenticatedMarketplaceSellRouteImport } from './routes/_authenticated/marketplace.sell'
 import { Route as AuthenticatedMarketplaceProductIdRouteImport } from './routes/_authenticated/marketplace.$productId'
+import { Route as ApiProjectsIdRunNextRouteImport } from './routes/api/projects/$id.run-next'
+import { Route as ApiProjectsIdResumeRouteImport } from './routes/api/projects/$id.resume'
+import { Route as ApiProjectsIdPlanRouteImport } from './routes/api/projects/$id.plan'
+import { Route as ApiProjectsIdPauseRouteImport } from './routes/api/projects/$id.pause'
+import { Route as ApiProjectsIdConfirmRouteImport } from './routes/api/projects/$id.confirm'
+import { Route as ApiProjectsIdBriefRouteImport } from './routes/api/projects/$id.brief'
+import { Route as ApiProjectsIdArchiveRouteImport } from './routes/api/projects/$id.archive'
+import { Route as ApiProjectsIdStepsStepIdSkipRouteImport } from './routes/api/projects/$id.steps.$stepId.skip'
+import { Route as ApiProjectsIdStepsStepIdRunRouteImport } from './routes/api/projects/$id.steps.$stepId.run'
+import { Route as ApiProjectsIdStepsStepIdRetryRouteImport } from './routes/api/projects/$id.steps.$stepId.retry'
 
+const LegalRoute = LegalRouteImport.update({
+  id: '/legal',
+  path: '/legal',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const DemoRoute = DemoRouteImport.update({
+  id: '/demo',
+  path: '/demo',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const AuthenticatedRouteRoute = AuthenticatedRouteRouteImport.update({
   id: '/_authenticated',
   getParentRoute: () => rootRouteImport,
@@ -51,6 +84,11 @@ const IndexRoute = IndexRouteImport.update({
 const RefCodeRoute = RefCodeRouteImport.update({
   id: '/ref/$code',
   path: '/ref/$code',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const PSlugRoute = PSlugRouteImport.update({
+  id: '/p/$slug',
+  path: '/p/$slug',
   getParentRoute: () => rootRouteImport,
 } as any)
 const AuthResetPasswordRoute = AuthResetPasswordRouteImport.update({
@@ -83,6 +121,11 @@ const ApiDeleteAccountRoute = ApiDeleteAccountRouteImport.update({
   path: '/api/delete-account',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiCspReportRoute = ApiCspReportRouteImport.update({
+  id: '/api/csp-report',
+  path: '/api/csp-report',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const AuthenticatedSettingsRoute = AuthenticatedSettingsRouteImport.update({
   id: '/settings',
   path: '/settings',
@@ -109,6 +152,11 @@ const AuthenticatedDashboardRoute = AuthenticatedDashboardRouteImport.update({
   path: '/dashboard',
   getParentRoute: () => AuthenticatedRouteRoute,
 } as any)
+const AuthenticatedBuildRoute = AuthenticatedBuildRouteImport.update({
+  id: '/build',
+  path: '/build',
+  getParentRoute: () => AuthenticatedRouteRoute,
+} as any)
 const AuthenticatedAffiliatesRoute = AuthenticatedAffiliatesRouteImport.update({
   id: '/affiliates',
   path: '/affiliates',
@@ -119,11 +167,49 @@ const AuthenticatedAdminRoute = AuthenticatedAdminRouteImport.update({
   path: '/admin',
   getParentRoute: () => AuthenticatedRouteRoute,
 } as any)
+const ApiProjectsIndexRoute = ApiProjectsIndexRouteImport.update({
+  id: '/api/projects/',
+  path: '/api/projects/',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const AuthenticatedToolsIndexRoute = AuthenticatedToolsIndexRouteImport.update({
   id: '/tools/',
   path: '/tools/',
   getParentRoute: () => AuthenticatedRouteRoute,
 } as any)
+const AuthenticatedProjectsIndexRoute =
+  AuthenticatedProjectsIndexRouteImport.update({
+    id: '/projects/',
+    path: '/projects/',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
+const AuthenticatedMarketplaceIndexRoute =
+  AuthenticatedMarketplaceIndexRouteImport.update({
+    id: '/',
+    path: '/',
+    getParentRoute: () => AuthenticatedMarketplaceRoute,
+  } as any)
+const ApiProjectsCapabilitiesRoute = ApiProjectsCapabilitiesRouteImport.update({
+  id: '/api/projects/capabilities',
+  path: '/api/projects/capabilities',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiProjectsIdRoute = ApiProjectsIdRouteImport.update({
+  id: '/api/projects/$id',
+  path: '/api/projects/$id',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiNotificationsWelcomeRoute = ApiNotificationsWelcomeRouteImport.update({
+  id: '/api/notifications/welcome',
+  path: '/api/notifications/welcome',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiNotificationsWeeklySummaryQaRoute =
+  ApiNotificationsWeeklySummaryQaRouteImport.update({
+    id: '/api/notifications/weekly-summary-qa',
+    path: '/api/notifications/weekly-summary-qa',
+    getParentRoute: () => rootRouteImport,
+  } as any)
 const ApiBillingWebhookRoute = ApiBillingWebhookRouteImport.update({
   id: '/api/billing/webhook',
   path: '/api/billing/webhook',
@@ -181,6 +267,11 @@ const AuthenticatedToolsBusinessPlanRoute =
     path: '/tools/business-plan',
     getParentRoute: () => AuthenticatedRouteRoute,
   } as any)
+const AuthenticatedProjectsIdRoute = AuthenticatedProjectsIdRouteImport.update({
+  id: '/projects/$id',
+  path: '/projects/$id',
+  getParentRoute: () => AuthenticatedRouteRoute,
+} as any)
 const AuthenticatedMarketplaceSellRoute =
   AuthenticatedMarketplaceSellRouteImport.update({
     id: '/sell',
@@ -193,25 +284,84 @@ const AuthenticatedMarketplaceProductIdRoute =
     path: '/$productId',
     getParentRoute: () => AuthenticatedMarketplaceRoute,
   } as any)
+const ApiProjectsIdRunNextRoute = ApiProjectsIdRunNextRouteImport.update({
+  id: '/run-next',
+  path: '/run-next',
+  getParentRoute: () => ApiProjectsIdRoute,
+} as any)
+const ApiProjectsIdResumeRoute = ApiProjectsIdResumeRouteImport.update({
+  id: '/resume',
+  path: '/resume',
+  getParentRoute: () => ApiProjectsIdRoute,
+} as any)
+const ApiProjectsIdPlanRoute = ApiProjectsIdPlanRouteImport.update({
+  id: '/plan',
+  path: '/plan',
+  getParentRoute: () => ApiProjectsIdRoute,
+} as any)
+const ApiProjectsIdPauseRoute = ApiProjectsIdPauseRouteImport.update({
+  id: '/pause',
+  path: '/pause',
+  getParentRoute: () => ApiProjectsIdRoute,
+} as any)
+const ApiProjectsIdConfirmRoute = ApiProjectsIdConfirmRouteImport.update({
+  id: '/confirm',
+  path: '/confirm',
+  getParentRoute: () => ApiProjectsIdRoute,
+} as any)
+const ApiProjectsIdBriefRoute = ApiProjectsIdBriefRouteImport.update({
+  id: '/brief',
+  path: '/brief',
+  getParentRoute: () => ApiProjectsIdRoute,
+} as any)
+const ApiProjectsIdArchiveRoute = ApiProjectsIdArchiveRouteImport.update({
+  id: '/archive',
+  path: '/archive',
+  getParentRoute: () => ApiProjectsIdRoute,
+} as any)
+const ApiProjectsIdStepsStepIdSkipRoute =
+  ApiProjectsIdStepsStepIdSkipRouteImport.update({
+    id: '/steps/$stepId/skip',
+    path: '/steps/$stepId/skip',
+    getParentRoute: () => ApiProjectsIdRoute,
+  } as any)
+const ApiProjectsIdStepsStepIdRunRoute =
+  ApiProjectsIdStepsStepIdRunRouteImport.update({
+    id: '/steps/$stepId/run',
+    path: '/steps/$stepId/run',
+    getParentRoute: () => ApiProjectsIdRoute,
+  } as any)
+const ApiProjectsIdStepsStepIdRetryRoute =
+  ApiProjectsIdStepsStepIdRetryRouteImport.update({
+    id: '/steps/$stepId/retry',
+    path: '/steps/$stepId/retry',
+    getParentRoute: () => ApiProjectsIdRoute,
+  } as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/demo': typeof DemoRoute
+  '/legal': typeof LegalRoute
   '/admin': typeof AuthenticatedAdminRoute
   '/affiliates': typeof AuthenticatedAffiliatesRoute
+  '/build': typeof AuthenticatedBuildRoute
   '/dashboard': typeof AuthenticatedDashboardRoute
   '/library': typeof AuthenticatedLibraryRoute
   '/marketplace': typeof AuthenticatedMarketplaceRouteWithChildren
   '/onboarding': typeof AuthenticatedOnboardingRoute
   '/settings': typeof AuthenticatedSettingsRoute
+  '/api/csp-report': typeof ApiCspReportRoute
   '/api/delete-account': typeof ApiDeleteAccountRoute
   '/api/generate-ai': typeof ApiGenerateAiRoute
   '/auth/callback': typeof AuthCallbackRoute
   '/auth/login': typeof AuthLoginRoute
   '/auth/register': typeof AuthRegisterRoute
   '/auth/reset-password': typeof AuthResetPasswordRoute
+  '/p/$slug': typeof PSlugRoute
   '/ref/$code': typeof RefCodeRoute
   '/marketplace/$productId': typeof AuthenticatedMarketplaceProductIdRoute
   '/marketplace/sell': typeof AuthenticatedMarketplaceSellRoute
+  '/projects/$id': typeof AuthenticatedProjectsIdRoute
   '/tools/business-plan': typeof AuthenticatedToolsBusinessPlanRoute
   '/tools/consultant': typeof AuthenticatedToolsConsultantRoute
   '/tools/copywriter': typeof AuthenticatedToolsCopywriterRoute
@@ -222,26 +372,48 @@ export interface FileRoutesByFullPath {
   '/api/billing/checkout': typeof ApiBillingCheckoutRoute
   '/api/billing/portal': typeof ApiBillingPortalRoute
   '/api/billing/webhook': typeof ApiBillingWebhookRoute
+  '/api/notifications/weekly-summary-qa': typeof ApiNotificationsWeeklySummaryQaRoute
+  '/api/notifications/welcome': typeof ApiNotificationsWelcomeRoute
+  '/api/projects/$id': typeof ApiProjectsIdRouteWithChildren
+  '/api/projects/capabilities': typeof ApiProjectsCapabilitiesRoute
+  '/marketplace/': typeof AuthenticatedMarketplaceIndexRoute
+  '/projects/': typeof AuthenticatedProjectsIndexRoute
   '/tools/': typeof AuthenticatedToolsIndexRoute
+  '/api/projects/': typeof ApiProjectsIndexRoute
+  '/api/projects/$id/archive': typeof ApiProjectsIdArchiveRoute
+  '/api/projects/$id/brief': typeof ApiProjectsIdBriefRoute
+  '/api/projects/$id/confirm': typeof ApiProjectsIdConfirmRoute
+  '/api/projects/$id/pause': typeof ApiProjectsIdPauseRoute
+  '/api/projects/$id/plan': typeof ApiProjectsIdPlanRoute
+  '/api/projects/$id/resume': typeof ApiProjectsIdResumeRoute
+  '/api/projects/$id/run-next': typeof ApiProjectsIdRunNextRoute
+  '/api/projects/$id/steps/$stepId/retry': typeof ApiProjectsIdStepsStepIdRetryRoute
+  '/api/projects/$id/steps/$stepId/run': typeof ApiProjectsIdStepsStepIdRunRoute
+  '/api/projects/$id/steps/$stepId/skip': typeof ApiProjectsIdStepsStepIdSkipRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/demo': typeof DemoRoute
+  '/legal': typeof LegalRoute
   '/admin': typeof AuthenticatedAdminRoute
   '/affiliates': typeof AuthenticatedAffiliatesRoute
+  '/build': typeof AuthenticatedBuildRoute
   '/dashboard': typeof AuthenticatedDashboardRoute
   '/library': typeof AuthenticatedLibraryRoute
-  '/marketplace': typeof AuthenticatedMarketplaceRouteWithChildren
   '/onboarding': typeof AuthenticatedOnboardingRoute
   '/settings': typeof AuthenticatedSettingsRoute
+  '/api/csp-report': typeof ApiCspReportRoute
   '/api/delete-account': typeof ApiDeleteAccountRoute
   '/api/generate-ai': typeof ApiGenerateAiRoute
   '/auth/callback': typeof AuthCallbackRoute
   '/auth/login': typeof AuthLoginRoute
   '/auth/register': typeof AuthRegisterRoute
   '/auth/reset-password': typeof AuthResetPasswordRoute
+  '/p/$slug': typeof PSlugRoute
   '/ref/$code': typeof RefCodeRoute
   '/marketplace/$productId': typeof AuthenticatedMarketplaceProductIdRoute
   '/marketplace/sell': typeof AuthenticatedMarketplaceSellRoute
+  '/projects/$id': typeof AuthenticatedProjectsIdRoute
   '/tools/business-plan': typeof AuthenticatedToolsBusinessPlanRoute
   '/tools/consultant': typeof AuthenticatedToolsConsultantRoute
   '/tools/copywriter': typeof AuthenticatedToolsCopywriterRoute
@@ -252,28 +424,51 @@ export interface FileRoutesByTo {
   '/api/billing/checkout': typeof ApiBillingCheckoutRoute
   '/api/billing/portal': typeof ApiBillingPortalRoute
   '/api/billing/webhook': typeof ApiBillingWebhookRoute
+  '/api/notifications/weekly-summary-qa': typeof ApiNotificationsWeeklySummaryQaRoute
+  '/api/notifications/welcome': typeof ApiNotificationsWelcomeRoute
+  '/api/projects/$id': typeof ApiProjectsIdRouteWithChildren
+  '/api/projects/capabilities': typeof ApiProjectsCapabilitiesRoute
+  '/marketplace': typeof AuthenticatedMarketplaceIndexRoute
+  '/projects': typeof AuthenticatedProjectsIndexRoute
   '/tools': typeof AuthenticatedToolsIndexRoute
+  '/api/projects': typeof ApiProjectsIndexRoute
+  '/api/projects/$id/archive': typeof ApiProjectsIdArchiveRoute
+  '/api/projects/$id/brief': typeof ApiProjectsIdBriefRoute
+  '/api/projects/$id/confirm': typeof ApiProjectsIdConfirmRoute
+  '/api/projects/$id/pause': typeof ApiProjectsIdPauseRoute
+  '/api/projects/$id/plan': typeof ApiProjectsIdPlanRoute
+  '/api/projects/$id/resume': typeof ApiProjectsIdResumeRoute
+  '/api/projects/$id/run-next': typeof ApiProjectsIdRunNextRoute
+  '/api/projects/$id/steps/$stepId/retry': typeof ApiProjectsIdStepsStepIdRetryRoute
+  '/api/projects/$id/steps/$stepId/run': typeof ApiProjectsIdStepsStepIdRunRoute
+  '/api/projects/$id/steps/$stepId/skip': typeof ApiProjectsIdStepsStepIdSkipRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/_authenticated': typeof AuthenticatedRouteRouteWithChildren
+  '/demo': typeof DemoRoute
+  '/legal': typeof LegalRoute
   '/_authenticated/admin': typeof AuthenticatedAdminRoute
   '/_authenticated/affiliates': typeof AuthenticatedAffiliatesRoute
+  '/_authenticated/build': typeof AuthenticatedBuildRoute
   '/_authenticated/dashboard': typeof AuthenticatedDashboardRoute
   '/_authenticated/library': typeof AuthenticatedLibraryRoute
   '/_authenticated/marketplace': typeof AuthenticatedMarketplaceRouteWithChildren
   '/_authenticated/onboarding': typeof AuthenticatedOnboardingRoute
   '/_authenticated/settings': typeof AuthenticatedSettingsRoute
+  '/api/csp-report': typeof ApiCspReportRoute
   '/api/delete-account': typeof ApiDeleteAccountRoute
   '/api/generate-ai': typeof ApiGenerateAiRoute
   '/auth/callback': typeof AuthCallbackRoute
   '/auth/login': typeof AuthLoginRoute
   '/auth/register': typeof AuthRegisterRoute
   '/auth/reset-password': typeof AuthResetPasswordRoute
+  '/p/$slug': typeof PSlugRoute
   '/ref/$code': typeof RefCodeRoute
   '/_authenticated/marketplace/$productId': typeof AuthenticatedMarketplaceProductIdRoute
   '/_authenticated/marketplace/sell': typeof AuthenticatedMarketplaceSellRoute
+  '/_authenticated/projects/$id': typeof AuthenticatedProjectsIdRoute
   '/_authenticated/tools/business-plan': typeof AuthenticatedToolsBusinessPlanRoute
   '/_authenticated/tools/consultant': typeof AuthenticatedToolsConsultantRoute
   '/_authenticated/tools/copywriter': typeof AuthenticatedToolsCopywriterRoute
@@ -284,28 +479,51 @@ export interface FileRoutesById {
   '/api/billing/checkout': typeof ApiBillingCheckoutRoute
   '/api/billing/portal': typeof ApiBillingPortalRoute
   '/api/billing/webhook': typeof ApiBillingWebhookRoute
+  '/api/notifications/weekly-summary-qa': typeof ApiNotificationsWeeklySummaryQaRoute
+  '/api/notifications/welcome': typeof ApiNotificationsWelcomeRoute
+  '/api/projects/$id': typeof ApiProjectsIdRouteWithChildren
+  '/api/projects/capabilities': typeof ApiProjectsCapabilitiesRoute
+  '/_authenticated/marketplace/': typeof AuthenticatedMarketplaceIndexRoute
+  '/_authenticated/projects/': typeof AuthenticatedProjectsIndexRoute
   '/_authenticated/tools/': typeof AuthenticatedToolsIndexRoute
+  '/api/projects/': typeof ApiProjectsIndexRoute
+  '/api/projects/$id/archive': typeof ApiProjectsIdArchiveRoute
+  '/api/projects/$id/brief': typeof ApiProjectsIdBriefRoute
+  '/api/projects/$id/confirm': typeof ApiProjectsIdConfirmRoute
+  '/api/projects/$id/pause': typeof ApiProjectsIdPauseRoute
+  '/api/projects/$id/plan': typeof ApiProjectsIdPlanRoute
+  '/api/projects/$id/resume': typeof ApiProjectsIdResumeRoute
+  '/api/projects/$id/run-next': typeof ApiProjectsIdRunNextRoute
+  '/api/projects/$id/steps/$stepId/retry': typeof ApiProjectsIdStepsStepIdRetryRoute
+  '/api/projects/$id/steps/$stepId/run': typeof ApiProjectsIdStepsStepIdRunRoute
+  '/api/projects/$id/steps/$stepId/skip': typeof ApiProjectsIdStepsStepIdSkipRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
+    | '/demo'
+    | '/legal'
     | '/admin'
     | '/affiliates'
+    | '/build'
     | '/dashboard'
     | '/library'
     | '/marketplace'
     | '/onboarding'
     | '/settings'
+    | '/api/csp-report'
     | '/api/delete-account'
     | '/api/generate-ai'
     | '/auth/callback'
     | '/auth/login'
     | '/auth/register'
     | '/auth/reset-password'
+    | '/p/$slug'
     | '/ref/$code'
     | '/marketplace/$productId'
     | '/marketplace/sell'
+    | '/projects/$id'
     | '/tools/business-plan'
     | '/tools/consultant'
     | '/tools/copywriter'
@@ -316,26 +534,48 @@ export interface FileRouteTypes {
     | '/api/billing/checkout'
     | '/api/billing/portal'
     | '/api/billing/webhook'
+    | '/api/notifications/weekly-summary-qa'
+    | '/api/notifications/welcome'
+    | '/api/projects/$id'
+    | '/api/projects/capabilities'
+    | '/marketplace/'
+    | '/projects/'
     | '/tools/'
+    | '/api/projects/'
+    | '/api/projects/$id/archive'
+    | '/api/projects/$id/brief'
+    | '/api/projects/$id/confirm'
+    | '/api/projects/$id/pause'
+    | '/api/projects/$id/plan'
+    | '/api/projects/$id/resume'
+    | '/api/projects/$id/run-next'
+    | '/api/projects/$id/steps/$stepId/retry'
+    | '/api/projects/$id/steps/$stepId/run'
+    | '/api/projects/$id/steps/$stepId/skip'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
+    | '/demo'
+    | '/legal'
     | '/admin'
     | '/affiliates'
+    | '/build'
     | '/dashboard'
     | '/library'
-    | '/marketplace'
     | '/onboarding'
     | '/settings'
+    | '/api/csp-report'
     | '/api/delete-account'
     | '/api/generate-ai'
     | '/auth/callback'
     | '/auth/login'
     | '/auth/register'
     | '/auth/reset-password'
+    | '/p/$slug'
     | '/ref/$code'
     | '/marketplace/$productId'
     | '/marketplace/sell'
+    | '/projects/$id'
     | '/tools/business-plan'
     | '/tools/consultant'
     | '/tools/copywriter'
@@ -346,27 +586,50 @@ export interface FileRouteTypes {
     | '/api/billing/checkout'
     | '/api/billing/portal'
     | '/api/billing/webhook'
+    | '/api/notifications/weekly-summary-qa'
+    | '/api/notifications/welcome'
+    | '/api/projects/$id'
+    | '/api/projects/capabilities'
+    | '/marketplace'
+    | '/projects'
     | '/tools'
+    | '/api/projects'
+    | '/api/projects/$id/archive'
+    | '/api/projects/$id/brief'
+    | '/api/projects/$id/confirm'
+    | '/api/projects/$id/pause'
+    | '/api/projects/$id/plan'
+    | '/api/projects/$id/resume'
+    | '/api/projects/$id/run-next'
+    | '/api/projects/$id/steps/$stepId/retry'
+    | '/api/projects/$id/steps/$stepId/run'
+    | '/api/projects/$id/steps/$stepId/skip'
   id:
     | '__root__'
     | '/'
     | '/_authenticated'
+    | '/demo'
+    | '/legal'
     | '/_authenticated/admin'
     | '/_authenticated/affiliates'
+    | '/_authenticated/build'
     | '/_authenticated/dashboard'
     | '/_authenticated/library'
     | '/_authenticated/marketplace'
     | '/_authenticated/onboarding'
     | '/_authenticated/settings'
+    | '/api/csp-report'
     | '/api/delete-account'
     | '/api/generate-ai'
     | '/auth/callback'
     | '/auth/login'
     | '/auth/register'
     | '/auth/reset-password'
+    | '/p/$slug'
     | '/ref/$code'
     | '/_authenticated/marketplace/$productId'
     | '/_authenticated/marketplace/sell'
+    | '/_authenticated/projects/$id'
     | '/_authenticated/tools/business-plan'
     | '/_authenticated/tools/consultant'
     | '/_authenticated/tools/copywriter'
@@ -377,26 +640,66 @@ export interface FileRouteTypes {
     | '/api/billing/checkout'
     | '/api/billing/portal'
     | '/api/billing/webhook'
+    | '/api/notifications/weekly-summary-qa'
+    | '/api/notifications/welcome'
+    | '/api/projects/$id'
+    | '/api/projects/capabilities'
+    | '/_authenticated/marketplace/'
+    | '/_authenticated/projects/'
     | '/_authenticated/tools/'
+    | '/api/projects/'
+    | '/api/projects/$id/archive'
+    | '/api/projects/$id/brief'
+    | '/api/projects/$id/confirm'
+    | '/api/projects/$id/pause'
+    | '/api/projects/$id/plan'
+    | '/api/projects/$id/resume'
+    | '/api/projects/$id/run-next'
+    | '/api/projects/$id/steps/$stepId/retry'
+    | '/api/projects/$id/steps/$stepId/run'
+    | '/api/projects/$id/steps/$stepId/skip'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   AuthenticatedRouteRoute: typeof AuthenticatedRouteRouteWithChildren
+  DemoRoute: typeof DemoRoute
+  LegalRoute: typeof LegalRoute
+  ApiCspReportRoute: typeof ApiCspReportRoute
   ApiDeleteAccountRoute: typeof ApiDeleteAccountRoute
   ApiGenerateAiRoute: typeof ApiGenerateAiRoute
   AuthCallbackRoute: typeof AuthCallbackRoute
   AuthLoginRoute: typeof AuthLoginRoute
   AuthRegisterRoute: typeof AuthRegisterRoute
   AuthResetPasswordRoute: typeof AuthResetPasswordRoute
+  PSlugRoute: typeof PSlugRoute
   RefCodeRoute: typeof RefCodeRoute
   ApiBillingCheckoutRoute: typeof ApiBillingCheckoutRoute
   ApiBillingPortalRoute: typeof ApiBillingPortalRoute
   ApiBillingWebhookRoute: typeof ApiBillingWebhookRoute
+  ApiNotificationsWeeklySummaryQaRoute: typeof ApiNotificationsWeeklySummaryQaRoute
+  ApiNotificationsWelcomeRoute: typeof ApiNotificationsWelcomeRoute
+  ApiProjectsIdRoute: typeof ApiProjectsIdRouteWithChildren
+  ApiProjectsCapabilitiesRoute: typeof ApiProjectsCapabilitiesRoute
+  ApiProjectsIndexRoute: typeof ApiProjectsIndexRoute
 }
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
+    '/legal': {
+      id: '/legal'
+      path: '/legal'
+      fullPath: '/legal'
+      preLoaderRoute: typeof LegalRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/demo': {
+      id: '/demo'
+      path: '/demo'
+      fullPath: '/demo'
+      preLoaderRoute: typeof DemoRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/_authenticated': {
       id: '/_authenticated'
       path: ''
@@ -416,6 +719,13 @@ declare module '@tanstack/react-router' {
       path: '/ref/$code'
       fullPath: '/ref/$code'
       preLoaderRoute: typeof RefCodeRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/p/$slug': {
+      id: '/p/$slug'
+      path: '/p/$slug'
+      fullPath: '/p/$slug'
+      preLoaderRoute: typeof PSlugRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/auth/reset-password': {
@@ -460,6 +770,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiDeleteAccountRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/csp-report': {
+      id: '/api/csp-report'
+      path: '/api/csp-report'
+      fullPath: '/api/csp-report'
+      preLoaderRoute: typeof ApiCspReportRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/_authenticated/settings': {
       id: '/_authenticated/settings'
       path: '/settings'
@@ -495,6 +812,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedDashboardRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
+    '/_authenticated/build': {
+      id: '/_authenticated/build'
+      path: '/build'
+      fullPath: '/build'
+      preLoaderRoute: typeof AuthenticatedBuildRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
     '/_authenticated/affiliates': {
       id: '/_authenticated/affiliates'
       path: '/affiliates'
@@ -509,12 +833,61 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedAdminRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
+    '/api/projects/': {
+      id: '/api/projects/'
+      path: '/api/projects'
+      fullPath: '/api/projects/'
+      preLoaderRoute: typeof ApiProjectsIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/_authenticated/tools/': {
       id: '/_authenticated/tools/'
       path: '/tools'
       fullPath: '/tools/'
       preLoaderRoute: typeof AuthenticatedToolsIndexRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/projects/': {
+      id: '/_authenticated/projects/'
+      path: '/projects'
+      fullPath: '/projects/'
+      preLoaderRoute: typeof AuthenticatedProjectsIndexRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/marketplace/': {
+      id: '/_authenticated/marketplace/'
+      path: '/'
+      fullPath: '/marketplace/'
+      preLoaderRoute: typeof AuthenticatedMarketplaceIndexRouteImport
+      parentRoute: typeof AuthenticatedMarketplaceRoute
+    }
+    '/api/projects/capabilities': {
+      id: '/api/projects/capabilities'
+      path: '/api/projects/capabilities'
+      fullPath: '/api/projects/capabilities'
+      preLoaderRoute: typeof ApiProjectsCapabilitiesRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/projects/$id': {
+      id: '/api/projects/$id'
+      path: '/api/projects/$id'
+      fullPath: '/api/projects/$id'
+      preLoaderRoute: typeof ApiProjectsIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/notifications/welcome': {
+      id: '/api/notifications/welcome'
+      path: '/api/notifications/welcome'
+      fullPath: '/api/notifications/welcome'
+      preLoaderRoute: typeof ApiNotificationsWelcomeRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/notifications/weekly-summary-qa': {
+      id: '/api/notifications/weekly-summary-qa'
+      path: '/api/notifications/weekly-summary-qa'
+      fullPath: '/api/notifications/weekly-summary-qa'
+      preLoaderRoute: typeof ApiNotificationsWeeklySummaryQaRouteImport
+      parentRoute: typeof rootRouteImport
     }
     '/api/billing/webhook': {
       id: '/api/billing/webhook'
@@ -586,6 +959,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedToolsBusinessPlanRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
+    '/_authenticated/projects/$id': {
+      id: '/_authenticated/projects/$id'
+      path: '/projects/$id'
+      fullPath: '/projects/$id'
+      preLoaderRoute: typeof AuthenticatedProjectsIdRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
     '/_authenticated/marketplace/sell': {
       id: '/_authenticated/marketplace/sell'
       path: '/sell'
@@ -600,12 +980,83 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedMarketplaceProductIdRouteImport
       parentRoute: typeof AuthenticatedMarketplaceRoute
     }
+    '/api/projects/$id/run-next': {
+      id: '/api/projects/$id/run-next'
+      path: '/run-next'
+      fullPath: '/api/projects/$id/run-next'
+      preLoaderRoute: typeof ApiProjectsIdRunNextRouteImport
+      parentRoute: typeof ApiProjectsIdRoute
+    }
+    '/api/projects/$id/resume': {
+      id: '/api/projects/$id/resume'
+      path: '/resume'
+      fullPath: '/api/projects/$id/resume'
+      preLoaderRoute: typeof ApiProjectsIdResumeRouteImport
+      parentRoute: typeof ApiProjectsIdRoute
+    }
+    '/api/projects/$id/plan': {
+      id: '/api/projects/$id/plan'
+      path: '/plan'
+      fullPath: '/api/projects/$id/plan'
+      preLoaderRoute: typeof ApiProjectsIdPlanRouteImport
+      parentRoute: typeof ApiProjectsIdRoute
+    }
+    '/api/projects/$id/pause': {
+      id: '/api/projects/$id/pause'
+      path: '/pause'
+      fullPath: '/api/projects/$id/pause'
+      preLoaderRoute: typeof ApiProjectsIdPauseRouteImport
+      parentRoute: typeof ApiProjectsIdRoute
+    }
+    '/api/projects/$id/confirm': {
+      id: '/api/projects/$id/confirm'
+      path: '/confirm'
+      fullPath: '/api/projects/$id/confirm'
+      preLoaderRoute: typeof ApiProjectsIdConfirmRouteImport
+      parentRoute: typeof ApiProjectsIdRoute
+    }
+    '/api/projects/$id/brief': {
+      id: '/api/projects/$id/brief'
+      path: '/brief'
+      fullPath: '/api/projects/$id/brief'
+      preLoaderRoute: typeof ApiProjectsIdBriefRouteImport
+      parentRoute: typeof ApiProjectsIdRoute
+    }
+    '/api/projects/$id/archive': {
+      id: '/api/projects/$id/archive'
+      path: '/archive'
+      fullPath: '/api/projects/$id/archive'
+      preLoaderRoute: typeof ApiProjectsIdArchiveRouteImport
+      parentRoute: typeof ApiProjectsIdRoute
+    }
+    '/api/projects/$id/steps/$stepId/skip': {
+      id: '/api/projects/$id/steps/$stepId/skip'
+      path: '/steps/$stepId/skip'
+      fullPath: '/api/projects/$id/steps/$stepId/skip'
+      preLoaderRoute: typeof ApiProjectsIdStepsStepIdSkipRouteImport
+      parentRoute: typeof ApiProjectsIdRoute
+    }
+    '/api/projects/$id/steps/$stepId/run': {
+      id: '/api/projects/$id/steps/$stepId/run'
+      path: '/steps/$stepId/run'
+      fullPath: '/api/projects/$id/steps/$stepId/run'
+      preLoaderRoute: typeof ApiProjectsIdStepsStepIdRunRouteImport
+      parentRoute: typeof ApiProjectsIdRoute
+    }
+    '/api/projects/$id/steps/$stepId/retry': {
+      id: '/api/projects/$id/steps/$stepId/retry'
+      path: '/steps/$stepId/retry'
+      fullPath: '/api/projects/$id/steps/$stepId/retry'
+      preLoaderRoute: typeof ApiProjectsIdStepsStepIdRetryRouteImport
+      parentRoute: typeof ApiProjectsIdRoute
+    }
   }
 }
 
 interface AuthenticatedMarketplaceRouteChildren {
   AuthenticatedMarketplaceProductIdRoute: typeof AuthenticatedMarketplaceProductIdRoute
   AuthenticatedMarketplaceSellRoute: typeof AuthenticatedMarketplaceSellRoute
+  AuthenticatedMarketplaceIndexRoute: typeof AuthenticatedMarketplaceIndexRoute
 }
 
 const AuthenticatedMarketplaceRouteChildren: AuthenticatedMarketplaceRouteChildren =
@@ -613,6 +1064,7 @@ const AuthenticatedMarketplaceRouteChildren: AuthenticatedMarketplaceRouteChildr
     AuthenticatedMarketplaceProductIdRoute:
       AuthenticatedMarketplaceProductIdRoute,
     AuthenticatedMarketplaceSellRoute: AuthenticatedMarketplaceSellRoute,
+    AuthenticatedMarketplaceIndexRoute: AuthenticatedMarketplaceIndexRoute,
   }
 
 const AuthenticatedMarketplaceRouteWithChildren =
@@ -623,11 +1075,13 @@ const AuthenticatedMarketplaceRouteWithChildren =
 interface AuthenticatedRouteRouteChildren {
   AuthenticatedAdminRoute: typeof AuthenticatedAdminRoute
   AuthenticatedAffiliatesRoute: typeof AuthenticatedAffiliatesRoute
+  AuthenticatedBuildRoute: typeof AuthenticatedBuildRoute
   AuthenticatedDashboardRoute: typeof AuthenticatedDashboardRoute
   AuthenticatedLibraryRoute: typeof AuthenticatedLibraryRoute
   AuthenticatedMarketplaceRoute: typeof AuthenticatedMarketplaceRouteWithChildren
   AuthenticatedOnboardingRoute: typeof AuthenticatedOnboardingRoute
   AuthenticatedSettingsRoute: typeof AuthenticatedSettingsRoute
+  AuthenticatedProjectsIdRoute: typeof AuthenticatedProjectsIdRoute
   AuthenticatedToolsBusinessPlanRoute: typeof AuthenticatedToolsBusinessPlanRoute
   AuthenticatedToolsConsultantRoute: typeof AuthenticatedToolsConsultantRoute
   AuthenticatedToolsCopywriterRoute: typeof AuthenticatedToolsCopywriterRoute
@@ -635,17 +1089,20 @@ interface AuthenticatedRouteRouteChildren {
   AuthenticatedToolsLandingCopyRoute: typeof AuthenticatedToolsLandingCopyRoute
   AuthenticatedToolsSalesEmailRoute: typeof AuthenticatedToolsSalesEmailRoute
   AuthenticatedToolsSocialPackRoute: typeof AuthenticatedToolsSocialPackRoute
+  AuthenticatedProjectsIndexRoute: typeof AuthenticatedProjectsIndexRoute
   AuthenticatedToolsIndexRoute: typeof AuthenticatedToolsIndexRoute
 }
 
 const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
   AuthenticatedAdminRoute: AuthenticatedAdminRoute,
   AuthenticatedAffiliatesRoute: AuthenticatedAffiliatesRoute,
+  AuthenticatedBuildRoute: AuthenticatedBuildRoute,
   AuthenticatedDashboardRoute: AuthenticatedDashboardRoute,
   AuthenticatedLibraryRoute: AuthenticatedLibraryRoute,
   AuthenticatedMarketplaceRoute: AuthenticatedMarketplaceRouteWithChildren,
   AuthenticatedOnboardingRoute: AuthenticatedOnboardingRoute,
   AuthenticatedSettingsRoute: AuthenticatedSettingsRoute,
+  AuthenticatedProjectsIdRoute: AuthenticatedProjectsIdRoute,
   AuthenticatedToolsBusinessPlanRoute: AuthenticatedToolsBusinessPlanRoute,
   AuthenticatedToolsConsultantRoute: AuthenticatedToolsConsultantRoute,
   AuthenticatedToolsCopywriterRoute: AuthenticatedToolsCopywriterRoute,
@@ -653,25 +1110,65 @@ const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
   AuthenticatedToolsLandingCopyRoute: AuthenticatedToolsLandingCopyRoute,
   AuthenticatedToolsSalesEmailRoute: AuthenticatedToolsSalesEmailRoute,
   AuthenticatedToolsSocialPackRoute: AuthenticatedToolsSocialPackRoute,
+  AuthenticatedProjectsIndexRoute: AuthenticatedProjectsIndexRoute,
   AuthenticatedToolsIndexRoute: AuthenticatedToolsIndexRoute,
 }
 
 const AuthenticatedRouteRouteWithChildren =
   AuthenticatedRouteRoute._addFileChildren(AuthenticatedRouteRouteChildren)
 
+interface ApiProjectsIdRouteChildren {
+  ApiProjectsIdArchiveRoute: typeof ApiProjectsIdArchiveRoute
+  ApiProjectsIdBriefRoute: typeof ApiProjectsIdBriefRoute
+  ApiProjectsIdConfirmRoute: typeof ApiProjectsIdConfirmRoute
+  ApiProjectsIdPauseRoute: typeof ApiProjectsIdPauseRoute
+  ApiProjectsIdPlanRoute: typeof ApiProjectsIdPlanRoute
+  ApiProjectsIdResumeRoute: typeof ApiProjectsIdResumeRoute
+  ApiProjectsIdRunNextRoute: typeof ApiProjectsIdRunNextRoute
+  ApiProjectsIdStepsStepIdRetryRoute: typeof ApiProjectsIdStepsStepIdRetryRoute
+  ApiProjectsIdStepsStepIdRunRoute: typeof ApiProjectsIdStepsStepIdRunRoute
+  ApiProjectsIdStepsStepIdSkipRoute: typeof ApiProjectsIdStepsStepIdSkipRoute
+}
+
+const ApiProjectsIdRouteChildren: ApiProjectsIdRouteChildren = {
+  ApiProjectsIdArchiveRoute: ApiProjectsIdArchiveRoute,
+  ApiProjectsIdBriefRoute: ApiProjectsIdBriefRoute,
+  ApiProjectsIdConfirmRoute: ApiProjectsIdConfirmRoute,
+  ApiProjectsIdPauseRoute: ApiProjectsIdPauseRoute,
+  ApiProjectsIdPlanRoute: ApiProjectsIdPlanRoute,
+  ApiProjectsIdResumeRoute: ApiProjectsIdResumeRoute,
+  ApiProjectsIdRunNextRoute: ApiProjectsIdRunNextRoute,
+  ApiProjectsIdStepsStepIdRetryRoute: ApiProjectsIdStepsStepIdRetryRoute,
+  ApiProjectsIdStepsStepIdRunRoute: ApiProjectsIdStepsStepIdRunRoute,
+  ApiProjectsIdStepsStepIdSkipRoute: ApiProjectsIdStepsStepIdSkipRoute,
+}
+
+const ApiProjectsIdRouteWithChildren = ApiProjectsIdRoute._addFileChildren(
+  ApiProjectsIdRouteChildren,
+)
+
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AuthenticatedRouteRoute: AuthenticatedRouteRouteWithChildren,
+  DemoRoute: DemoRoute,
+  LegalRoute: LegalRoute,
+  ApiCspReportRoute: ApiCspReportRoute,
   ApiDeleteAccountRoute: ApiDeleteAccountRoute,
   ApiGenerateAiRoute: ApiGenerateAiRoute,
   AuthCallbackRoute: AuthCallbackRoute,
   AuthLoginRoute: AuthLoginRoute,
   AuthRegisterRoute: AuthRegisterRoute,
   AuthResetPasswordRoute: AuthResetPasswordRoute,
+  PSlugRoute: PSlugRoute,
   RefCodeRoute: RefCodeRoute,
   ApiBillingCheckoutRoute: ApiBillingCheckoutRoute,
   ApiBillingPortalRoute: ApiBillingPortalRoute,
   ApiBillingWebhookRoute: ApiBillingWebhookRoute,
+  ApiNotificationsWeeklySummaryQaRoute: ApiNotificationsWeeklySummaryQaRoute,
+  ApiNotificationsWelcomeRoute: ApiNotificationsWelcomeRoute,
+  ApiProjectsIdRoute: ApiProjectsIdRouteWithChildren,
+  ApiProjectsCapabilitiesRoute: ApiProjectsCapabilitiesRoute,
+  ApiProjectsIndexRoute: ApiProjectsIndexRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

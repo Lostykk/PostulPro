@@ -224,10 +224,11 @@
   & > :first-child { margin-top: 0; }
   & > :last-child { margin-bottom: 0; }
   p { margin: 0.5em 0; }
-  h1, h2, h3 { font-family: var(--font-display); font-weight: 700; margin: 0.9em 0 0.4em; }
+  h1, h2, h3, h4 { font-family: var(--font-display); font-weight: 700; margin: 0.9em 0 0.4em; }
   h1 { font-size: 1.15em; }
   h2 { font-size: 1.08em; }
   h3 { font-size: 1em; }
+  h4 { font-size: 0.95em; }
   ul, ol { margin: 0.5em 0; padding-left: 1.25em; }
   li { margin: 0.2em 0; }
   ul { list-style: disc; }
@@ -238,8 +239,36 @@
   pre code { background: none; padding: 0; }
   a { color: #c4b5fd; text-decoration: underline; }
   blockquote { border-left: 2px solid rgba(255,255,255,0.15); padding-left: 0.75em; color: var(--muted-foreground); margin: 0.5em 0; }
-  table { border-collapse: collapse; margin: 0.5em 0; }
+  hr { border: none; border-top: 1px solid rgba(255,255,255,0.12); margin: 1.25em 0; }
+  table { border-collapse: collapse; margin: 0.5em 0; width: 100%; }
   th, td { border: 1px solid rgba(255,255,255,0.1); padding: 0.35em 0.6em; text-align: left; }
+  th { font-weight: 600; background: rgba(255,255,255,0.04); }
+}
+
+/* Larger reading rhythm for full-document views (business plan, generic
+   markdown) vs the compact chat-message use of .markdown-body above. */
+@utility markdown-body-lg {
+  font-size: 1rem;
+  line-height: 1.75;
+  max-width: 68ch;
+  & > :first-child { margin-top: 0; }
+  h1, h2, h3, h4 { font-family: var(--font-display); font-weight: 700; margin: 1.4em 0 0.5em; }
+  h1 { font-size: 1.6em; }
+  h2 { font-size: 1.35em; }
+  h3 { font-size: 1.15em; }
+  h4 { font-size: 1.05em; }
+  p { margin: 0.9em 0; }
+  ul, ol { margin: 0.9em 0; padding-left: 1.5em; }
+  li { margin: 0.3em 0; }
+  ul { list-style: disc; }
+  ol { list-style: decimal; }
+  strong { font-weight: 600; color: var(--foreground); }
+  a { color: #c4b5fd; text-decoration: underline; }
+  blockquote { border-left: 3px solid rgba(255,255,255,0.15); padding-left: 1em; color: var(--muted-foreground); margin: 1em 0; font-style: italic; }
+  hr { border: none; border-top: 1px solid rgba(255,255,255,0.12); margin: 1.75em 0; }
+  table { border-collapse: collapse; margin: 1em 0; width: 100%; font-size: 0.9em; }
+  th, td { border: 1px solid rgba(255,255,255,0.1); padding: 0.5em 0.75em; text-align: left; }
+  th { font-weight: 600; background: rgba(255,255,255,0.04); }
 }
 
 @media (prefers-reduced-motion: reduce) {

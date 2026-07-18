@@ -1,7 +1,11 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { createClient } from "@supabase/supabase-js";
 import type { Database } from "@/integrations/supabase/types";
-import { getTool, type ToolConfig } from "@/lib/ai/tools-config.server";
+import { getTool } from "@/lib/ai/tools-config.server";
+import { callModel, logModelUsage, type ModelUsage } from "@/lib/ai/call-model.server";
+import { checkAiExecutionAllowed } from "@/lib/ai/preview-guard.server";
+import { maybeSendLowCreditsEmail } from "@/lib/notifications/low-credits.server";
+import { isOwner } from "@/lib/auth/is-owner";
 
 // Streaming proxy to Anthropic / OpenAI. API keys stay server-side.
 // Contract: POST /api/generate-ai with Bearer token + JSON:
@@ -38,6 +42,22 @@ export const Route = createFileRoute("/api/generate-ai")({
         if (userErr || !userData?.user) return json({ error: "Unauthorized" }, 401);
         const userId = userData.user.id;
 
+        // Fetch user's plan/role once, up front — needed both for the
+        // preview allowlist gate (admins bypass it) and the plan gate below.
+        const { data: profile, error: profErr } = await supabase
+          .from("users")
+          .select("plan,role")
+          .eq("id", userId)
+          .maybeSingle();
+        if (profErr || !profile) return json({ error: "Profile not found" }, 404);
+        const owner = isOwner(profile);
+
+        // Preview-only allowlist gate — admins bypass the single-QA-user
+        // restriction without replacing it; the kill switch still applies to
+        // everyone. No-op in production.
+        const guard = checkAiExecutionAllowed(userId, owner);
+        if (!guard.allowed) return json({ error: guard.message, code: guard.code }, guard.status);
+
         let body: { tool?: string; prompt?: string; title?: string };
         try {
           body = (await request.json()) as typeof body;
@@ -52,20 +72,15 @@ export const Route = createFileRoute("/api/generate-ai")({
         const tool = getTool(toolId);
         if (!tool) return json({ error: `Unknown tool: ${toolId}` }, 400);
 
-        // Fetch user's plan
-        const { data: profile, error: profErr } = await supabase
-          .from("users")
-          .select("plan")
-          .eq("id", userId)
-          .maybeSingle();
-        if (profErr || !profile) return json({ error: "Profile not found" }, 404);
-
-        // Plan gate
-        if (tool.planGate) {
+        // Plan gate — owners get full internal tool access without a plan change.
+        if (tool.planGate && !owner) {
           const rank: Record<string, number> = { free: 0, pro: 1, business: 2 };
           if ((rank[profile.plan] ?? 0) < (rank[tool.planGate] ?? 0)) {
             return json(
-              { error: `Esta herramienta requiere plan ${tool.planGate.toUpperCase()} o superior.`, code: "plan_required" },
+              {
+                error: `Esta herramienta requiere plan ${tool.planGate.toUpperCase()} o superior.`,
+                code: "plan_required",
+              },
               403,
             );
           }
@@ -93,19 +108,67 @@ export const Route = createFileRoute("/api/generate-ai")({
           );
         }
 
-        // Build stream
+        await maybeSendLowCreditsEmail(
+          supabase,
+          userId,
+          tool.credits,
+          reserve.credits_used,
+          reserve.credits_limit,
+          new URL(request.url).origin,
+        );
+
+        // Build stream. An AbortController threads through to the upstream
+        // model fetch so that if the client disconnects mid-generation, the
+        // request to Anthropic/OpenAI actually stops (no wasted provider
+        // tokens) and — since the abort surfaces as a rejected promise in
+        // callModel — falls through to the same catch/refund path below as
+        // any other failure. Without this, a closed tab mid-stream would
+        // silently keep the reserved credit charged forever.
         const encoder = new TextEncoder();
+        const abortController = new AbortController();
+        let refunded = false;
+        const refundOnce = async () => {
+          if (refunded) return;
+          refunded = true;
+          try {
+            await supabase.rpc("refund_credits", { p_cost: tool.credits });
+          } catch {
+            /* best-effort — nothing else to do if the refund call itself fails */
+          }
+        };
+
         const stream = new ReadableStream({
           async start(controller) {
             const send = (obj: unknown) => {
-              controller.enqueue(encoder.encode(`data: ${JSON.stringify(obj)}\n\n`));
+              try {
+                controller.enqueue(encoder.encode(`data: ${JSON.stringify(obj)}\n\n`));
+              } catch {
+                /* controller already closed (client gone) — nothing to send to */
+              }
             };
 
             let full = "";
+            let usage: ModelUsage = { inputTokens: null, outputTokens: null, stopReason: null };
+            const startedAt = Date.now();
             try {
-              await callModel(tool, prompt, (delta) => {
-                full += delta;
-                send({ type: "delta", text: delta });
+              await callModel(
+                tool,
+                prompt,
+                (delta) => {
+                  full += delta;
+                  send({ type: "delta", text: delta });
+                },
+                abortController.signal,
+                (u) => (usage = u),
+              );
+              logModelUsage({
+                provider: tool.provider,
+                model: tool.model,
+                operation: "single_tool",
+                toolKey: toolId,
+                usage,
+                durationMs: Date.now() - startedAt,
+                status: "success",
               });
 
               // Persist generation
@@ -118,7 +181,7 @@ export const Route = createFileRoute("/api/generate-ai")({
                   title,
                   output: full,
                   prompt_json: { prompt } as never,
-                  tokens_used: Math.ceil(full.length / 4),
+                  tokens_used: usage.outputTokens ?? Math.ceil(full.length / 4),
                 })
                 .select("id")
                 .maybeSingle();
@@ -136,16 +199,43 @@ export const Route = createFileRoute("/api/generate-ai")({
                   ? refreshed.credits_limit - refreshed.credits_used
                   : null,
               });
-              controller.close();
+              try {
+                controller.close();
+              } catch {
+                /* already closed */
+              }
             } catch (err) {
-              // Refund on error (atomic decrement, floored at 0)
-              await supabase.rpc("refund_credits", { p_cost: tool.credits });
+              logModelUsage({
+                provider: tool.provider,
+                model: tool.model,
+                operation: "single_tool",
+                toolKey: toolId,
+                usage,
+                durationMs: Date.now() - startedAt,
+                status: "error",
+                errorCode: "provider_error",
+              });
+              // Refund on error (atomic decrement, floored at 0) — also
+              // covers the abort-on-disconnect path via cancel() below.
+              await refundOnce();
               send({
                 type: "error",
                 message: err instanceof Error ? err.message : "Model call failed",
               });
-              controller.close();
+              try {
+                controller.close();
+              } catch {
+                /* already closed */
+              }
             }
+          },
+          cancel(reason) {
+            // Client disconnected mid-stream: stop the upstream model call
+            // and refund. The abort makes callModel's fetch reject, which
+            // the start() catch block above also handles — refundOnce()
+            // guards against double-refunding if both paths fire.
+            abortController.abort(reason);
+            void refundOnce();
           },
         });
 
@@ -166,101 +256,4 @@ function json(body: unknown, status = 200) {
     status,
     headers: { "Content-Type": "application/json" },
   });
-}
-
-async function callModel(
-  tool: ToolConfig,
-  prompt: string,
-  onDelta: (text: string) => void,
-): Promise<void> {
-  if (tool.provider === "anthropic") {
-    const key = process.env.ANTHROPIC_API_KEY;
-    if (!key) throw new Error("ANTHROPIC_API_KEY not configured");
-    const res = await fetch("https://api.anthropic.com/v1/messages", {
-      method: "POST",
-      headers: {
-        "x-api-key": key,
-        "anthropic-version": "2023-06-01",
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        model: tool.model,
-        max_tokens: tool.maxTokens,
-        system: tool.systemPrompt,
-        stream: true,
-        messages: [{ role: "user", content: prompt }],
-      }),
-    });
-    if (!res.ok || !res.body) {
-      const t = await res.text().catch(() => "");
-      throw new Error(`Anthropic ${res.status}: ${t.slice(0, 300)}`);
-    }
-    await readSSE(res.body, (evt) => {
-      if (evt.type === "content_block_delta" && evt.delta?.type === "text_delta") {
-        onDelta(evt.delta.text ?? "");
-      }
-    });
-    return;
-  }
-
-  // OpenAI
-  const key = process.env.OPENAI_API_KEY;
-  if (!key) throw new Error("OPENAI_API_KEY not configured");
-  const res = await fetch("https://api.openai.com/v1/chat/completions", {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${key}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      model: tool.model,
-      max_tokens: tool.maxTokens,
-      stream: true,
-      messages: [
-        { role: "system", content: tool.systemPrompt },
-        { role: "user", content: prompt },
-      ],
-    }),
-  });
-  if (!res.ok || !res.body) {
-    const t = await res.text().catch(() => "");
-    throw new Error(`OpenAI ${res.status}: ${t.slice(0, 300)}`);
-  }
-  await readSSE(res.body, (evt) => {
-    const delta = evt?.choices?.[0]?.delta?.content;
-    if (typeof delta === "string" && delta) onDelta(delta);
-  });
-}
-
-type SSEEvent = {
-  type?: string;
-  delta?: { type?: string; text?: string };
-  choices?: Array<{ delta?: { content?: string } }>;
-};
-
-async function readSSE(
-  body: ReadableStream<Uint8Array>,
-  onEvent: (evt: SSEEvent) => void,
-): Promise<void> {
-  const reader = body.getReader();
-  const decoder = new TextDecoder();
-  let buf = "";
-  for (;;) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    buf += decoder.decode(value, { stream: true });
-    let idx: number;
-    while ((idx = buf.indexOf("\n")) !== -1) {
-      const line = buf.slice(0, idx).trim();
-      buf = buf.slice(idx + 1);
-      if (!line.startsWith("data:")) continue;
-      const payload = line.slice(5).trim();
-      if (!payload || payload === "[DONE]") continue;
-      try {
-        onEvent(JSON.parse(payload) as SSEEvent);
-      } catch {
-        /* ignore malformed */
-      }
-    }
-  }
 }

@@ -1,6 +1,6 @@
 import { createFileRoute, Link, notFound } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
-import { ArrowLeft, Star, ShoppingBag, Loader2 } from "lucide-react";
+import { ArrowLeft, Star, Bell, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/use-auth";
@@ -67,12 +67,14 @@ function ProductDetailPage() {
 
   async function handleBuy() {
     setCheckingOut(true);
-    // Checkout abstraction placeholder: Stripe isn't connected yet (Fase 5).
-    // We deliberately do NOT create a purchase record or grant access here —
-    // only a real, verified payment may do that.
+    // Checkout abstraction placeholder: marketplace one-time purchases aren't
+    // wired to a payment provider yet (separate from the subscriptions/
+    // credits billing flow, which does use Lemon Squeezy). We deliberately
+    // do NOT create a purchase record or grant access here — only a real,
+    // verified payment may do that.
     await new Promise((r) => setTimeout(r, 400));
     setCheckingOut(false);
-    toast.info("Los pagos se habilitan en la próxima fase (Stripe en configuración). Todavía no se realizó ningún cargo.");
+    toast.info("¡Gracias por el interés! Los pagos del marketplace todavía no están habilitados — no se realizó ningún cargo.");
   }
 
   if (product === undefined) {
@@ -160,6 +162,9 @@ function ProductDetailPage() {
         </div>
 
         <aside className="rounded-2xl border border-white/10 bg-white/5 p-5 h-fit space-y-4">
+          <span className="inline-flex items-center gap-1.5 rounded-full border border-amber-500/30 bg-amber-500/10 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide text-amber-300">
+            Beta · pagos próximamente
+          </span>
           <div className="font-display text-3xl font-bold">{product.price ? `$${product.price}` : "GRATIS"}</div>
           <div className="flex items-center gap-1 text-xs text-muted-foreground">
             {product.rating_avg ? (
@@ -179,11 +184,13 @@ function ProductDetailPage() {
               disabled={checkingOut}
               className="w-full inline-flex items-center justify-center gap-2 h-11 rounded-xl text-sm font-semibold bg-gradient-to-r from-violet-500 to-fuchsia-500 text-white hover:opacity-90 transition disabled:opacity-60"
             >
-              {checkingOut ? <Loader2 className="w-4 h-4 animate-spin" /> : <ShoppingBag className="w-4 h-4" />}
-              Comprar ahora
+              {checkingOut ? <Loader2 className="w-4 h-4 animate-spin" /> : <Bell className="w-4 h-4" />}
+              Avisarme cuando esté disponible
             </button>
           )}
-          <p className="text-[11px] text-muted-foreground text-center">Pagos con Stripe — próximamente.</p>
+          <p className="text-[11px] text-muted-foreground text-center">
+            Todavía no procesamos pagos de marketplace — este producto no tendrá cargo alguno hasta el lanzamiento.
+          </p>
         </aside>
       </div>
     </div>

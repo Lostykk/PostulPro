@@ -1,13 +1,17 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { createClient } from "@supabase/supabase-js";
 import type { Database } from "@/integrations/supabase/types";
+import { cancelSubscription } from "@/lib/lemon-squeezy.server";
 
-// Deletes the authenticated user's account: their own Storage objects, then
-// the auth.users row via the service-role admin API. All DB rows referencing
-// users.id are declared ON DELETE CASCADE, so profile/generations/folders/
-// subscriptions/products/purchases/reviews/affiliate rows/api_keys/
-// conversations go with it. Never a frontend-only "delete" — this is the
-// only path that actually removes the account.
+// Deletes the authenticated user's account: cancels any active Lemon Squeezy
+// subscription first (so deleting the account can never leave a live
+// subscription billing a payment method nobody can access anymore), removes
+// their own Storage objects, then the auth.users row via the service-role
+// admin API. All DB rows referencing users.id are declared ON DELETE
+// CASCADE, so profile/generations/folders/subscriptions/products/purchases/
+// reviews/affiliate rows/api_keys/conversations go with it. Never a
+// frontend-only "delete" — this is the only path that actually removes the
+// account.
 
 export const Route = createFileRoute("/api/delete-account")({
   server: {
@@ -19,9 +23,19 @@ export const Route = createFileRoute("/api/delete-account")({
 
         const SUPABASE_URL = process.env.SUPABASE_URL;
         const SUPABASE_KEY = process.env.SUPABASE_PUBLISHABLE_KEY;
-        const SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
-        if (!SUPABASE_URL || !SUPABASE_KEY || !SERVICE_ROLE_KEY) {
-          return json({ error: "Supabase not configured" }, 500);
+        // Prefer the new-style Supabase secret key (sb_secret_...); fall
+        // back to the legacy service_role JWT if that's what's configured.
+        // Neither is required for the rest of the app to run — only this
+        // one endpoint needs admin privileges — so its absence must not
+        // block anything else from loading.
+        const ADMIN_KEY = process.env.SUPABASE_SECRET_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY;
+        if (!SUPABASE_URL || !SUPABASE_KEY || !ADMIN_KEY) {
+          // Deliberately generic — never names which env var is missing to
+          // an unauthenticated-adjacent client response.
+          return json(
+            { error: "Esta función no está disponible en este momento.", code: "unavailable" },
+            501,
+          );
         }
 
         const asUser = createClient<Database>(SUPABASE_URL, SUPABASE_KEY, {
@@ -32,27 +46,54 @@ export const Route = createFileRoute("/api/delete-account")({
         if (userErr || !userData?.user) return json({ error: "Unauthorized" }, 401);
         const userId = userData.user.id;
 
-        const admin = createClient<Database>(SUPABASE_URL, SERVICE_ROLE_KEY, {
+        const admin = createClient<Database>(SUPABASE_URL, ADMIN_KEY, {
           auth: { persistSession: false, autoRefreshToken: false, storage: undefined },
         });
 
         try {
-          const { data: avatarFiles } = await admin.storage.from("avatars").list(userId);
-          if (avatarFiles?.length) {
-            await admin.storage.from("avatars").remove(avatarFiles.map((f) => `${userId}/${f.name}`));
+          // Cancel any active Lemon Squeezy subscription *before* touching
+          // any local state. If this fails, we deliberately abort the whole
+          // deletion rather than proceed — an account with no local
+          // subscription row but a still-live remote subscription would keep
+          // billing a payment method the (now-deleted) user can no longer
+          // manage or see.
+          const { data: activeSubs } = await admin
+            .from("subscriptions")
+            .select("provider_subscription_id, status")
+            .eq("user_id", userId)
+            .eq("provider", "lemon_squeezy")
+            .not("provider_subscription_id", "is", null)
+            .not("status", "in", "(cancelled,expired)");
+          for (const sub of activeSubs ?? []) {
+            if (!sub.provider_subscription_id) continue;
+            await cancelSubscription(sub.provider_subscription_id);
           }
 
-          const { data: products } = await admin.from("products").select("id").eq("seller_id", userId);
+          const { data: avatarFiles } = await admin.storage.from("avatars").list(userId);
+          if (avatarFiles?.length) {
+            await admin.storage
+              .from("avatars")
+              .remove(avatarFiles.map((f) => `${userId}/${f.name}`));
+          }
+
+          const { data: products } = await admin
+            .from("products")
+            .select("id")
+            .eq("seller_id", userId);
           for (const p of products ?? []) {
             const [files, thumbs] = await Promise.all([
               admin.storage.from("product-files").list(p.id),
               admin.storage.from("product-thumbnails").list(p.id),
             ]);
             if (files.data?.length) {
-              await admin.storage.from("product-files").remove(files.data.map((f) => `${p.id}/${f.name}`));
+              await admin.storage
+                .from("product-files")
+                .remove(files.data.map((f) => `${p.id}/${f.name}`));
             }
             if (thumbs.data?.length) {
-              await admin.storage.from("product-thumbnails").remove(thumbs.data.map((f) => `${p.id}/${f.name}`));
+              await admin.storage
+                .from("product-thumbnails")
+                .remove(thumbs.data.map((f) => `${p.id}/${f.name}`));
             }
           }
 
@@ -61,7 +102,21 @@ export const Route = createFileRoute("/api/delete-account")({
 
           return json({ ok: true });
         } catch (err) {
-          return json({ error: err instanceof Error ? err.message : "Delete failed" }, 500);
+          // Internal detail stays server-side (Worker logs) — the client
+          // never sees raw error text, SQL, or storage paths.
+          console.error(
+            JSON.stringify({
+              scope: "delete_account",
+              error: err instanceof Error ? err.message : String(err),
+            }),
+          );
+          return json(
+            {
+              error: "No se pudo eliminar la cuenta. Intentá de nuevo más tarde.",
+              code: "delete_failed",
+            },
+            500,
+          );
         }
       },
     },
@@ -69,5 +124,8 @@ export const Route = createFileRoute("/api/delete-account")({
 });
 
 function json(body: unknown, status = 200) {
-  return new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { "Content-Type": "application/json" },
+  });
 }

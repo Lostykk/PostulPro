@@ -17,10 +17,6 @@ import {
   Rocket,
   Wand2,
   FileCheck2,
-  Twitter,
-  Instagram,
-  Linkedin,
-  Youtube,
 } from "lucide-react";
 import {
   Accordion,
@@ -29,6 +25,7 @@ import {
   AccordionTrigger,
 } from "@/components/ui/accordion";
 import { captureReferral } from "@/lib/referral";
+import { MARKETPLACE_ENABLED } from "@/lib/features";
 
 export const Route = createFileRoute("/")({
   component: Landing,
@@ -44,6 +41,7 @@ function Landing() {
       <main>
         <Hero />
         <SocialProof />
+        <ObjectiveSection />
         <Features />
         <HowItWorks />
         <Pricing />
@@ -92,9 +90,9 @@ function Header() {
 
   const nav = [
     { href: "#herramientas", label: "Herramientas" },
+    { href: "#como-funciona", label: "Cómo funciona" },
     { href: "#precios", label: "Precios" },
     { href: "#afiliados", label: "Afiliados" },
-    { href: "#blog", label: "Blog" },
   ];
 
   return (
@@ -201,7 +199,7 @@ function Hero() {
             className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-surface-2/70 px-4 py-1.5 text-xs font-medium text-text-secondary backdrop-blur"
           >
             <Sparkles className="h-3.5 w-3.5 text-brand-2" />
-            <span>Powered by Claude AI & GPT-4o</span>
+            <span>Tu equipo de IA, organizado en un solo lugar</span>
           </motion.div>
 
           <motion.h1
@@ -210,8 +208,8 @@ function Hero() {
             transition={{ duration: 0.6, delay: 0.05 }}
             className="mt-6 font-display text-4xl font-extrabold leading-[1.05] tracking-tight sm:text-5xl md:text-6xl lg:text-[64px]"
           >
-            Genera ingresos reales con IA.{" "}
-            <span className="text-gradient-brand">Sin tecnicismos.</span>
+            Describí tu idea.{" "}
+            <span className="text-gradient-brand">PostulPro construye el plan y los activos para lanzarla.</span>
           </motion.h1>
 
           <motion.p
@@ -220,8 +218,8 @@ function Hero() {
             transition={{ duration: 0.6, delay: 0.15 }}
             className="mx-auto mt-6 max-w-2xl text-lg text-text-secondary sm:text-xl"
           >
-            La plataforma todo-en-uno que convierte tu conocimiento y la IA en productos digitales
-            que venden solos.
+            En lugar de coordinar herramientas, prompts y tareas por separado, contanos qué querés lograr.
+            PostulPro organiza las capacidades de IA y transforma tu idea en un proyecto accionable.
           </motion.p>
 
           <motion.div
@@ -231,16 +229,16 @@ function Hero() {
             className="mt-8 flex flex-col items-center justify-center gap-3 sm:flex-row"
           >
             <a
-              href="/auth/register"
+              href="/build"
               className="btn-primary-gradient inline-flex items-center gap-2 text-base"
             >
-              Comenzar gratis — 0 tarjeta <ArrowRight className="h-4 w-4" />
+              Construir mi idea <ArrowRight className="h-4 w-4" />
             </a>
             <a
-              href="#demo"
+              href="/demo"
               className="rounded-xl border border-white/10 px-6 py-3 text-sm font-medium text-foreground transition-colors hover:bg-surface-2"
             >
-              Ver demo en vivo →
+              Ver un proyecto de ejemplo →
             </a>
           </motion.div>
 
@@ -344,7 +342,7 @@ function ParticleField() {
 
 /* ---------- Social Proof ---------- */
 function SocialProof() {
-  const stack = ["Claude", "OpenAI", "Stripe", "Supabase", "Vercel"];
+  const stack = ["Claude", "OpenAI", "Lemon Squeezy", "Supabase", "Vercel"];
   return (
     <section className="border-y border-white/5 bg-surface-1/50">
       <div className="mx-auto max-w-7xl px-4 py-10 sm:px-6 lg:px-8">
@@ -366,48 +364,89 @@ function SocialProof() {
   );
 }
 
+/* ---------- Objective / "no elegís herramientas" ---------- */
+const OBJECTIVE_STEPS = [
+  { n: "1", title: "Describí la idea", desc: "Contá qué querés construir, con tus propias palabras — sin elegir modelos ni prompts." },
+  { n: "2", title: "Revisá el plan", desc: "PostulPro arma un brief y elige las capacidades necesarias. Vos confirmás o editás antes de gastar un crédito." },
+  { n: "3", title: "Recibí los entregables", desc: "Cada resultado queda guardado y coordinado con los demás, en un mismo proyecto." },
+] as const;
+
+function ObjectiveSection() {
+  return (
+    <section className="relative py-24 sm:py-28">
+      <div className="mx-auto max-w-5xl px-4 sm:px-6 lg:px-8">
+        <SectionHeading
+          eyebrow="Construir con IA"
+          title="No elegís herramientas. Contás el objetivo."
+          subtitle="PostulPro interpreta tu idea, diseña el proyecto y coordina las capacidades de IA necesarias para entregarte los activos listos."
+        />
+        <div className="mt-14 grid gap-6 sm:grid-cols-3">
+          {OBJECTIVE_STEPS.map((s) => (
+            <div key={s.n} className="glass-card rounded-2xl p-6">
+              <span className="font-display text-3xl font-extrabold text-gradient-brand">{s.n}</span>
+              <h3 className="mt-3 font-display text-lg font-bold">{s.title}</h3>
+              <p className="mt-2 text-sm text-text-secondary">{s.desc}</p>
+            </div>
+          ))}
+        </div>
+        <div className="mt-10 text-center">
+          <a href="/build" className="btn-primary-gradient inline-flex items-center gap-2 text-sm">
+            Construir mi idea <ArrowRight className="h-4 w-4" />
+          </a>
+        </div>
+      </div>
+    </section>
+  );
+}
+
 /* ---------- Features ---------- */
 const FEATURES = [
   {
     icon: PenLine,
     title: "Copywriter IA",
     desc: "Emails, posts, anuncios y guiones listos para publicar en segundos.",
+    href: "/tools/copywriter",
   },
   {
     icon: BarChart3,
     title: "Business Plan IA",
     desc: "Planes de negocio completos, estructurados y exportables en un clic.",
+    href: "/tools/business-plan",
   },
   {
     icon: Mail,
     title: "Email Marketing",
     desc: "Secuencias de ventas automatizadas que convierten mientras dormís.",
+    href: "/tools/email-sequences",
   },
   {
     icon: Share2,
     title: "Social Media Pack",
     desc: "Contenido para todas tus redes en simultáneo, con el tono de tu marca.",
+    href: "/tools/social-pack",
   },
   {
     icon: Bot,
     title: "Consultor IA",
     desc: "Tu estratega de negocios disponible 24/7 para tomar mejores decisiones.",
+    href: "/tools/consultant",
   },
   {
     icon: Store,
     title: "Marketplace",
     desc: "Comprá y vendé templates, prompts y guías premium creadas por la comunidad.",
+    href: "/marketplace",
   },
-] as const;
+].filter((f) => MARKETPLACE_ENABLED || f.href !== "/marketplace");
 
 function Features() {
   return (
-    <section id="herramientas" className="relative py-24 sm:py-28">
+    <section id="herramientas" className="relative scroll-mt-20 py-24 sm:py-28">
       <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
         <SectionHeading
           eyebrow="Herramientas"
-          title="¿Qué puedes hacer con PostulPro?"
-          subtitle="Un stack completo de herramientas de IA pensadas para creadores y negocios digitales."
+          title="Las capacidades que PostulPro coordina"
+          subtitle="Cuando construís un proyecto, PostulPro elige entre estas capacidades por vos. También podés usarlas una por una si ya sabés exactamente qué necesitás."
         />
 
         <div className="mt-14 grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
@@ -426,10 +465,10 @@ function Features() {
               <h3 className="mt-5 font-display text-xl font-bold">{f.title}</h3>
               <p className="mt-2 text-sm leading-relaxed text-text-secondary">{f.desc}</p>
               <a
-                href="#herramientas"
+                href={f.href}
                 className="mt-5 inline-flex items-center gap-1 text-sm font-medium text-[#a78bfa] transition-colors group-hover:text-[#c4b5fd]"
               >
-                Ver más <ArrowRight className="h-3.5 w-3.5" />
+                Probar ahora <ArrowRight className="h-3.5 w-3.5" />
               </a>
             </motion.article>
           ))}
@@ -463,7 +502,7 @@ function HowItWorks() {
   ];
 
   return (
-    <section className="relative py-24 sm:py-28">
+    <section id="como-funciona" className="relative scroll-mt-20 py-24 sm:py-28">
       <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
         <SectionHeading eyebrow="Cómo funciona" title="Así de simple" />
 
@@ -574,7 +613,7 @@ const PLANS: Plan[] = [
     features: [
       "10 generaciones / mes",
       "3 herramientas básicas",
-      "Sin acceso al marketplace",
+      ...(MARKETPLACE_ENABLED ? ["Sin acceso al marketplace"] : []),
       "Soporte de la comunidad",
     ],
   },
@@ -587,7 +626,7 @@ const PLANS: Plan[] = [
     features: [
       "500 generaciones / mes",
       "8 herramientas premium",
-      "Marketplace completo",
+      ...(MARKETPLACE_ENABLED ? ["Marketplace completo"] : []),
       "Export PDF / DOCX",
       "AI Consultor · 100 msgs/mes",
       "Comisión de afiliado 30% recurrente",
@@ -616,7 +655,7 @@ function Pricing() {
   const [openCompare, setOpenCompare] = useState(false);
 
   return (
-    <section id="precios" className="relative py-24 sm:py-28">
+    <section id="precios" className="relative scroll-mt-20 py-24 sm:py-28">
       <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
         <SectionHeading
           eyebrow="Precios"
@@ -759,7 +798,9 @@ function CompareTable() {
   const rows: Array<[string, string, string, string]> = [
     ["Generaciones / mes", "10", "500", "Ilimitadas"],
     ["Herramientas IA", "3", "8", "8+ API"],
-    ["Marketplace", "—", "✓", "✓"],
+    ...(MARKETPLACE_ENABLED
+      ? ([["Marketplace", "—", "✓", "✓"]] as Array<[string, string, string, string]>)
+      : []),
     ["Export PDF / DOCX", "—", "✓", "✓ White-label"],
     ["AI Consultor", "—", "100 msgs", "Ilimitado"],
     ["Comisión de afiliado", "—", "30%", "40%"],
@@ -813,11 +854,15 @@ const USE_CASES = [
     desc: "Redacta descripciones que convierten y campañas de email.",
     tools: ["Copywriter IA", "Email Marketing"],
   },
-  {
-    title: "Creador vende templates",
-    desc: "Publica sus prompts y guías en el marketplace y genera ingresos pasivos.",
-    tools: ["Marketplace"],
-  },
+  ...(MARKETPLACE_ENABLED
+    ? [
+        {
+          title: "Creador vende templates",
+          desc: "Publica sus prompts y guías en el marketplace y genera ingresos pasivos.",
+          tools: ["Marketplace"],
+        },
+      ]
+    : []),
   {
     title: "Consultor 24/7",
     desc: "Prepara reuniones y estrategias con un asesor IA siempre disponible.",
@@ -898,7 +943,7 @@ function UseCases() {
 /* ---------- Affiliate teaser ---------- */
 function AffiliateTeaser() {
   return (
-    <section id="afiliados" className="relative py-24 sm:py-28">
+    <section id="afiliados" className="relative scroll-mt-20 py-24 sm:py-28">
       <div className="mx-auto max-w-6xl px-4 sm:px-6 lg:px-8">
         <div className="relative overflow-hidden rounded-3xl border border-white/10 bg-gradient-to-br from-brand/25 via-brand/10 to-brand-2/15 p-8 sm:p-14">
           <div
@@ -950,7 +995,7 @@ function AffiliateTeaser() {
                   <Check className="h-4 w-4 text-success" /> Cookies de 60 días
                 </li>
                 <li className="flex items-center gap-2">
-                  <Check className="h-4 w-4 text-success" /> Pagos mensuales por Stripe
+                  <Check className="h-4 w-4 text-success" /> Pagos mensuales por Lemon Squeezy
                 </li>
                 <li className="flex items-center gap-2">
                   <Check className="h-4 w-4 text-success" /> Dashboard con métricas en vivo
@@ -994,10 +1039,14 @@ const FAQS = [
     q: "¿Qué tan buena es la calidad de la IA?",
     a: "Combinamos Claude 3.5 y GPT-4o con prompts optimizados para cada caso. La calidad es de nivel profesional y siempre editable.",
   },
-  {
-    q: "¿Qué límites tiene el marketplace?",
-    a: "Podés vender templates, prompts y guías. Nos quedamos con una comisión pequeña por transacción, el resto es tuyo. Sin exclusividad.",
-  },
+  ...(MARKETPLACE_ENABLED
+    ? [
+        {
+          q: "¿Qué límites tiene el marketplace?",
+          a: "Podés vender templates, prompts y guías. Nos quedamos con una comisión pequeña por transacción, el resto es tuyo. Sin exclusividad.",
+        },
+      ]
+    : []),
   {
     q: "¿Puedo comprar créditos adicionales?",
     a: "Sí. Desde el panel podés comprar packs extra que se suman a tu cuota mensual y no expiran mientras tengas el plan activo.",
@@ -1039,40 +1088,43 @@ function FAQ() {
 
 /* ---------- Footer ---------- */
 function Footer() {
-  const cols = [
+  const cols: Array<{ title: string; links: Array<{ label: string; href: string }> }> = [
     {
       title: "Producto",
-      links: ["Herramientas", "Precios", "Marketplace", "Novedades"],
+      links: [
+        { label: "Herramientas", href: "#herramientas" },
+        { label: "Cómo funciona", href: "#como-funciona" },
+        { label: "Precios", href: "#precios" },
+        ...(MARKETPLACE_ENABLED ? [{ label: "Marketplace", href: "/marketplace" }] : []),
+      ],
     },
-    { title: "Empresa", links: ["Sobre nosotros", "Blog", "Afiliados", "Contacto"] },
-    { title: "Legal", links: ["Términos", "Privacidad", "Cookies", "DMCA"] },
-    { title: "Recursos", links: ["Ayuda", "API docs", "Comunidad", "Estado"] },
+    {
+      title: "Empresa",
+      links: [
+        { label: "Programa de afiliados", href: "#afiliados" },
+        { label: "Iniciar sesión", href: "/auth/login" },
+        { label: "Crear cuenta", href: "/auth/register" },
+      ],
+    },
+    {
+      title: "Legal",
+      links: [
+        { label: "Términos de Servicio", href: "/legal#terminos" },
+        { label: "Privacidad", href: "/legal#privacidad" },
+        { label: "Cookies", href: "/legal#cookies" },
+      ],
+    },
   ];
 
   return (
     <footer className="relative border-t border-white/5 bg-surface-1">
       <div className="mx-auto max-w-7xl px-4 py-16 sm:px-6 lg:px-8">
         <div className="grid gap-10 lg:grid-cols-6">
-          <div className="lg:col-span-2">
+          <div className="lg:col-span-3">
             <Logo />
             <p className="mt-4 max-w-xs text-sm text-text-secondary">
               Convertí tu conocimiento y la IA en productos digitales que venden solos.
             </p>
-            <form
-              className="mt-6 flex max-w-sm gap-2"
-              onSubmit={(e) => e.preventDefault()}
-              aria-label="Suscribirse al newsletter"
-            >
-              <input
-                type="email"
-                required
-                placeholder="tu@email.com"
-                className="w-full rounded-lg border border-white/10 bg-surface-2 px-3 py-2 text-sm placeholder:text-text-muted focus:border-brand/50 focus:outline-none focus:ring-2 focus:ring-brand/30"
-              />
-              <button type="submit" className="btn-primary-gradient text-sm">
-                Suscribirme
-              </button>
-            </form>
           </div>
 
           {cols.map((c) => (
@@ -1082,12 +1134,12 @@ function Footer() {
               </h4>
               <ul className="mt-4 space-y-2">
                 {c.links.map((l) => (
-                  <li key={l}>
+                  <li key={l.label}>
                     <a
-                      href="#"
+                      href={l.href}
                       className="text-sm text-text-secondary transition-colors hover:text-foreground"
                     >
-                      {l}
+                      {l.label}
                     </a>
                   </li>
                 ))}
@@ -1098,20 +1150,8 @@ function Footer() {
 
         <div className="mt-12 flex flex-col items-center justify-between gap-4 border-t border-white/5 pt-8 sm:flex-row">
           <p className="text-xs text-text-muted">
-            © 2026 PostulPro — Hecho con IA en Argentina 🇦🇷
+            © {new Date().getFullYear()} PostulPro — Hecho con IA en Argentina 🇦🇷
           </p>
-          <div className="flex items-center gap-3">
-            {[Twitter, Instagram, Linkedin, Youtube].map((Icon, i) => (
-              <a
-                key={i}
-                href="#"
-                aria-label="Red social"
-                className="grid h-9 w-9 place-items-center rounded-lg border border-white/10 bg-surface-2 text-text-secondary transition-colors hover:text-foreground"
-              >
-                <Icon className="h-4 w-4" />
-              </a>
-            ))}
-          </div>
         </div>
       </div>
     </footer>

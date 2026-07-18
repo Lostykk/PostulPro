@@ -12,9 +12,12 @@ import {
 } from "recharts";
 import { supabase } from "@/integrations/supabase/client";
 import { useProfile } from "@/hooks/use-profile";
+import { MARKETPLACE_ENABLED } from "@/lib/features";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { toast } from "sonner";
+import { TOOL_META } from "@/lib/tool-meta";
+import { projectsApiFetch } from "@/lib/projects/api-client";
 
 export const Route = createFileRoute("/_authenticated/dashboard")({
   head: () => ({ meta: [{ title: "Dashboard — PostulPro" }] }),
@@ -30,21 +33,12 @@ type Generation = {
   created_at: string;
 };
 
-const TOOL_META: Record<string, { label: string; icon: string }> = {
-  copywriter: { label: "Copywriter", icon: "✍️" },
-  "social-pack": { label: "Social Pack", icon: "📱" },
-  "business-plan": { label: "Business Plan", icon: "📊" },
-  consultant: { label: "Consultor", icon: "🧠" },
-  "sales-email": { label: "Sales Email", icon: "✉️" },
-  "landing-copy": { label: "Landing", icon: "🎯" },
-  "email-sequences": { label: "Secuencias", icon: "📬" },
-};
-
 function DashboardPage() {
   const navigate = useNavigate();
   const { profile, loading: profileLoading } = useProfile();
   const [gens, setGens] = useState<Generation[] | null>(null);
   const [chartMetric, setChartMetric] = useState<"count" | "tokens" | "time">("count");
+  const [revenueThisMonth, setRevenueThisMonth] = useState<number | null>(null);
 
   useEffect(() => {
     if (profile && !profile.onboarding_completed) {
@@ -61,6 +55,30 @@ function DashboardPage() {
       .order("created_at", { ascending: false })
       .limit(200)
       .then(({ data }) => setGens((data as Generation[] | null) ?? []));
+  }, [profile]);
+
+  useEffect(() => {
+    if (!profile || !MARKETPLACE_ENABLED) return;
+    (async () => {
+      const { data: products } = await supabase
+        .from("products")
+        .select("id")
+        .eq("seller_id", profile.id);
+      const ids = (products ?? []).map((p) => p.id);
+      if (ids.length === 0) {
+        setRevenueThisMonth(0);
+        return;
+      }
+      const startOfMonth = new Date();
+      startOfMonth.setDate(1);
+      startOfMonth.setHours(0, 0, 0, 0);
+      const { data: purchases } = await supabase
+        .from("purchases")
+        .select("amount")
+        .in("product_id", ids)
+        .gte("created_at", startOfMonth.toISOString());
+      setRevenueThisMonth((purchases ?? []).reduce((a, p) => a + (p.amount ?? 0), 0));
+    })();
   }, [profile]);
 
   const stats = useMemo(() => {
@@ -116,6 +134,22 @@ function DashboardPage() {
         </p>
       </header>
 
+      <Link
+        to="/build"
+        className="group relative overflow-hidden rounded-2xl border border-violet-500/20 bg-gradient-to-br from-violet-500/15 via-fuchsia-500/10 to-transparent p-6 flex items-center justify-between gap-4 hover:border-violet-500/40 transition"
+      >
+        <div>
+          <p className="text-xs font-semibold uppercase tracking-wide text-violet-300">Construir con IA</p>
+          <h2 className="mt-1 font-display text-xl font-bold">Describí una idea. PostulPro arma el plan y los entregables.</h2>
+          <p className="mt-1 text-sm text-muted-foreground">Sin elegir herramientas una por una — contá el objetivo y PostulPro coordina el resto.</p>
+        </div>
+        <span className="shrink-0 inline-flex items-center gap-2 h-10 px-4 rounded-lg text-sm font-semibold bg-gradient-to-r from-violet-500 to-fuchsia-500 text-white group-hover:opacity-95 transition">
+          Construir una idea <ArrowRight className="w-4 h-4" />
+        </span>
+      </Link>
+
+      <RecentProjects />
+
       {profileLoading ? (
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
           {[0, 1, 2, 3].map((i) => (
@@ -124,12 +158,14 @@ function DashboardPage() {
         </div>
       ) : (
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-          <StatCard
-            icon={<DollarSign className="w-4 h-4" />}
-            label="Ingresos este mes"
-            value="$0"
-            hint="Sin ventas registradas"
-          />
+          {MARKETPLACE_ENABLED && (
+            <StatCard
+              icon={<DollarSign className="w-4 h-4" />}
+              label="Ingresos este mes"
+              value={revenueThisMonth !== null ? `$${revenueThisMonth.toFixed(2)}` : "—"}
+              hint={revenueThisMonth ? "Ventas en el marketplace" : "Sin ventas registradas"}
+            />
+          )}
           <StatCard
             icon={<Zap className="w-4 h-4" />}
             label="Generaciones"
@@ -242,7 +278,7 @@ function DashboardPage() {
           <QuickAction to="/tools/copywriter" icon="✍️" label="Crear post" />
           <QuickAction to="/tools/business-plan" icon="📊" label="Plan de negocios" />
           <QuickAction to="/tools/consultant" icon="🧠" label="Consultor IA" />
-          <QuickAction to="/marketplace" icon="🛒" label="Marketplace" />
+          {MARKETPLACE_ENABLED && <QuickAction to="/marketplace" icon="🛒" label="Marketplace" />}
         </div>
       </section>
 
@@ -394,6 +430,47 @@ function IconBtn({ children, label, onClick }: { children: React.ReactNode; labe
     >
       {children}
     </button>
+  );
+}
+
+type RecentProject = { id: string; title: string | null; original_idea: string; status: string; progress_percent: number };
+
+function RecentProjects() {
+  const [projects, setProjects] = useState<RecentProject[] | null>(null);
+
+  useEffect(() => {
+    projectsApiFetch<{ projects: RecentProject[] }>("/api/projects?status=active")
+      .then((res) => setProjects(res.projects.slice(0, 3)))
+      .catch(() => setProjects([]));
+  }, []);
+
+  if (!projects || projects.length === 0) return null;
+
+  return (
+    <section>
+      <div className="flex items-center justify-between mb-3">
+        <h2 className="font-display font-bold">Proyectos recientes</h2>
+        <Link to="/projects" className="text-xs text-muted-foreground hover:text-foreground">
+          Ver todos →
+        </Link>
+      </div>
+      <div className="grid sm:grid-cols-3 gap-3">
+        {projects.map((p) => (
+          <Link
+            key={p.id}
+            to="/projects/$id"
+            params={{ id: p.id }}
+            className="rounded-xl border border-white/10 bg-white/5 hover:bg-white/[0.07] transition p-4 block"
+          >
+            <p className="text-sm font-medium truncate">{p.title || p.original_idea.slice(0, 50)}</p>
+            <div className="mt-2 h-1.5 rounded-full bg-white/10 overflow-hidden">
+              <div className="h-full bg-gradient-to-r from-violet-500 to-fuchsia-500" style={{ width: `${p.progress_percent}%` }} />
+            </div>
+            <p className="mt-1.5 text-[11px] text-muted-foreground">{p.progress_percent}% completo</p>
+          </Link>
+        ))}
+      </div>
+    </section>
   );
 }
 

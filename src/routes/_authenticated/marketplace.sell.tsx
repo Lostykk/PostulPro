@@ -5,6 +5,8 @@ import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/use-auth";
 import { useProfile } from "@/hooks/use-profile";
+import { isOwner } from "@/lib/auth/is-owner";
+import { SimpleSelect } from "@/components/ui/simple-select";
 
 export const Route = createFileRoute("/_authenticated/marketplace/sell")({
   head: () => ({ meta: [{ title: "Vender — PostulPro" }] }),
@@ -18,7 +20,7 @@ type OwnProduct = { id: string; title: string; price: number | null; total_sales
 function SellPage() {
   const { profile, loading } = useProfile();
 
-  if (!loading && profile && profile.plan !== "business") {
+  if (!loading && profile && profile.plan !== "business" && !isOwner(profile)) {
     return (
       <div className="max-w-2xl mx-auto px-4 md:px-6 py-16 text-center">
         <div className="rounded-3xl border border-white/10 bg-gradient-to-br from-violet-500/10 to-fuchsia-500/5 p-10">
@@ -160,13 +162,11 @@ function SellForm() {
           </Field>
           <div className="grid grid-cols-2 gap-3">
             <Field label="Categoría">
-              <select className="input" value={category} onChange={(e) => setCategory(e.target.value)}>
-                {CATEGORIES.map((c) => (
-                  <option key={c} value={c}>
-                    {c}
-                  </option>
-                ))}
-              </select>
+              <SimpleSelect
+                value={category}
+                onValueChange={setCategory}
+                options={CATEGORIES.map((c) => ({ value: c, label: c }))}
+              />
             </Field>
             <Field label="Precio (USD)">
               <input className="input" type="number" min={0} value={price} onChange={(e) => setPrice(e.target.value)} placeholder="19" />
