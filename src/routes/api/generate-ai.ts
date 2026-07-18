@@ -278,7 +278,19 @@ export const Route = createFileRoute("/api/generate-ai")({
             // Client disconnected mid-stream: stop the upstream model call
             // and refund. The abort makes callModel's fetch reject, which
             // the start() catch block above also handles — refundOnce()
-            // guards against double-refunding if both paths fire.
+            // guards against double-refunding if both paths fire. Logged
+            // (not just silently handled) because this is the one path
+            // whose real-world completion depends on the Workers runtime
+            // actually keeping the isolate alive via waitUntil — worth
+            // being able to see it fire in production logs.
+            console.error(
+              JSON.stringify({
+                scope: "credit_reservation_cancel_triggered",
+                reservationId,
+                hasWaitUntil: waitUntil !== null,
+                reason: reason instanceof Error ? reason.message : String(reason),
+              }),
+            );
             abortController.abort(reason);
             refundOnce("client_disconnected");
           },

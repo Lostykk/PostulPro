@@ -335,6 +335,19 @@ export async function runProjectStep(
       }
     },
     cancel(reason) {
+      // Logged for the same reason as generate-ai.ts's cancel handler:
+      // this path's real-world completion depends on the Workers runtime
+      // keeping the isolate alive (via waitUntil) after the client is
+      // gone — worth being able to see it fire in production logs.
+      console.error(
+        JSON.stringify({
+          scope: "credit_reservation_cancel_triggered",
+          reservationId,
+          stepId,
+          hasWaitUntil: waitUntil !== null,
+          reason: reason instanceof Error ? reason.message : String(reason),
+        }),
+      );
       abortController.abort(reason);
       void settleFailure(
         "client_disconnected",
