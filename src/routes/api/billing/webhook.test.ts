@@ -3,8 +3,9 @@ import { createHmac } from "node:crypto";
 import { Route } from "@/routes/api/billing/webhook";
 import * as resendModule from "@/lib/resend.server";
 
-const handler = (Route.options.server as { handlers: { POST: (ctx: { request: Request }) => Promise<Response> } })
-  .handlers.POST;
+const handler = (
+  Route.options.server as { handlers: { POST: (ctx: { request: Request }) => Promise<Response> } }
+).handlers.POST;
 
 const ORIGINAL_ENV = { ...process.env };
 const WEBHOOK_SECRET = "whsec_test_secret";
@@ -41,7 +42,14 @@ describe("POST /api/billing/webhook", () => {
     const fetchMock = vi.fn();
     vi.stubGlobal("fetch", fetchMock);
 
-    const res = await handler({ request: makeRequest(JSON.stringify({ meta: { event_name: "order_created" }, data: { id: "1", type: "orders", attributes: {} } })) });
+    const res = await handler({
+      request: makeRequest(
+        JSON.stringify({
+          meta: { event_name: "order_created" },
+          data: { id: "1", type: "orders", attributes: {} },
+        }),
+      ),
+    });
 
     expect(res.status).toBe(501);
     expect(fetchMock).not.toHaveBeenCalled();
@@ -50,7 +58,10 @@ describe("POST /api/billing/webhook", () => {
   it("rejects an invalid signature with 400 and never calls the RPC", async () => {
     const fetchMock = vi.fn();
     vi.stubGlobal("fetch", fetchMock);
-    const body = JSON.stringify({ meta: { event_name: "order_created" }, data: { id: "1", type: "orders", attributes: {} } });
+    const body = JSON.stringify({
+      meta: { event_name: "order_created" },
+      data: { id: "1", type: "orders", attributes: {} },
+    });
 
     const res = await handler({ request: makeRequest(body, "0".repeat(64)) });
 
@@ -61,7 +72,10 @@ describe("POST /api/billing/webhook", () => {
   it("rejects when the signature header is missing entirely", async () => {
     const fetchMock = vi.fn();
     vi.stubGlobal("fetch", fetchMock);
-    const body = JSON.stringify({ meta: { event_name: "order_created" }, data: { id: "1", type: "orders", attributes: {} } });
+    const body = JSON.stringify({
+      meta: { event_name: "order_created" },
+      data: { id: "1", type: "orders", attributes: {} },
+    });
 
     const res = await handler({ request: makeRequest(body, null) });
 
@@ -72,10 +86,21 @@ describe("POST /api/billing/webhook", () => {
   it("processes a valid subscription_created event and calls the RPC with correct args", async () => {
     const fetchMock = vi.fn().mockResolvedValue({
       ok: true,
-      json: async () => [{ ok: true, message: "ok", notify_email: "user@example.com", notify_kind: "pro_confirmation", notify_plan: "pro", notify_commission: null }],
+      json: async () => [
+        {
+          ok: true,
+          message: "ok",
+          notify_email: "user@example.com",
+          notify_kind: "pro_confirmation",
+          notify_plan: "pro",
+          notify_commission: null,
+        },
+      ],
     });
     vi.stubGlobal("fetch", fetchMock);
-    const sendProConfirmationSpy = vi.spyOn(resendModule, "sendProConfirmationEmail").mockResolvedValue(undefined as never);
+    const sendProConfirmationSpy = vi
+      .spyOn(resendModule, "sendProConfirmationEmail")
+      .mockResolvedValue(undefined as never);
 
     const body = JSON.stringify({
       meta: { event_name: "subscription_created", custom_data: { user_id: "user-1" } },
@@ -112,10 +137,21 @@ describe("POST /api/billing/webhook", () => {
   it("treats 'already processed' as success (200) and sends no notification", async () => {
     const fetchMock = vi.fn().mockResolvedValue({
       ok: true,
-      json: async () => [{ ok: false, message: "already processed", notify_email: null, notify_kind: null, notify_plan: null, notify_commission: null }],
+      json: async () => [
+        {
+          ok: false,
+          message: "already processed",
+          notify_email: null,
+          notify_kind: null,
+          notify_plan: null,
+          notify_commission: null,
+        },
+      ],
     });
     vi.stubGlobal("fetch", fetchMock);
-    const sendSpy = vi.spyOn(resendModule, "sendProConfirmationEmail").mockResolvedValue(undefined as never);
+    const sendSpy = vi
+      .spyOn(resendModule, "sendProConfirmationEmail")
+      .mockResolvedValue(undefined as never);
 
     const body = JSON.stringify({
       meta: { event_name: "order_created", custom_data: { user_id: "user-1" } },
@@ -137,11 +173,27 @@ describe("POST /api/billing/webhook", () => {
       text: async () => "db unavailable",
     });
     vi.stubGlobal("fetch", fetchMock);
-    const sendSpy = vi.spyOn(resendModule, "sendProConfirmationEmail").mockResolvedValue(undefined as never);
+    const sendSpy = vi
+      .spyOn(resendModule, "sendProConfirmationEmail")
+      .mockResolvedValue(undefined as never);
 
     const body = JSON.stringify({
       meta: { event_name: "subscription_created", custom_data: { user_id: "user-1" } },
-      data: { id: "sub_1", type: "subscriptions", attributes: { customer_id: 1, product_id: 1, variant_id: 1879841, status: "active", renews_at: null, ends_at: null, trial_ends_at: null, cancelled: false, updated_at: null } },
+      data: {
+        id: "sub_1",
+        type: "subscriptions",
+        attributes: {
+          customer_id: 1,
+          product_id: 1,
+          variant_id: 1879841,
+          status: "active",
+          renews_at: null,
+          ends_at: null,
+          trial_ends_at: null,
+          cancelled: false,
+          updated_at: null,
+        },
+      },
     });
 
     const res = await handler({ request: makeRequest(body) });
@@ -151,11 +203,23 @@ describe("POST /api/billing/webhook", () => {
   });
 
   it("a byte-identical retried delivery hashes to the same event id (idempotency key)", async () => {
-    let capturedIds: string[] = [];
+    const capturedIds: string[] = [];
     const fetchMock = vi.fn().mockImplementation(async (_url: string, init: RequestInit) => {
       const parsed = JSON.parse(init.body as string);
       capturedIds.push(parsed.p_event_id);
-      return { ok: true, json: async () => [{ ok: true, message: "ok", notify_email: null, notify_kind: null, notify_plan: null, notify_commission: null }] };
+      return {
+        ok: true,
+        json: async () => [
+          {
+            ok: true,
+            message: "ok",
+            notify_email: null,
+            notify_kind: null,
+            notify_plan: null,
+            notify_commission: null,
+          },
+        ],
+      };
     });
     vi.stubGlobal("fetch", fetchMock);
 
@@ -183,11 +247,23 @@ describe("POST /api/billing/webhook", () => {
     // Resend of an already-processed event. The fix keys on
     // (event_name, resource id, resource's own updated_at), which is
     // identical across a resend and only changes for a genuinely new event.
-    let capturedIds: string[] = [];
+    const capturedIds: string[] = [];
     const fetchMock = vi.fn().mockImplementation(async (_url: string, init: RequestInit) => {
       const parsed = JSON.parse(init.body as string);
       capturedIds.push(parsed.p_event_id);
-      return { ok: true, json: async () => [{ ok: true, message: "ok", notify_email: null, notify_kind: null, notify_plan: null, notify_commission: null }] };
+      return {
+        ok: true,
+        json: async () => [
+          {
+            ok: true,
+            message: "ok",
+            notify_email: null,
+            notify_kind: null,
+            notify_plan: null,
+            notify_commission: null,
+          },
+        ],
+      };
     });
     vi.stubGlobal("fetch", fetchMock);
 
@@ -201,7 +277,10 @@ describe("POST /api/billing/webhook", () => {
           total: 2900,
           status: "paid",
           updated_at: "2026-07-13T17:46:45.000000Z",
-          urls: { invoice_url: "https://app.lemonsqueezy.com/my-orders/abc?expires=1783986405&signature=original-signature" },
+          urls: {
+            invoice_url:
+              "https://app.lemonsqueezy.com/my-orders/abc?expires=1783986405&signature=original-signature",
+          },
         },
       },
     });
@@ -216,7 +295,10 @@ describe("POST /api/billing/webhook", () => {
           status: "paid",
           updated_at: "2026-07-13T17:46:45.000000Z",
           // Different signed URL (fresh expires/signature), same resource id/event/updated_at.
-          urls: { invoice_url: "https://app.lemonsqueezy.com/my-orders/abc?expires=1799999999&signature=different-signature-on-resend" },
+          urls: {
+            invoice_url:
+              "https://app.lemonsqueezy.com/my-orders/abc?expires=1799999999&signature=different-signature-on-resend",
+          },
         },
       },
     });
@@ -230,21 +312,61 @@ describe("POST /api/billing/webhook", () => {
   });
 
   it("a genuinely new event on the same resource (different updated_at) gets a different idempotency key", async () => {
-    let capturedIds: string[] = [];
+    const capturedIds: string[] = [];
     const fetchMock = vi.fn().mockImplementation(async (_url: string, init: RequestInit) => {
       const parsed = JSON.parse(init.body as string);
       capturedIds.push(parsed.p_event_id);
-      return { ok: true, json: async () => [{ ok: true, message: "ok", notify_email: null, notify_kind: null, notify_plan: null, notify_commission: null }] };
+      return {
+        ok: true,
+        json: async () => [
+          {
+            ok: true,
+            message: "ok",
+            notify_email: null,
+            notify_kind: null,
+            notify_plan: null,
+            notify_commission: null,
+          },
+        ],
+      };
     });
     vi.stubGlobal("fetch", fetchMock);
 
     const firstUpdate = JSON.stringify({
       meta: { event_name: "subscription_updated", custom_data: { user_id: "user-1" } },
-      data: { id: "sub_1", type: "subscriptions", attributes: { customer_id: 1, product_id: 1, variant_id: 1879841, status: "active", renews_at: null, ends_at: null, trial_ends_at: null, cancelled: false, updated_at: "2026-07-01T00:00:00Z" } },
+      data: {
+        id: "sub_1",
+        type: "subscriptions",
+        attributes: {
+          customer_id: 1,
+          product_id: 1,
+          variant_id: 1879841,
+          status: "active",
+          renews_at: null,
+          ends_at: null,
+          trial_ends_at: null,
+          cancelled: false,
+          updated_at: "2026-07-01T00:00:00Z",
+        },
+      },
     });
     const laterUpdate = JSON.stringify({
       meta: { event_name: "subscription_updated", custom_data: { user_id: "user-1" } },
-      data: { id: "sub_1", type: "subscriptions", attributes: { customer_id: 1, product_id: 1, variant_id: 1879841, status: "past_due", renews_at: null, ends_at: null, trial_ends_at: null, cancelled: false, updated_at: "2026-08-01T00:00:00Z" } },
+      data: {
+        id: "sub_1",
+        type: "subscriptions",
+        attributes: {
+          customer_id: 1,
+          product_id: 1,
+          variant_id: 1879841,
+          status: "past_due",
+          renews_at: null,
+          ends_at: null,
+          trial_ends_at: null,
+          cancelled: false,
+          updated_at: "2026-08-01T00:00:00Z",
+        },
+      },
     });
 
     await handler({ request: makeRequest(firstUpdate) });
