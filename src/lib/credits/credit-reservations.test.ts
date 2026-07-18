@@ -265,6 +265,20 @@ describe("credit_reservations migration (local pglite, never touches remote Supa
     expect((await creditsOf(USER_A)).credits_used).toBe(0);
   });
 
+  it("associates generation_id when it genuinely belongs to the resolving user", async () => {
+    const reserve1 = await reserve(2);
+    const genId = "10000000-0000-4000-8000-000000000003";
+    await db.query(`INSERT INTO public.generations (id, user_id) VALUES ($1, $2);`, [genId, USER_A]);
+
+    await resolve(reserve1.reservation_id!, "consumed", { generationId: genId });
+
+    const row = await db.query<{ generation_id: string | null }>(
+      `SELECT generation_id FROM public.credit_reservations WHERE id = $1;`,
+      [reserve1.reservation_id],
+    );
+    expect(row.rows[0].generation_id).toBe(genId);
+  });
+
   it("associates generation_id only when it belongs to the resolving user", async () => {
     const reserve1 = await reserve(2);
     await db.query(`INSERT INTO public.generations (id, user_id) VALUES ($1, $2);`, [
