@@ -6,6 +6,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/use-auth";
 import { useProfile } from "@/hooks/use-profile";
 import { isOwner } from "@/lib/auth/is-owner";
+import { PLAN_BILLING_OPTIONS } from "@/lib/plans";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { SimpleSelect } from "@/components/ui/simple-select";
 import {
@@ -228,13 +229,6 @@ function ProfileTab() {
 
 /* ---------- Plan y billing ---------- */
 
-const PLAN_OPTIONS = [
-  { key: "pro_monthly", label: "PRO mensual", price: "$29/mes" },
-  { key: "pro_annual", label: "PRO anual", price: "$276/año" },
-  { key: "business_monthly", label: "BUSINESS mensual", price: "$99/mes" },
-  { key: "business_annual", label: "BUSINESS anual", price: "$948/año" },
-] as const;
-
 type SubscriptionRow = {
   status: string;
   cancelled: boolean;
@@ -364,7 +358,7 @@ function BillingTab() {
           </p>
         )}
         <div className="grid sm:grid-cols-2 gap-2">
-          {PLAN_OPTIONS.map((p) => (
+          {PLAN_BILLING_OPTIONS.map((p) => (
             <button
               key={p.key}
               type="button"

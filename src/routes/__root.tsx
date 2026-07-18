@@ -92,7 +92,7 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
       {
         property: "og:description",
         content:
-          "Copywriter IA, planes de negocio, email marketing y más. Construido sobre Claude y GPT-4o.",
+          "Copywriter IA, planes de negocio, email marketing y más, coordinados en un solo proyecto.",
       },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary_large_image" },

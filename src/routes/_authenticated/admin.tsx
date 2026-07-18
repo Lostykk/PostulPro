@@ -7,6 +7,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useProfile } from "@/hooks/use-profile";
 import { SimpleSelect } from "@/components/ui/simple-select";
 import { MARKETPLACE_ENABLED } from "@/lib/features";
+import { mrrFromPlanCounts } from "@/lib/plans";
 
 export const Route = createFileRoute("/_authenticated/admin")({
   head: () => ({ meta: [{ title: "Admin — PostulPro" }] }),
@@ -106,7 +107,7 @@ function AdminDashboard() {
       if (t >= monthAgo) newMonth++;
     }
 
-    const mrr = byPlan.pro * 29 + byPlan.business * 99;
+    const mrr = mrrFromPlanCounts(byPlan);
 
     const toolCounts = new Map<string, number>();
     for (const g of generations) toolCounts.set(g.tool, (toolCounts.get(g.tool) ?? 0) + 1);
