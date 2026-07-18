@@ -6,6 +6,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { googleOAuthOptions } from "@/lib/auth/google-oauth";
 import { AuthSplitLayout, GoogleButton } from "@/components/auth/AuthSplitLayout";
 import { getStoredReferral } from "@/lib/referral";
+import { friendlyAuthError } from "@/lib/auth/friendly-error";
 
 export const Route = createFileRoute("/auth/register")({
   head: () => ({
@@ -44,7 +45,7 @@ function RegisterPage() {
     });
     setLoading(false);
     if (error) {
-      toast.error(error.message);
+      toast.error(friendlyAuthError(error.message));
       return;
     }
     toast.success("¡Cuenta creada! Vamos a personalizarla.");

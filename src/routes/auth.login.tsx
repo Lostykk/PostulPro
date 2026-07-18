@@ -4,6 +4,7 @@ import { toast } from "sonner";
 import { Loader2 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { googleOAuthOptions } from "@/lib/auth/google-oauth";
+import { friendlyAuthError } from "@/lib/auth/friendly-error";
 import { AuthSplitLayout, GoogleButton } from "@/components/auth/AuthSplitLayout";
 
 export const Route = createFileRoute("/auth/login")({
@@ -29,7 +30,7 @@ function LoginPage() {
     const { error } = await supabase.auth.signInWithPassword({ email, password });
     setLoading(false);
     if (error) {
-      toast.error(error.message);
+      toast.error(friendlyAuthError(error.message));
       return;
     }
     toast.success("¡Bienvenido de vuelta!");
