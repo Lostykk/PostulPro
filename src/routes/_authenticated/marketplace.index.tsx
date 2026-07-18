@@ -93,7 +93,7 @@ function MarketplacePage() {
         {profile?.plan === "business" && (
           <Link
             to="/marketplace/sell"
-            className="inline-flex items-center gap-2 h-10 px-4 rounded-lg text-sm font-semibold bg-gradient-to-r from-violet-500 to-fuchsia-500 text-white hover:opacity-90 transition"
+            className="inline-flex items-center gap-2 h-10 px-4 rounded-lg text-sm font-semibold bg-gradient-brand text-white hover:opacity-90 transition"
           >
             <Plus className="w-4 h-4" /> Vender un producto
           </Link>

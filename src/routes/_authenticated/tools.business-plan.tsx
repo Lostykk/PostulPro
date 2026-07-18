@@ -515,7 +515,7 @@ function BusinessPlanPage() {
             onClick={() =>
               canNext ? setStep((s) => s + 1) : toast.error("Completa los campos requeridos")
             }
-            className="inline-flex items-center gap-2 h-11 px-6 rounded-lg bg-gradient-to-r from-violet-500 to-fuchsia-500 text-white font-semibold text-sm hover:opacity-95 transition"
+            className="inline-flex items-center gap-2 h-11 px-6 rounded-lg bg-gradient-brand text-white font-semibold text-sm hover:opacity-95 transition"
           >
             Siguiente <ArrowRight className="w-4 h-4" />
           </button>
@@ -524,7 +524,7 @@ function BusinessPlanPage() {
             type="button"
             onClick={handleGenerate}
             disabled={streaming}
-            className="inline-flex items-center gap-2 h-11 px-6 rounded-lg bg-gradient-to-r from-violet-500 to-fuchsia-500 text-white font-semibold text-sm hover:opacity-95 transition disabled:opacity-60"
+            className="inline-flex items-center gap-2 h-11 px-6 rounded-lg bg-gradient-brand text-white font-semibold text-sm hover:opacity-95 transition disabled:opacity-60"
           >
             {streaming ? (
               <>
@@ -553,7 +553,7 @@ function ProgressBar({ step, total }: { step: number; total: number }) {
       </div>
       <div className="h-1.5 rounded-full bg-white/5 overflow-hidden">
         <div
-          className="h-full bg-gradient-to-r from-violet-500 to-fuchsia-500 transition-all"
+          className="h-full bg-gradient-brand transition-all"
           style={{ width: `${(step / total) * 100}%` }}
         />
       </div>

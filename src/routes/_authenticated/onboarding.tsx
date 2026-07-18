@@ -321,7 +321,7 @@ function OnboardingPage() {
             <button
               onClick={() => goToStep(step + 1)}
               disabled={!canNext || transitioning}
-              className="inline-flex items-center gap-2 h-11 px-6 rounded-lg bg-gradient-to-r from-violet-500 to-fuchsia-500 text-white font-semibold text-sm hover:opacity-95 transition disabled:opacity-40"
+              className="inline-flex items-center gap-2 h-11 px-6 rounded-lg bg-gradient-brand text-white font-semibold text-sm hover:opacity-95 transition disabled:opacity-40"
             >
               Siguiente <ArrowRight className="w-4 h-4" />
             </button>
@@ -329,7 +329,7 @@ function OnboardingPage() {
             <button
               onClick={complete}
               disabled={!canNext || saving}
-              className="inline-flex items-center gap-2 h-11 px-6 rounded-lg bg-gradient-to-r from-violet-500 to-fuchsia-500 text-white font-semibold text-sm hover:opacity-95 transition disabled:opacity-40"
+              className="inline-flex items-center gap-2 h-11 px-6 rounded-lg bg-gradient-brand text-white font-semibold text-sm hover:opacity-95 transition disabled:opacity-40"
             >
               {saving && <Loader2 className="w-4 h-4 animate-spin" />}
               Completar
@@ -366,7 +366,7 @@ function ProgressBar({ step, total }: { step: number; total: number }) {
           initial={false}
           animate={{ width: `${(step / total) * 100}%` }}
           transition={{ duration: 0.3 }}
-          className="h-full bg-gradient-to-r from-violet-500 to-fuchsia-500"
+          className="h-full bg-gradient-brand"
         />
       </div>
     </div>
@@ -431,7 +431,7 @@ function WelcomeModal({ onClose }: { onClose: () => void }) {
         exit={{ scale: 0.9, opacity: 0 }}
         className="relative w-full max-w-md rounded-2xl bg-gradient-to-br from-[#1A0B2E] to-[#07070E] border border-violet-500/30 p-8 text-center shadow-2xl"
       >
-        <div className="mx-auto w-16 h-16 rounded-2xl bg-gradient-to-br from-violet-500 to-fuchsia-500 grid place-items-center mb-4 shadow-lg">
+        <div className="mx-auto w-16 h-16 rounded-2xl bg-gradient-brand grid place-items-center mb-4 shadow-lg">
           <Gift className="w-8 h-8 text-white" />
         </div>
         <h2 className="font-display text-2xl font-bold">¡Bienvenido a PostulPro!</h2>
@@ -441,7 +441,7 @@ function WelcomeModal({ onClose }: { onClose: () => void }) {
         </p>
         <button
           onClick={onClose}
-          className="mt-6 w-full h-11 rounded-lg bg-gradient-to-r from-violet-500 to-fuchsia-500 text-white font-semibold text-sm hover:opacity-95 transition"
+          className="mt-6 w-full h-11 rounded-lg bg-gradient-brand text-white font-semibold text-sm hover:opacity-95 transition"
         >
           Empezar a crear
         </button>

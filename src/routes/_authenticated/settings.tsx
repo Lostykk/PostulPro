@@ -155,7 +155,7 @@ function ProfileTab() {
   return (
     <Card>
       <div className="flex items-center gap-4">
-        <div className="w-16 h-16 rounded-full bg-gradient-to-br from-violet-500 to-fuchsia-500 grid place-items-center text-white font-semibold overflow-hidden">
+        <div className="w-16 h-16 rounded-full bg-gradient-brand grid place-items-center text-white font-semibold overflow-hidden">
           {profile?.avatar_url ? <img src={profile.avatar_url} alt="" className="w-full h-full object-cover" /> : (profile?.name?.[0] ?? "?")}
         </div>
         <label className="text-xs text-violet-300 hover:text-violet-200 cursor-pointer">
@@ -204,7 +204,7 @@ function ProfileTab() {
         type="button"
         onClick={handleSave}
         disabled={saving}
-        className="inline-flex items-center gap-2 h-10 px-5 rounded-lg text-sm font-semibold bg-gradient-to-r from-violet-500 to-fuchsia-500 text-white hover:opacity-90 transition disabled:opacity-60"
+        className="inline-flex items-center gap-2 h-10 px-5 rounded-lg text-sm font-semibold bg-gradient-brand text-white hover:opacity-90 transition disabled:opacity-60"
       >
         {saving && <Loader2 className="w-4 h-4 animate-spin" />} Guardar cambios
       </button>
@@ -384,7 +384,7 @@ function BillingTab() {
           type="button"
           onClick={() => callCheckout("credits", "credits_100")}
           disabled={loading !== null}
-          className="inline-flex items-center gap-2 h-10 px-5 rounded-lg text-sm font-semibold bg-gradient-to-r from-violet-500 to-fuchsia-500 text-white hover:opacity-90 transition disabled:opacity-60"
+          className="inline-flex items-center gap-2 h-10 px-5 rounded-lg text-sm font-semibold bg-gradient-brand text-white hover:opacity-90 transition disabled:opacity-60"
         >
           {loading === "credits_100" && <Loader2 className="w-4 h-4 animate-spin" />} Comprar 100 créditos — $9
         </button>
@@ -461,7 +461,7 @@ function NotificationsTab() {
         type="button"
         onClick={handleSave}
         disabled={saving}
-        className="inline-flex items-center gap-2 h-10 px-5 rounded-lg text-sm font-semibold bg-gradient-to-r from-violet-500 to-fuchsia-500 text-white hover:opacity-90 transition disabled:opacity-60"
+        className="inline-flex items-center gap-2 h-10 px-5 rounded-lg text-sm font-semibold bg-gradient-brand text-white hover:opacity-90 transition disabled:opacity-60"
       >
         {saving && <Loader2 className="w-4 h-4 animate-spin" />} Guardar
       </button>
@@ -560,7 +560,7 @@ function ApiKeysManager() {
           type="button"
           onClick={handleCreate}
           disabled={creating}
-          className="inline-flex items-center gap-2 h-10 px-4 rounded-lg text-sm font-semibold bg-gradient-to-r from-violet-500 to-fuchsia-500 text-white hover:opacity-90 transition disabled:opacity-60 shrink-0"
+          className="inline-flex items-center gap-2 h-10 px-4 rounded-lg text-sm font-semibold bg-gradient-brand text-white hover:opacity-90 transition disabled:opacity-60 shrink-0"
         >
           {creating ? <Loader2 className="w-4 h-4 animate-spin" /> : <KeyRound className="w-4 h-4" />} Crear
         </button>

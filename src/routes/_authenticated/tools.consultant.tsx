@@ -37,7 +37,7 @@ function ConsultantPage() {
           </p>
           <Link
             to="/settings"
-            className="mt-6 inline-flex items-center justify-center h-11 px-6 rounded-lg bg-gradient-to-r from-violet-500 to-fuchsia-500 text-white font-semibold text-sm hover:opacity-95 transition"
+            className="mt-6 inline-flex items-center justify-center h-11 px-6 rounded-lg bg-gradient-brand text-white font-semibold text-sm hover:opacity-95 transition"
           >
             Ver planes
           </Link>
@@ -163,7 +163,7 @@ function ConsultantChat() {
           <button
             type="button"
             onClick={newConversation}
-            className="inline-flex items-center justify-center gap-2 h-10 rounded-lg text-sm font-semibold bg-gradient-to-r from-violet-500 to-fuchsia-500 text-white hover:opacity-90 transition"
+            className="inline-flex items-center justify-center gap-2 h-10 rounded-lg text-sm font-semibold bg-gradient-brand text-white hover:opacity-90 transition"
           >
             <Plus className="w-4 h-4" /> Nueva conversación
           </button>
@@ -257,7 +257,7 @@ function ConsultantChat() {
                 type="button"
                 onClick={handleSend}
                 disabled={streaming || !draft.trim()}
-                className="h-11 w-11 shrink-0 grid place-items-center rounded-xl bg-gradient-to-r from-violet-500 to-fuchsia-500 text-white disabled:opacity-40 transition"
+                className="h-11 w-11 shrink-0 grid place-items-center rounded-xl bg-gradient-brand text-white disabled:opacity-40 transition"
                 aria-label="Enviar"
               >
                 {streaming ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
@@ -277,7 +277,7 @@ function ChatBubble({ role, content, loading }: { role: "user" | "assistant"; co
     <div className={`flex ${isUser ? "justify-end" : "justify-start"}`}>
       <div
         className={`max-w-[85%] rounded-2xl px-4 py-3 text-sm ${
-          isUser ? "bg-gradient-to-r from-violet-500 to-fuchsia-500 text-white" : "bg-white/5 border border-white/10"
+          isUser ? "bg-gradient-brand text-white" : "bg-white/5 border border-white/10"
         }`}
       >
         {loading && !content ? (

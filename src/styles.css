@@ -39,13 +39,39 @@
   --color-surface-1: var(--surface-1);
   --color-surface-2: var(--surface-2);
   --color-surface-3: var(--surface-3);
+  --color-surface-hover: var(--surface-hover);
+  --color-surface-active: var(--surface-active);
+  --color-surface-selected: var(--surface-selected);
   --color-brand: var(--brand);
   --color-brand-2: var(--brand-2);
+  --color-primary-hover: var(--primary-hover);
+  --color-primary-active: var(--primary-active);
   --color-success: var(--success);
+  --color-success-background: var(--success-background);
   --color-warning: var(--warning);
+  --color-warning-background: var(--warning-background);
   --color-error: var(--error);
+  --color-destructive-background: var(--destructive-background);
+  --color-info: var(--info);
+  --color-info-background: var(--info-background);
   --color-text-secondary: var(--text-secondary);
   --color-text-muted: var(--text-muted);
+  --color-focus-ring: var(--focus-ring);
+  --color-overlay: var(--overlay);
+  --color-skeleton: var(--skeleton);
+  --color-code-background: var(--code-background);
+
+  /* Deliverable / project status tokens */
+  --color-status-pending: var(--status-pending);
+  --color-status-ready: var(--status-ready);
+  --color-status-planning: var(--status-planning);
+  --color-status-in-progress: var(--status-in-progress);
+  --color-status-completed: var(--status-completed);
+  --color-status-failed: var(--status-failed);
+  --color-status-skipped: var(--status-skipped);
+  --color-status-awaiting-confirmation: var(--status-awaiting-confirmation);
+  --color-status-cancelled: var(--status-cancelled);
+  --color-status-insufficient-credits: var(--status-insufficient-credits);
 
   --font-sans: "Inter", system-ui, sans-serif;
   --font-display: "Space Grotesk", system-ui, sans-serif;
@@ -93,6 +119,36 @@
   --border: rgba(255, 255, 255, 0.07);
   --input: rgba(255, 255, 255, 0.09);
   --ring: rgba(124, 58, 237, 0.5);
+  --focus-ring: #a78bfa;
+  --overlay: rgba(4, 4, 10, 0.72);
+  --skeleton: rgba(255, 255, 255, 0.06);
+  --code-background: rgba(255, 255, 255, 0.06);
+
+  --surface-hover: rgba(255, 255, 255, 0.04);
+  --surface-active: rgba(255, 255, 255, 0.07);
+  --surface-selected: rgba(124, 58, 237, 0.14);
+
+  --primary-hover: #6d28d9;
+  --primary-active: #5b21b6;
+
+  --success-background: rgba(16, 185, 129, 0.12);
+  --warning-background: rgba(245, 158, 11, 0.12);
+  --destructive-background: rgba(239, 68, 68, 0.12);
+  --info: #38bdf8;
+  --info-background: rgba(56, 189, 248, 0.12);
+
+  /* Deliverable / project status colors — never rely on color alone in UI;
+     always pair with an icon + label (see StatusBadge). */
+  --status-pending: #94a3b8;
+  --status-ready: #38bdf8;
+  --status-planning: #a78bfa;
+  --status-in-progress: #7c3aed;
+  --status-completed: #10b981;
+  --status-failed: #ef4444;
+  --status-skipped: #64748b;
+  --status-awaiting-confirmation: #f59e0b;
+  --status-cancelled: #64748b;
+  --status-insufficient-credits: #f59e0b;
 }
 
 @layer base {

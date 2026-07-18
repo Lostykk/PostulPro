@@ -90,7 +90,7 @@ function Sidebar() {
   return (
     <aside className="hidden md:flex fixed inset-y-0 left-0 w-[240px] flex-col border-r border-white/5 bg-[color:var(--surface-1)]/60 backdrop-blur">
       <div className="h-16 flex items-center gap-2 px-5 border-b border-white/5">
-        <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-violet-500 to-fuchsia-500 grid place-items-center">
+        <div className="w-8 h-8 rounded-lg bg-gradient-brand grid place-items-center">
           <Sparkles className="w-4 h-4 text-white" />
         </div>
         <span className="font-display font-bold">PostulPro</span>
@@ -146,7 +146,7 @@ function Sidebar() {
               profile.plan !== "business" && (
                 <Link
                   to="/settings"
-                  className="w-full inline-flex items-center justify-center gap-1 h-8 rounded-lg text-xs font-semibold bg-gradient-to-r from-violet-500 to-fuchsia-500 text-white hover:opacity-90 transition"
+                  className="w-full inline-flex items-center justify-center gap-1 h-8 rounded-lg text-xs font-semibold bg-gradient-brand text-white hover:opacity-90 transition"
                 >
                   Upgrade <ArrowUpRight className="w-3 h-3" />
                 </Link>
@@ -244,7 +244,7 @@ function TopBar() {
             <button
               type="button"
               aria-label="Menú de cuenta"
-              className="w-9 h-9 rounded-full bg-gradient-to-br from-violet-500 to-fuchsia-500 grid place-items-center text-xs font-semibold text-white"
+              className="w-9 h-9 rounded-full bg-gradient-brand grid place-items-center text-xs font-semibold text-white"
             >
               {initials}
             </button>

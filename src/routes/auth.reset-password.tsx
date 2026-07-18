@@ -107,7 +107,7 @@ function ResetPage() {
             <button
               type="submit"
               disabled={savingPassword}
-              className="w-full inline-flex items-center justify-center gap-2 h-11 rounded-lg bg-gradient-to-r from-violet-500 to-fuchsia-500 text-white font-semibold text-sm hover:opacity-95 transition disabled:opacity-50"
+              className="w-full inline-flex items-center justify-center gap-2 h-11 rounded-lg bg-gradient-brand text-white font-semibold text-sm hover:opacity-95 transition disabled:opacity-50"
             >
               {savingPassword && <Loader2 className="w-4 h-4 animate-spin" />}
               Guardar contraseña
@@ -154,7 +154,7 @@ function ResetPage() {
             <button
               type="submit"
               disabled={loading}
-              className="w-full inline-flex items-center justify-center gap-2 h-11 rounded-lg bg-gradient-to-r from-violet-500 to-fuchsia-500 text-white font-semibold text-sm hover:opacity-95 transition disabled:opacity-50"
+              className="w-full inline-flex items-center justify-center gap-2 h-11 rounded-lg bg-gradient-brand text-white font-semibold text-sm hover:opacity-95 transition disabled:opacity-50"
             >
               {loading && <Loader2 className="w-4 h-4 animate-spin" />}
               Enviar link

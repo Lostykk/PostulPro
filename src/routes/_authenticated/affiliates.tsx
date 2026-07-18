@@ -39,7 +39,7 @@ function AffiliatesPage() {
           <p className="mt-3 text-sm text-muted-foreground">
             Actualizá tu plan para empezar a ganar comisión recurrente compartiendo PostulPro.
           </p>
-          <Link to="/settings" className="mt-6 inline-flex items-center justify-center h-11 px-6 rounded-lg bg-gradient-to-r from-violet-500 to-fuchsia-500 text-white font-semibold text-sm hover:opacity-95 transition">
+          <Link to="/settings" className="mt-6 inline-flex items-center justify-center h-11 px-6 rounded-lg bg-gradient-brand text-white font-semibold text-sm hover:opacity-95 transition">
             Ver planes
           </Link>
         </div>
@@ -137,7 +137,7 @@ function AffiliatesDashboard() {
             <button
               type="button"
               onClick={handleCopy}
-              className="h-9 px-3 rounded-lg text-xs font-semibold bg-gradient-to-r from-violet-500 to-fuchsia-500 text-white hover:opacity-90 transition inline-flex items-center gap-1.5"
+              className="h-9 px-3 rounded-lg text-xs font-semibold bg-gradient-brand text-white hover:opacity-90 transition inline-flex items-center gap-1.5"
             >
               <Copy className="w-3.5 h-3.5" /> Copiar
             </button>
