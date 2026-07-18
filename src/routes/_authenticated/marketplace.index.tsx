@@ -3,6 +3,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Search, Star, ShoppingBag, Plus } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useProfile } from "@/hooks/use-profile";
+import { SimpleSelect } from "@/components/ui/simple-select";
 
 export const Route = createFileRoute("/_authenticated/marketplace/")({
   head: () => ({ meta: [{ title: "Marketplace — PostulPro" }] }),
@@ -104,13 +105,12 @@ function MarketplacePage() {
           <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" />
           <input className="input pl-8" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Buscar productos…" />
         </div>
-        <select className="input w-auto" value={category} onChange={(e) => setCategory(e.target.value)}>
-          {CATEGORIES.map((c) => (
-            <option key={c.value} value={c.value}>
-              {c.label}
-            </option>
-          ))}
-        </select>
+        <SimpleSelect
+          className="w-auto"
+          value={category}
+          onValueChange={setCategory}
+          options={CATEGORIES.map((c) => ({ value: c.value, label: c.label }))}
+        />
         <input
           className="input w-28"
           type="number"
@@ -119,18 +119,22 @@ function MarketplacePage() {
           onChange={(e) => setMaxPrice(e.target.value)}
           placeholder="Precio máx."
         />
-        <select className="input w-auto" value={minRating} onChange={(e) => setMinRating(Number(e.target.value))}>
-          <option value={0}>Cualquier rating</option>
-          <option value={4}>4+ estrellas</option>
-          <option value={4.5}>4.5+ estrellas</option>
-        </select>
-        <select className="input w-auto" value={sort} onChange={(e) => setSort(e.target.value as typeof sort)}>
-          {SORTS.map((s) => (
-            <option key={s.value} value={s.value}>
-              {s.label}
-            </option>
-          ))}
-        </select>
+        <SimpleSelect
+          className="w-auto"
+          value={String(minRating)}
+          onValueChange={(v) => setMinRating(Number(v))}
+          options={[
+            { value: "0", label: "Cualquier rating" },
+            { value: "4", label: "4+ estrellas" },
+            { value: "4.5", label: "4.5+ estrellas" },
+          ]}
+        />
+        <SimpleSelect
+          className="w-auto"
+          value={sort}
+          onValueChange={(v) => setSort(v as typeof sort)}
+          options={SORTS.map((s) => ({ value: s.value, label: s.label }))}
+        />
       </div>
 
       {products === null ? (

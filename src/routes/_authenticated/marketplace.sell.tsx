@@ -6,6 +6,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/use-auth";
 import { useProfile } from "@/hooks/use-profile";
 import { isOwner } from "@/lib/auth/is-owner";
+import { SimpleSelect } from "@/components/ui/simple-select";
 
 export const Route = createFileRoute("/_authenticated/marketplace/sell")({
   head: () => ({ meta: [{ title: "Vender — PostulPro" }] }),
@@ -161,13 +162,11 @@ function SellForm() {
           </Field>
           <div className="grid grid-cols-2 gap-3">
             <Field label="Categoría">
-              <select className="input" value={category} onChange={(e) => setCategory(e.target.value)}>
-                {CATEGORIES.map((c) => (
-                  <option key={c} value={c}>
-                    {c}
-                  </option>
-                ))}
-              </select>
+              <SimpleSelect
+                value={category}
+                onValueChange={setCategory}
+                options={CATEGORIES.map((c) => ({ value: c, label: c }))}
+              />
             </Field>
             <Field label="Precio (USD)">
               <input className="input" type="number" min={0} value={price} onChange={(e) => setPrice(e.target.value)} placeholder="19" />

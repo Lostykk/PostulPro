@@ -5,6 +5,8 @@ import { toast } from "sonner";
 import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { supabase } from "@/integrations/supabase/client";
 import { useProfile } from "@/hooks/use-profile";
+import { SimpleSelect } from "@/components/ui/simple-select";
+import { MARKETPLACE_ENABLED } from "@/lib/features";
 
 export const Route = createFileRoute("/_authenticated/admin")({
   head: () => ({ meta: [{ title: "Admin — PostulPro" }] }),
@@ -178,11 +180,13 @@ function AdminDashboard() {
               label="Churn"
               value={churn?.hasData ? `${churn.rate.toFixed(1)}%` : "Sin datos"}
             />
-            <StatCard
-              icon={<ShoppingBag className="w-4 h-4" />}
-              label="Marketplace revenue"
-              value={marketplaceRevenue !== null ? `$${marketplaceRevenue.toFixed(2)}` : "—"}
-            />
+            {MARKETPLACE_ENABLED && (
+              <StatCard
+                icon={<ShoppingBag className="w-4 h-4" />}
+                label="Marketplace revenue"
+                value={marketplaceRevenue !== null ? `$${marketplaceRevenue.toFixed(2)}` : "—"}
+              />
+            )}
           </div>
 
           <div className="grid lg:grid-cols-2 gap-4">
@@ -241,15 +245,16 @@ function AdminDashboard() {
                       <div className="text-xs text-muted-foreground">{u.email}</div>
                     </td>
                     <td className="px-4 py-2">
-                      <select
-                        className="input h-8 text-xs w-auto"
+                      <SimpleSelect
+                        className="h-8 w-auto text-xs"
                         value={u.plan}
-                        onChange={(e) => changePlan(u.id, e.target.value)}
-                      >
-                        <option value="free">Free</option>
-                        <option value="pro">Pro</option>
-                        <option value="business">Business</option>
-                      </select>
+                        onValueChange={(v) => changePlan(u.id, v)}
+                        options={[
+                          { value: "free", label: "Free" },
+                          { value: "pro", label: "Pro" },
+                          { value: "business", label: "Business" },
+                        ]}
+                      />
                     </td>
                     <td className="px-4 py-2 text-xs uppercase text-muted-foreground">{u.role}</td>
                     <td className="px-4 py-2 text-xs text-muted-foreground">{new Date(u.created_at).toLocaleDateString()}</td>
@@ -261,38 +266,40 @@ function AdminDashboard() {
         )}
       </section>
 
-      <section>
-        <h2 className="font-display font-bold text-xl mb-3 flex items-center gap-2">
-          <ShoppingBag className="w-4 h-4" /> Productos
-        </h2>
-        {products === null ? (
-          <div className="h-24 rounded-xl bg-white/5 animate-pulse" />
-        ) : products.length === 0 ? (
-          <p className="text-sm text-muted-foreground">Sin productos.</p>
-        ) : (
-          <ul className="space-y-2">
-            {products.map((p) => (
-              <li key={p.id} className="flex items-center justify-between rounded-xl border border-white/10 bg-white/5 p-3 text-sm">
-                <span>{p.title} <span className="text-xs text-muted-foreground">({p.total_sales} ventas)</span></span>
-                <div className="flex items-center gap-2">
-                  {p.is_published ? (
-                    <button type="button" onClick={() => toggleProduct(p.id, false)} className="text-xs text-amber-300 hover:text-amber-200">
-                      Rechazar
+      {MARKETPLACE_ENABLED && (
+        <section>
+          <h2 className="font-display font-bold text-xl mb-3 flex items-center gap-2">
+            <ShoppingBag className="w-4 h-4" /> Productos
+          </h2>
+          {products === null ? (
+            <div className="h-24 rounded-xl bg-white/5 animate-pulse" />
+          ) : products.length === 0 ? (
+            <p className="text-sm text-muted-foreground">Sin productos.</p>
+          ) : (
+            <ul className="space-y-2">
+              {products.map((p) => (
+                <li key={p.id} className="flex items-center justify-between rounded-xl border border-white/10 bg-white/5 p-3 text-sm">
+                  <span>{p.title} <span className="text-xs text-muted-foreground">({p.total_sales} ventas)</span></span>
+                  <div className="flex items-center gap-2">
+                    {p.is_published ? (
+                      <button type="button" onClick={() => toggleProduct(p.id, false)} className="text-xs text-amber-300 hover:text-amber-200">
+                        Rechazar
+                      </button>
+                    ) : (
+                      <button type="button" onClick={() => toggleProduct(p.id, true)} className="text-xs text-emerald-300 hover:text-emerald-200">
+                        Aprobar
+                      </button>
+                    )}
+                    <button type="button" onClick={() => deleteProduct(p.id)} className="text-xs text-red-300 hover:text-red-200">
+                      Eliminar
                     </button>
-                  ) : (
-                    <button type="button" onClick={() => toggleProduct(p.id, true)} className="text-xs text-emerald-300 hover:text-emerald-200">
-                      Aprobar
-                    </button>
-                  )}
-                  <button type="button" onClick={() => deleteProduct(p.id)} className="text-xs text-red-300 hover:text-red-200">
-                    Eliminar
-                  </button>
-                </div>
-              </li>
-            ))}
-          </ul>
-        )}
-      </section>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
+      )}
 
       <section>
         <h2 className="font-display font-bold text-xl mb-3">Ranking de afiliados</h2>

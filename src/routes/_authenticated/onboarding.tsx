@@ -16,6 +16,7 @@ import {
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/use-auth";
 import { useProfile } from "@/hooks/use-profile";
+import { SimpleSelect } from "@/components/ui/simple-select";
 import {
   canAdvance,
   runCompleteOnboarding,
@@ -280,17 +281,15 @@ function OnboardingPage() {
                   />
                   <label className="block text-sm">
                     <span className="font-medium">País</span>
-                    <select
+                    <SimpleSelect
                       value={country}
-                      onChange={(e) => setCountry(e.target.value)}
-                      className="mt-1.5 w-full h-11 rounded-lg bg-white/5 border border-white/10 px-3 text-sm focus:outline-none focus:ring-2 focus:ring-violet-500/50"
-                    >
-                      {COUNTRIES.map((c) => (
-                        <option key={c.code} value={c.code} className="bg-background">
-                          {c.flag} {c.name}
-                        </option>
-                      ))}
-                    </select>
+                      onValueChange={setCountry}
+                      className="mt-1.5 h-11 focus:ring-2 focus:ring-violet-500/50"
+                      options={COUNTRIES.map((c) => ({
+                        value: c.code,
+                        label: `${c.flag} ${c.name}`,
+                      }))}
+                    />
                   </label>
                   <label className="block text-sm">
                     <span className="font-medium">Bio corta</span>

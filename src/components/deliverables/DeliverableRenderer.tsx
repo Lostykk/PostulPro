@@ -2,7 +2,7 @@ import { useState } from "react";
 import { Code2, PencilLine, RotateCcw } from "lucide-react";
 import { toast } from "sonner";
 import { BusinessPlanView } from "@/components/deliverables/BusinessPlanView";
-import { LandingPageView } from "@/components/deliverables/LandingPageView";
+import { LandingBuilder } from "@/components/landing/LandingBuilder";
 import { EmailSequenceView } from "@/components/deliverables/EmailSequenceView";
 import { SocialContentView } from "@/components/deliverables/SocialContentView";
 import { GenericMarkdownView } from "@/components/deliverables/GenericMarkdownView";
@@ -13,6 +13,7 @@ export type DeliverableRendererProps = {
   editedOutput: string | null;
   approvals?: Record<string, boolean>;
   title?: string;
+  generationId?: string;
   onSave: (newOutput: string) => Promise<void> | void;
   onRestore: () => Promise<void> | void;
   onToggleApproval?: (blockTitle: string, approved: boolean) => Promise<void> | void;
@@ -29,6 +30,7 @@ export function DeliverableRenderer({
   editedOutput,
   approvals = {},
   title = "Entregable",
+  generationId,
   onSave,
   onRestore,
   onToggleApproval,
@@ -87,6 +89,7 @@ export function DeliverableRenderer({
           text={text}
           title={title}
           approvals={approvals}
+          generationId={generationId}
           onSave={onSave}
           onToggleApproval={onToggleApproval}
         />
@@ -100,6 +103,7 @@ function DeliverableBody({
   text,
   title,
   approvals,
+  generationId,
   onSave,
   onToggleApproval,
 }: {
@@ -107,6 +111,7 @@ function DeliverableBody({
   text: string;
   title: string;
   approvals: Record<string, boolean>;
+  generationId?: string;
   onSave: (newOutput: string) => Promise<void> | void;
   onToggleApproval?: (blockTitle: string, approved: boolean) => Promise<void> | void;
 }) {
@@ -114,7 +119,7 @@ function DeliverableBody({
     case "business-plan":
       return <BusinessPlanView text={text} title={title} onSave={onSave} />;
     case "landing-copy":
-      return <LandingPageView text={text} onSave={onSave} />;
+      return <LandingBuilder text={text} title={title} generationId={generationId} onSave={onSave} />;
     case "sales-email":
     case "email-sequences":
       return (

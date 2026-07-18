@@ -3,6 +3,7 @@ import { useState } from "react";
 import { Zap, Copy, RefreshCw, Download, Save, Loader2 } from "lucide-react";
 import { useAiStream, downloadTxt } from "@/hooks/use-ai-stream";
 import { toast } from "sonner";
+import { SimpleSelect } from "@/components/ui/simple-select";
 
 export const Route = createFileRoute("/_authenticated/tools/copywriter")({
   head: () => ({ meta: [{ title: "Copywriter IA — PostulPro" }] }),
@@ -171,17 +172,11 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
 
 function Select({ value, onChange, options }: { value: string; onChange: (v: string) => void; options: string[] }) {
   return (
-    <select
-      className="input"
+    <SimpleSelect
       value={value}
-      onChange={(e) => onChange(e.target.value)}
-    >
-      {options.map((o) => (
-        <option key={o} value={o} className="bg-background">
-          {o}
-        </option>
-      ))}
-    </select>
+      onValueChange={onChange}
+      options={options.map((o) => ({ value: o, label: o }))}
+    />
   );
 }
 

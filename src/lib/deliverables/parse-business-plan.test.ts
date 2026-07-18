@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  isDegenerateSection,
   parseMarkdownSections,
   serializeMarkdownSections,
 } from "@/lib/deliverables/parse-business-plan";
@@ -33,5 +34,19 @@ describe("parseMarkdownSections", () => {
   it("round-trips through serializeMarkdownSections", () => {
     const md = "## Resumen Ejecutivo\nTexto uno.\n\n## Roadmap\nTexto dos.";
     expect(serializeMarkdownSections(parseMarkdownSections(md))).toBe(md);
+  });
+});
+
+describe("isDegenerateSection", () => {
+  it("flags a section whose body is only a horizontal rule", () => {
+    expect(isDegenerateSection({ heading: "Separador", body: "---" })).toBe(true);
+    expect(isDegenerateSection({ heading: "Separador", body: "***" })).toBe(true);
+    expect(isDegenerateSection({ heading: "Separador", body: "- - -" })).toBe(true);
+    expect(isDegenerateSection({ heading: "Separador", body: "   " })).toBe(true);
+    expect(isDegenerateSection({ heading: "Separador", body: "" })).toBe(true);
+  });
+
+  it("does not flag a section with real content", () => {
+    expect(isDegenerateSection({ heading: "Roadmap", body: "Mes 1: lanzamiento." })).toBe(false);
   });
 });

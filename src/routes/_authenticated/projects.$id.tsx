@@ -619,6 +619,7 @@ function StepDetail({
           editedOutput={gen.editedOutput}
           approvals={gen.approvals}
           title={step.title}
+          generationId={step.output_generation_id ?? undefined}
           onSave={onSaveEdit}
           onRestore={onRestore}
           onToggleApproval={onToggleApproval}

@@ -8,6 +8,7 @@ import { useProjectStepContext, type StepGeneration } from "@/hooks/use-project-
 import { saveEditedOutput, restoreGeneratedOutput } from "@/lib/deliverables/generation-actions";
 import { DeliverableRenderer } from "@/components/deliverables/DeliverableRenderer";
 import { ProjectContextBanner } from "@/components/deliverables/ProjectContextBanner";
+import { SimpleSelect } from "@/components/ui/simple-select";
 
 export const Route = createFileRoute("/_authenticated/tools/business-plan")({
   head: () => ({ meta: [{ title: "Business Plan — PostulPro" }] }),
@@ -481,17 +482,11 @@ function BusinessPlanPage() {
               />
             </Field>
             <Field label="Tipo de lanzamiento">
-              <select
-                className="input"
+              <SimpleSelect
                 value={form.launchType}
-                onChange={(e) => update("launchType", e.target.value)}
-              >
-                {LAUNCH_TYPES.map((t) => (
-                  <option key={t} value={t} className="bg-background">
-                    {t}
-                  </option>
-                ))}
-              </select>
+                onValueChange={(v) => update("launchType", v)}
+                options={LAUNCH_TYPES.map((t) => ({ value: t, label: t }))}
+              />
             </Field>
             <Field label="Timeline (1-12 meses)">
               <textarea

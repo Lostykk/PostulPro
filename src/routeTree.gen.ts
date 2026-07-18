@@ -14,6 +14,7 @@ import { Route as DemoRouteImport } from './routes/demo'
 import { Route as AuthenticatedRouteRouteImport } from './routes/_authenticated/route'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as RefCodeRouteImport } from './routes/ref.$code'
+import { Route as PSlugRouteImport } from './routes/p.$slug'
 import { Route as AuthResetPasswordRouteImport } from './routes/auth.reset-password'
 import { Route as AuthRegisterRouteImport } from './routes/auth.register'
 import { Route as AuthLoginRouteImport } from './routes/auth.login'
@@ -83,6 +84,11 @@ const IndexRoute = IndexRouteImport.update({
 const RefCodeRoute = RefCodeRouteImport.update({
   id: '/ref/$code',
   path: '/ref/$code',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const PSlugRoute = PSlugRouteImport.update({
+  id: '/p/$slug',
+  path: '/p/$slug',
   getParentRoute: () => rootRouteImport,
 } as any)
 const AuthResetPasswordRoute = AuthResetPasswordRouteImport.update({
@@ -351,6 +357,7 @@ export interface FileRoutesByFullPath {
   '/auth/login': typeof AuthLoginRoute
   '/auth/register': typeof AuthRegisterRoute
   '/auth/reset-password': typeof AuthResetPasswordRoute
+  '/p/$slug': typeof PSlugRoute
   '/ref/$code': typeof RefCodeRoute
   '/marketplace/$productId': typeof AuthenticatedMarketplaceProductIdRoute
   '/marketplace/sell': typeof AuthenticatedMarketplaceSellRoute
@@ -402,6 +409,7 @@ export interface FileRoutesByTo {
   '/auth/login': typeof AuthLoginRoute
   '/auth/register': typeof AuthRegisterRoute
   '/auth/reset-password': typeof AuthResetPasswordRoute
+  '/p/$slug': typeof PSlugRoute
   '/ref/$code': typeof RefCodeRoute
   '/marketplace/$productId': typeof AuthenticatedMarketplaceProductIdRoute
   '/marketplace/sell': typeof AuthenticatedMarketplaceSellRoute
@@ -456,6 +464,7 @@ export interface FileRoutesById {
   '/auth/login': typeof AuthLoginRoute
   '/auth/register': typeof AuthRegisterRoute
   '/auth/reset-password': typeof AuthResetPasswordRoute
+  '/p/$slug': typeof PSlugRoute
   '/ref/$code': typeof RefCodeRoute
   '/_authenticated/marketplace/$productId': typeof AuthenticatedMarketplaceProductIdRoute
   '/_authenticated/marketplace/sell': typeof AuthenticatedMarketplaceSellRoute
@@ -510,6 +519,7 @@ export interface FileRouteTypes {
     | '/auth/login'
     | '/auth/register'
     | '/auth/reset-password'
+    | '/p/$slug'
     | '/ref/$code'
     | '/marketplace/$productId'
     | '/marketplace/sell'
@@ -561,6 +571,7 @@ export interface FileRouteTypes {
     | '/auth/login'
     | '/auth/register'
     | '/auth/reset-password'
+    | '/p/$slug'
     | '/ref/$code'
     | '/marketplace/$productId'
     | '/marketplace/sell'
@@ -614,6 +625,7 @@ export interface FileRouteTypes {
     | '/auth/login'
     | '/auth/register'
     | '/auth/reset-password'
+    | '/p/$slug'
     | '/ref/$code'
     | '/_authenticated/marketplace/$productId'
     | '/_authenticated/marketplace/sell'
@@ -660,6 +672,7 @@ export interface RootRouteChildren {
   AuthLoginRoute: typeof AuthLoginRoute
   AuthRegisterRoute: typeof AuthRegisterRoute
   AuthResetPasswordRoute: typeof AuthResetPasswordRoute
+  PSlugRoute: typeof PSlugRoute
   RefCodeRoute: typeof RefCodeRoute
   ApiBillingCheckoutRoute: typeof ApiBillingCheckoutRoute
   ApiBillingPortalRoute: typeof ApiBillingPortalRoute
@@ -706,6 +719,13 @@ declare module '@tanstack/react-router' {
       path: '/ref/$code'
       fullPath: '/ref/$code'
       preLoaderRoute: typeof RefCodeRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/p/$slug': {
+      id: '/p/$slug'
+      path: '/p/$slug'
+      fullPath: '/p/$slug'
+      preLoaderRoute: typeof PSlugRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/auth/reset-password': {
@@ -1139,6 +1159,7 @@ const rootRouteChildren: RootRouteChildren = {
   AuthLoginRoute: AuthLoginRoute,
   AuthRegisterRoute: AuthRegisterRoute,
   AuthResetPasswordRoute: AuthResetPasswordRoute,
+  PSlugRoute: PSlugRoute,
   RefCodeRoute: RefCodeRoute,
   ApiBillingCheckoutRoute: ApiBillingCheckoutRoute,
   ApiBillingPortalRoute: ApiBillingPortalRoute,

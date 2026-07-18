@@ -33,6 +33,14 @@ export function parseMarkdownSections(markdown: string): MarkdownSection[] {
   return sections;
 }
 
+// A section whose body is only markdown structural noise (a stray "---"
+// horizontal rule, "***", underscores, whitespace) carries no real content
+// — the presentation layer should skip it in nav/index, even though parsing
+// keeps it (so editing/serialization round-trips stay lossless).
+export function isDegenerateSection(section: MarkdownSection): boolean {
+  return section.body.replace(/[-_*\s]/g, "").length === 0;
+}
+
 export function serializeMarkdownSections(sections: MarkdownSection[]): string {
   return sections
     .map((s) => (s.heading ? `## ${s.heading}\n${s.body}` : s.body))

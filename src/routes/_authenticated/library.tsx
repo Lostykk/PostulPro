@@ -17,6 +17,7 @@ import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { useProfile } from "@/hooks/use-profile";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { SimpleSelect } from "@/components/ui/simple-select";
 import { downloadTxt } from "@/hooks/use-ai-stream";
 import { TOOL_META } from "@/lib/tool-meta";
 import { DeliverableRenderer } from "@/components/deliverables/DeliverableRenderer";
@@ -376,42 +377,37 @@ function LibraryPage() {
                 placeholder="Buscar…"
               />
             </div>
-            <select
-              className="input w-auto"
+            <SimpleSelect
+              className="w-auto"
               value={toolFilter}
-              onChange={(e) => setToolFilter(e.target.value)}
-            >
-              <option value="all">Todas las herramientas</option>
-              {Object.entries(TOOL_META).map(([id, m]) => (
-                <option key={id} value={id}>
-                  {m.icon} {m.label}
-                </option>
-              ))}
-            </select>
-            <select
-              className="input w-auto"
+              onValueChange={setToolFilter}
+              options={[
+                { value: "all", label: "Todas las herramientas" },
+                ...Object.entries(TOOL_META).map(([id, m]) => ({
+                  value: id,
+                  label: `${m.icon} ${m.label}`,
+                })),
+              ]}
+            />
+            <SimpleSelect
+              className="w-auto"
               value={dateFilter}
-              onChange={(e) => setDateFilter(e.target.value as typeof dateFilter)}
-            >
-              {DATE_FILTERS.map((d) => (
-                <option key={d} value={d}>
-                  {d}
-                </option>
-              ))}
-            </select>
+              onValueChange={(v) => setDateFilter(v as typeof dateFilter)}
+              options={DATE_FILTERS.map((d) => ({ value: d, label: d }))}
+            />
             {projectsWithGenerations.length > 0 && (
-              <select
-                className="input w-auto"
+              <SimpleSelect
+                className="w-auto"
                 value={projectFilter}
-                onChange={(e) => setProjectFilter(e.target.value)}
-              >
-                <option value="all">Todos los proyectos</option>
-                {projectsWithGenerations.map((p) => (
-                  <option key={p.id} value={p.id}>
-                    {p.title || "Proyecto sin título"}
-                  </option>
-                ))}
-              </select>
+                onValueChange={setProjectFilter}
+                options={[
+                  { value: "all", label: "Todos los proyectos" },
+                  ...projectsWithGenerations.map((p) => ({
+                    value: p.id,
+                    label: p.title || "Proyecto sin título",
+                  })),
+                ]}
+              />
             )}
           </div>
 
@@ -511,6 +507,7 @@ function LibraryPage() {
               editedOutput={viewing.edited_output}
               approvals={viewing.approvals_json ?? {}}
               title={viewing.title ?? "Generación"}
+              generationId={viewing.id}
               onSave={saveEdit}
               onRestore={restoreGen}
               onToggleApproval={toggleGenApproval}

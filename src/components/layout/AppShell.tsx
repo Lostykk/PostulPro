@@ -19,6 +19,7 @@ import {
 import { useAuth } from "@/hooks/use-auth";
 import { ProfileProvider, useProfile } from "@/hooks/use-profile";
 import { isOwner } from "@/lib/auth/is-owner";
+import { MARKETPLACE_ENABLED } from "@/lib/features";
 import { Progress } from "@/components/ui/progress";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
@@ -49,7 +50,7 @@ const NAV: NavItem[] = [
   { to: "/library", label: "Biblioteca", shortLabel: "Biblio", icon: Library },
   { to: "/affiliates", label: "Afiliados", shortLabel: "Afiliados", icon: Handshake },
   { to: "/settings", label: "Configuración", shortLabel: "Config", icon: Settings },
-];
+].filter((item) => MARKETPLACE_ENABLED || item.to !== "/marketplace");
 
 const MOBILE_DIRECT = ["/dashboard", "/build", "/projects", "/marketplace", "/library"];
 

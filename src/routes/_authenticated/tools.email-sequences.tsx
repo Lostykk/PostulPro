@@ -12,6 +12,7 @@ import {
 } from "@/lib/deliverables/generation-actions";
 import { DeliverableRenderer } from "@/components/deliverables/DeliverableRenderer";
 import { ProjectContextBanner } from "@/components/deliverables/ProjectContextBanner";
+import { SimpleSelect } from "@/components/ui/simple-select";
 
 export const Route = createFileRoute("/_authenticated/tools/email-sequences")({
   head: () => ({ meta: [{ title: "Email Sequences — PostulPro" }] }),
@@ -136,17 +137,14 @@ ${blocks}`;
       <div className="grid lg:grid-cols-[380px_1fr] gap-6">
         <aside className="rounded-2xl border border-white/10 bg-white/5 p-5 space-y-4 h-fit">
           <Field label="Tipo de secuencia">
-            <select
-              className="input"
+            <SimpleSelect
               value={sequenceId}
-              onChange={(e) => setSequenceId(e.target.value as typeof sequenceId)}
-            >
-              {SEQUENCE_TYPES.map((s) => (
-                <option key={s.id} value={s.id} className="bg-background">
-                  {s.label} ({s.count} emails)
-                </option>
-              ))}
-            </select>
+              onValueChange={(v) => setSequenceId(v as typeof sequenceId)}
+              options={SEQUENCE_TYPES.map((s) => ({
+                value: s.id,
+                label: `${s.label} (${s.count} emails)`,
+              }))}
+            />
           </Field>
           <Field label="Producto / servicio">
             <input

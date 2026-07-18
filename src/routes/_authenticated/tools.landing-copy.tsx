@@ -70,6 +70,7 @@ function LandingCopyPage() {
           output={gen.output}
           editedOutput={gen.editedOutput}
           title="Landing Copy"
+          generationId={gen.id}
           onSave={async (text) => {
             await saveEditedOutput(gen.id, text);
             setGen({ ...gen, editedOutput: text });

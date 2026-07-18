@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { Sparkles, Loader2, ChevronDown, ArrowRight } from "lucide-react";
 import { projectsApiFetch, ApiError } from "@/lib/projects/api-client";
+import { SimpleSelect } from "@/components/ui/simple-select";
 
 export const Route = createFileRoute("/_authenticated/build")({
   head: () => ({ meta: [{ title: "Construir con IA — PostulPro" }] }),
@@ -128,11 +129,15 @@ function BuildPage() {
             </label>
             <label className="block sm:col-span-2">
               <span className="block text-xs font-medium text-muted-foreground mb-1.5">Idioma</span>
-              <select className="input" value={language} onChange={(e) => setLanguage(e.target.value)}>
-                <option value="es" className="bg-background">Español</option>
-                <option value="en" className="bg-background">English</option>
-                <option value="pt" className="bg-background">Português</option>
-              </select>
+              <SimpleSelect
+                value={language}
+                onValueChange={setLanguage}
+                options={[
+                  { value: "es", label: "Español" },
+                  { value: "en", label: "English" },
+                  { value: "pt", label: "Português" },
+                ]}
+              />
             </label>
           </div>
         )}

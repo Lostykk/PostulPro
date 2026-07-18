@@ -1,5 +1,6 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { ArrowLeft } from "lucide-react";
+import { MARKETPLACE_ENABLED } from "@/lib/features";
 
 export const Route = createFileRoute("/legal")({
   component: Legal,
@@ -51,8 +52,9 @@ function Legal() {
           <h2 className="font-display text-2xl font-bold">Términos de Servicio</h2>
           <p className="text-sm leading-relaxed text-text-secondary">
             Al crear una cuenta en PostulPro aceptás estos términos. PostulPro es una plataforma
-            que ofrece herramientas de generación de contenido asistidas por IA, un marketplace de
-            productos digitales creados por usuarios, y un programa de afiliados.
+            que ofrece herramientas de generación de contenido asistidas por IA
+            {MARKETPLACE_ENABLED ? ", un marketplace de productos digitales creados por usuarios," : ""}{" "}
+            y un programa de afiliados.
           </p>
           <h3 className="font-display text-lg font-semibold">Cuenta y uso aceptable</h3>
           <p className="text-sm leading-relaxed text-text-secondary">
@@ -75,13 +77,18 @@ function Legal() {
             usarlo comercialmente sin restricciones adicionales de nuestra parte, siempre que su
             uso respete la ley y los derechos de terceros.
           </p>
-          <h3 className="font-display text-lg font-semibold">Marketplace</h3>
-          <p className="text-sm leading-relaxed text-text-secondary">
-            Los productos publicados en el marketplace son responsabilidad de quien los publica.
-            PostulPro se reserva el derecho de retirar cualquier producto que incumpla estos
-            términos. Los pagos del marketplace se encuentran en una etapa temprana de
-            habilitación; los detalles de comisión se comunicarán antes de activarse.
-          </p>
+          {MARKETPLACE_ENABLED && (
+            <>
+              <h3 className="font-display text-lg font-semibold">Marketplace</h3>
+              <p className="text-sm leading-relaxed text-text-secondary">
+                Los productos publicados en el marketplace son responsabilidad de quien los
+                publica. PostulPro se reserva el derecho de retirar cualquier producto que
+                incumpla estos términos. Los pagos del marketplace se encuentran en una etapa
+                temprana de habilitación; los detalles de comisión se comunicarán antes de
+                activarse.
+              </p>
+            </>
+          )}
           <h3 className="font-display text-lg font-semibold">Limitación de responsabilidad</h3>
           <p className="text-sm leading-relaxed text-text-secondary">
             PostulPro se ofrece "tal cual". El contenido generado por IA puede contener errores o

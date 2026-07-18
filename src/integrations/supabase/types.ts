@@ -545,6 +545,57 @@ export type Database = {
           },
         ];
       };
+      landing_publications: {
+        Row: {
+          created_at: string;
+          data: Json;
+          generation_id: string;
+          id: string;
+          published_at: string | null;
+          slug: string;
+          status: string;
+          updated_at: string;
+          user_id: string;
+        };
+        Insert: {
+          created_at?: string;
+          data: Json;
+          generation_id: string;
+          id?: string;
+          published_at?: string | null;
+          slug: string;
+          status?: string;
+          updated_at?: string;
+          user_id: string;
+        };
+        Update: {
+          created_at?: string;
+          data?: Json;
+          generation_id?: string;
+          id?: string;
+          published_at?: string | null;
+          slug?: string;
+          status?: string;
+          updated_at?: string;
+          user_id?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "landing_publications_generation_id_fkey";
+            columns: ["generation_id"];
+            isOneToOne: true;
+            referencedRelation: "generations";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "landing_publications_user_id_fkey";
+            columns: ["user_id"];
+            isOneToOne: false;
+            referencedRelation: "users";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
       lemon_squeezy_events: {
         Row: {
           event_name: string;
@@ -1004,6 +1055,13 @@ export type Database = {
           plaintext_key: string;
         }[];
       };
+      get_published_landing: {
+        Args: { p_slug: string };
+        Returns: {
+          data: Json;
+          published_at: string;
+        }[];
+      };
       has_role: {
         Args: {
           _role: Database["public"]["Enums"]["app_role"];
@@ -1044,6 +1102,13 @@ export type Database = {
           ok: boolean;
         }[];
       };
+      publish_landing_page: {
+        Args: { p_data: Json; p_generation_id: string; p_slug: string };
+        Returns: {
+          published_at: string;
+          slug: string;
+        }[];
+      };
       refund_credits: {
         Args: { p_cost: number };
         Returns: {
@@ -1074,6 +1139,10 @@ export type Database = {
         Returns: undefined;
       };
       skip_ai_project_step: { Args: { p_step_id: string }; Returns: undefined };
+      unpublish_landing_page: {
+        Args: { p_generation_id: string };
+        Returns: undefined;
+      };
       update_ai_project_brief: {
         Args: { p_brief_json: Json; p_project_id: string };
         Returns: undefined;

@@ -25,6 +25,7 @@ import {
   AccordionTrigger,
 } from "@/components/ui/accordion";
 import { captureReferral } from "@/lib/referral";
+import { MARKETPLACE_ENABLED } from "@/lib/features";
 
 export const Route = createFileRoute("/")({
   component: Landing,
@@ -436,7 +437,7 @@ const FEATURES = [
     desc: "Comprá y vendé templates, prompts y guías premium creadas por la comunidad.",
     href: "/marketplace",
   },
-] as const;
+].filter((f) => MARKETPLACE_ENABLED || f.href !== "/marketplace");
 
 function Features() {
   return (
@@ -612,7 +613,7 @@ const PLANS: Plan[] = [
     features: [
       "10 generaciones / mes",
       "3 herramientas básicas",
-      "Sin acceso al marketplace",
+      ...(MARKETPLACE_ENABLED ? ["Sin acceso al marketplace"] : []),
       "Soporte de la comunidad",
     ],
   },
@@ -625,7 +626,7 @@ const PLANS: Plan[] = [
     features: [
       "500 generaciones / mes",
       "8 herramientas premium",
-      "Marketplace completo",
+      ...(MARKETPLACE_ENABLED ? ["Marketplace completo"] : []),
       "Export PDF / DOCX",
       "AI Consultor · 100 msgs/mes",
       "Comisión de afiliado 30% recurrente",
@@ -797,7 +798,9 @@ function CompareTable() {
   const rows: Array<[string, string, string, string]> = [
     ["Generaciones / mes", "10", "500", "Ilimitadas"],
     ["Herramientas IA", "3", "8", "8+ API"],
-    ["Marketplace", "—", "✓", "✓"],
+    ...(MARKETPLACE_ENABLED
+      ? ([["Marketplace", "—", "✓", "✓"]] as Array<[string, string, string, string]>)
+      : []),
     ["Export PDF / DOCX", "—", "✓", "✓ White-label"],
     ["AI Consultor", "—", "100 msgs", "Ilimitado"],
     ["Comisión de afiliado", "—", "30%", "40%"],
@@ -851,11 +854,15 @@ const USE_CASES = [
     desc: "Redacta descripciones que convierten y campañas de email.",
     tools: ["Copywriter IA", "Email Marketing"],
   },
-  {
-    title: "Creador vende templates",
-    desc: "Publica sus prompts y guías en el marketplace y genera ingresos pasivos.",
-    tools: ["Marketplace"],
-  },
+  ...(MARKETPLACE_ENABLED
+    ? [
+        {
+          title: "Creador vende templates",
+          desc: "Publica sus prompts y guías en el marketplace y genera ingresos pasivos.",
+          tools: ["Marketplace"],
+        },
+      ]
+    : []),
   {
     title: "Consultor 24/7",
     desc: "Prepara reuniones y estrategias con un asesor IA siempre disponible.",
@@ -1032,10 +1039,14 @@ const FAQS = [
     q: "¿Qué tan buena es la calidad de la IA?",
     a: "Combinamos Claude 3.5 y GPT-4o con prompts optimizados para cada caso. La calidad es de nivel profesional y siempre editable.",
   },
-  {
-    q: "¿Qué límites tiene el marketplace?",
-    a: "Podés vender templates, prompts y guías. Nos quedamos con una comisión pequeña por transacción, el resto es tuyo. Sin exclusividad.",
-  },
+  ...(MARKETPLACE_ENABLED
+    ? [
+        {
+          q: "¿Qué límites tiene el marketplace?",
+          a: "Podés vender templates, prompts y guías. Nos quedamos con una comisión pequeña por transacción, el resto es tuyo. Sin exclusividad.",
+        },
+      ]
+    : []),
   {
     q: "¿Puedo comprar créditos adicionales?",
     a: "Sí. Desde el panel podés comprar packs extra que se suman a tu cuota mensual y no expiran mientras tengas el plan activo.",
@@ -1084,7 +1095,7 @@ function Footer() {
         { label: "Herramientas", href: "#herramientas" },
         { label: "Cómo funciona", href: "#como-funciona" },
         { label: "Precios", href: "#precios" },
-        { label: "Marketplace", href: "/marketplace" },
+        ...(MARKETPLACE_ENABLED ? [{ label: "Marketplace", href: "/marketplace" }] : []),
       ],
     },
     {

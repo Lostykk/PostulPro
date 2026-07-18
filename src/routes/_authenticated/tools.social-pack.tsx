@@ -12,6 +12,7 @@ import {
 } from "@/lib/deliverables/generation-actions";
 import { DeliverableRenderer } from "@/components/deliverables/DeliverableRenderer";
 import { ProjectContextBanner } from "@/components/deliverables/ProjectContextBanner";
+import { SimpleSelect } from "@/components/ui/simple-select";
 
 export const Route = createFileRoute("/_authenticated/tools/social-pack")({
   head: () => ({ meta: [{ title: "Social Pack — PostulPro" }] }),
@@ -294,12 +295,10 @@ function Select({
   options: string[];
 }) {
   return (
-    <select className="input" value={value} onChange={(e) => onChange(e.target.value)}>
-      {options.map((o) => (
-        <option key={o} value={o} className="bg-background">
-          {o}
-        </option>
-      ))}
-    </select>
+    <SimpleSelect
+      value={value}
+      onValueChange={onChange}
+      options={options.map((o) => ({ value: o, label: o }))}
+    />
   );
 }

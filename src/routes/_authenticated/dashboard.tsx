@@ -12,6 +12,7 @@ import {
 } from "recharts";
 import { supabase } from "@/integrations/supabase/client";
 import { useProfile } from "@/hooks/use-profile";
+import { MARKETPLACE_ENABLED } from "@/lib/features";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { toast } from "sonner";
@@ -57,7 +58,7 @@ function DashboardPage() {
   }, [profile]);
 
   useEffect(() => {
-    if (!profile) return;
+    if (!profile || !MARKETPLACE_ENABLED) return;
     (async () => {
       const { data: products } = await supabase
         .from("products")
@@ -157,12 +158,14 @@ function DashboardPage() {
         </div>
       ) : (
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-          <StatCard
-            icon={<DollarSign className="w-4 h-4" />}
-            label="Ingresos este mes"
-            value={revenueThisMonth !== null ? `$${revenueThisMonth.toFixed(2)}` : "—"}
-            hint={revenueThisMonth ? "Ventas en el marketplace" : "Sin ventas registradas"}
-          />
+          {MARKETPLACE_ENABLED && (
+            <StatCard
+              icon={<DollarSign className="w-4 h-4" />}
+              label="Ingresos este mes"
+              value={revenueThisMonth !== null ? `$${revenueThisMonth.toFixed(2)}` : "—"}
+              hint={revenueThisMonth ? "Ventas en el marketplace" : "Sin ventas registradas"}
+            />
+          )}
           <StatCard
             icon={<Zap className="w-4 h-4" />}
             label="Generaciones"
@@ -275,7 +278,7 @@ function DashboardPage() {
           <QuickAction to="/tools/copywriter" icon="✍️" label="Crear post" />
           <QuickAction to="/tools/business-plan" icon="📊" label="Plan de negocios" />
           <QuickAction to="/tools/consultant" icon="🧠" label="Consultor IA" />
-          <QuickAction to="/marketplace" icon="🛒" label="Marketplace" />
+          {MARKETPLACE_ENABLED && <QuickAction to="/marketplace" icon="🛒" label="Marketplace" />}
         </div>
       </section>
 

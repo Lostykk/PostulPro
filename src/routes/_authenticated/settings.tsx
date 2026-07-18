@@ -7,6 +7,7 @@ import { useAuth } from "@/hooks/use-auth";
 import { useProfile } from "@/hooks/use-profile";
 import { isOwner } from "@/lib/auth/is-owner";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { SimpleSelect } from "@/components/ui/simple-select";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -71,6 +72,8 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
 }
 
 /* ---------- Mi perfil ---------- */
+
+const UNSET_GOAL = "__unset__";
 
 const SETTINGS_GOALS = [
   { id: "passive_income", label: "Ingresos pasivos" },
@@ -176,12 +179,14 @@ function ProfileTab() {
         </p>
         <div className="grid sm:grid-cols-2 gap-4">
           <Field label="Objetivo principal">
-            <select className="input" value={primaryGoal} onChange={(e) => setPrimaryGoal(e.target.value)}>
-              <option value="" className="bg-background">Sin definir</option>
-              {SETTINGS_GOALS.map((g) => (
-                <option key={g.id} value={g.id} className="bg-background">{g.label}</option>
-              ))}
-            </select>
+            <SimpleSelect
+              value={primaryGoal || UNSET_GOAL}
+              onValueChange={(v) => setPrimaryGoal(v === UNSET_GOAL ? "" : v)}
+              options={[
+                { value: UNSET_GOAL, label: "Sin definir" },
+                ...SETTINGS_GOALS.map((g) => ({ value: g.id, label: g.label })),
+              ]}
+            />
           </Field>
           <Field label="Empresa o proyecto (opcional)">
             <input className="input" value={companyName} onChange={(e) => setCompanyName(e.target.value)} placeholder="Mi Startup" />
