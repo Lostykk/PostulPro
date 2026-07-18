@@ -17,10 +17,15 @@
   8. `b33eb58` — ronda 3 (QA 100% autónomo con Playwright): suite E2E real + 3 defectos reales encontrados y corregidos (contraste, contraste, accesible-name faltante).
   9. `c71efe0` — informe (ronda 3).
   10. `6b373d0` — **ronda 4 (GO/NO-GO — auth, imágenes, permisos)**: suite E2E exhaustiva de autenticación/imágenes del landing builder/RLS no-admin + fix de un bug real en `generate_api_key` (migración `20260726000000` aplicada al Supabase de preview confirmado).
-- **URL de preview**: https://lostykk-postulpro-preview.ignacioo-ch13.workers.dev (Worker `lostykk-postulpro-preview`, redesplegado 5 veces en total, verificado 200 OK cada vez).
+  11. `32d36ad` — **ronda 5, auditoría** (sin aplicar): hardening y validación 100% local (pglite) de la migración `20260727000000_credit_reservations_idempotent_refund.sql`, resolviendo el riesgo residual §14.5.3/§14.9.1.
+  12. `9cdcd4d` — **ronda 5, verificación en vivo**: suite Playwright contra el backend real (`e2e/credit-reservations-live.spec.ts`) + regeneración de `types.ts`.
+  13. `a5d0911` — **ronda 5, código de aplicación**: `generate-ai.ts` y `executor.server.ts` migrados a `reserve_credits_v2`/`resolve_credit_reservation`.
+  14. `9e00ad8` — **ronda 5, diagnóstico**: logging de `cancel()` que reveló un hallazgo nuevo (ver §15.6).
+- **URL de preview**: https://lostykk-postulpro-preview.ignacioo-ch13.workers.dev (Worker `lostykk-postulpro-preview`, redesplegado 7 veces en total, verificado 200 OK cada vez).
 - **Producción**: sin cambios. `postulpro.com`/`www.postulpro.com` siguen en 200 en todo momento.
 - **Dictamen histórico de la ronda 3**: ~~LISTO PARA CUTOVER CON CONDICIONES~~ — superado por §14.
-- **Dictamen final (ver §14.9)**: **GO CON CONDICIONES**.
+- **Dictamen histórico de la ronda 4**: GO CON CONDICIONES (ver §14.9) — la condición #2 de esa ronda (reembolso de créditos en abort) es exactamente lo que resuelve, parcialmente, la ronda 5.
+- **Dictamen final (ver §15.7)**: **LEDGER VALIDADO CON CONDICIONES**.
 
 ## 1. Auditoría inicial
 
@@ -426,3 +431,202 @@ Condiciones para pasar a un `GO` sin reservas:
 No se ejecutó ningún cutover productivo. No se hizo merge a `main`. No se desplegó a producción. No se conectaron credenciales de Hotmart. No se tocó DNS. No se expusieron secretos. `MARKETPLACE_ENABLED` sigue en `false`. Producción permanece intacta y en 200 en todo momento. La única migración aplicada fue al Supabase de preview confirmado, con autorización explícita punto por punto, dry-run antes y después, y verificación en vivo posterior.
 
 Quedo a la espera de tu autorización explícita antes de cualquier cutover productivo.
+
+---
+
+## 15. Ledger idempotente de créditos (ronda 5)
+
+Resuelve el riesgo residual documentado en §14.5.3/§14.9.1: el `cancel()` de
+`/api/generate-ai.ts` reembolsaba sin `ctx.waitUntil()`, y se había observado
+empíricamente que dos abortos de esa ronda consumieron 4 créditos sin
+reembolso. Continuación de la misma rama (`claude/postulpro-premium-ui`) y el
+mismo preview.
+
+### 15.1 Migración aplicada (previamente auditada en `32d36ad`, aplicada antes de esta sesión)
+
+- Archivo: `supabase/migrations/20260727000000_credit_reservations_idempotent_refund.sql`.
+- Proyecto Supabase: `ccpejnklrfvgtwryqfrw` — el mismo backend compartido por
+  preview y producción documentado desde la ronda 2 (§12.1) — no es un
+  entorno aislado.
+- Verificado en esta sesión con `npx supabase migration list --linked`:
+  **34/34 migraciones locales = remotas, cero drift.** No se agregó ninguna
+  migración nueva en esta ronda.
+
+Tabla `public.credit_reservations` (`id`, `user_id`, `tool`, `cost`,
+`status IN ('reserved','consumed','refunded')`, `generation_id`,
+`refund_reason`, `created_at`, `updated_at`, `consumed_at`, `refunded_at`,
+con constraints que fuerzan la forma correcta de cada estado); RLS
+habilitado con `REVOKE ALL` de `anon`/`authenticated` y `GRANT SELECT` solo
+al dueño; funciones `reserve_credits_v2`, `resolve_credit_reservation`
+(`SECURITY DEFINER`, CAS atómico vía `UPDATE ... WHERE status = 'reserved'`)
+y `reconcile_stale_reservations` (solo `service_role`, no invocada — ver
+§15.6). `reserve_credits`/`refund_credits` originales intactas. Rollback en
+`docs/credit-reservations-rollback.sql`. Sin cambios a Auth, planes,
+precios, roles, otras tablas/policies, Storage, Hotmart ni Marketplace.
+
+### 15.2 Código de aplicación
+
+- **Nuevo** `src/lib/ai/credit-reservation.server.ts`: `getWaitUntil(request)`
+  (acceso defensivo, ver §15.6 sobre su alcance real), `confirmConsumedOrLog`
+  (confirma `consumed` con reintentos acotados, bloqueante — no envía éxito
+  sin confirmar), `refundInBackground` (resuelve `refunded` sin bloquear la
+  respuesta).
+- **`src/routes/api/generate-ai.ts`**: usa `reserve_credits_v2` +
+  `reservation_id` persistente; no envía `"done"` hasta confirmar `consumed`;
+  errores/abortos usan `refundInBackground`; `cancel()` ahora loguea
+  `credit_reservation_cancel_triggered` antes de intentar el reembolso.
+- **`src/lib/projects/executor.server.ts`** (`runProjectStep`, usado por las
+  3 rutas de proyectos): mismo patrón; ahora recibe el `Request` completo
+  (antes solo `appOrigin: string`) para derivar `appOrigin` y `waitUntil`.
+  Las 3 rutas llamadoras actualizadas para pasar `request`.
+
+### 15.3 Verificación de base de datos y concurrencia real
+
+Contra `ccpejnklrfvgtwryqfrw` con la cuenta de QA real (`.qa.local.json`,
+misma cuenta documentada desde la ronda 2):
+
+- `INSERT`/`UPDATE` directos sobre `credit_reservations` por `authenticated`
+  rechazados (el `REVOKE ALL` surtió efecto, no solo RLS).
+- `reconcile_stale_reservations` no invocable por `authenticated`.
+- Saldo insuficiente rechazado limpiamente, sin fila de reserva, sin cargo.
+- `reserve_credits`/`refund_credits` viejas siguen funcionando.
+- **Concurrencia real** (`Promise.all` con conexiones HTTP genuinamente
+  simultáneas, `e2e/credit-reservations-live.spec.ts`, 9/9 passing): dos
+  refunds simultáneos → colapsan a exactamente 1; dos consumos simultáneos →
+  colapsan a exactamente 1; `consumed` vs `refunded` compitiendo → exactamente
+  1 gana, ambas llamadas reportan el mismo resultado; reintento tardío sobre
+  una reserva ya resuelta → no-op seguro.
+
+### 15.4 Pruebas de nivel unitario
+
+`npx vitest run`: **35 archivos, 325 tests, todos pasando** (300 preexistentes
++ 16 de `credit-reservations.test.ts` contra Postgres real en memoria vía
+`@electric-sql/pglite`, ejecutando el archivo de migración real + 9 nuevos en
+`generate-ai.test.ts` + `executor.server.test.ts` actualizado a los nuevos
+RPCs). Cubren: validación/auth antes de reservar; crédito insuficiente sin
+llamar al modelo; éxito con confirmación de `consumed` antes de `"done"`;
+confirmación fallida → error explícito sin refund ciego; falla de proveedor →
+refund exactamente una vez; desconexión → refund exactamente una vez, sin
+duplicar con el path de error; los mismos escenarios para `runProjectStep`.
+
+### 15.5 Prueba real end-to-end contra el Worker de preview desplegado
+
+Con la cuenta QA real, generación real (`copywriter`, GPT-4o), contra
+`lostykk-postulpro-preview`:
+
+- `credits_used` 34→35 (exactamente 1 crédito); stream devolvió `"done"`
+  solo después de que `resolve_credit_reservation` confirmó `consumed`;
+  `generation_id` correctamente vinculado a la reserva
+  (`003412eb-d214-4ba2-a571-768e96abc0e8`, verificado por consulta directa a
+  la tabla).
+
+### 15.6 Hallazgo nuevo: el reembolso automático por desconexión NO se completa en el runtime desplegado
+
+El objetivo original de §14.5.3 era garantizar, vía `waitUntil()`, que el
+reembolso pudiera completarse aunque la respuesta HTTP ya hubiera terminado.
+Se probó dos veces contra el Worker de preview desplegado (`business-plan`
+vía `AbortController`, y `copywriter` vía `reader.cancel()` — la forma
+estándar de señalizar que el cliente dejó de leer el stream), con
+`wrangler tail` corriendo en paralelo:
+
+- Ambas reservas quedaron en `reserved` de forma **permanente** (reintentos
+  de verificación durante 90+ segundos, sin cambio).
+- **El log de diagnóstico agregado específicamente para esta verificación
+  (`credit_reservation_cancel_triggered`, un `console.error` síncrono al
+  inicio mismo del handler `cancel()`) tampoco apareció en `wrangler tail`**,
+  pese a que la telemetría propia de Cloudflare etiquetó ambas solicitudes
+  como `"Canceled"`.
+
+Esto es más específico que "waitUntil no alcanza a terminar": indica que el
+propio callback `cancel()` del `ReadableStream` —el punto de entrada de todo
+el mecanismo, anterior a cualquier uso de `waitUntil`— no se está invocando
+en este stack (Nitro + h3-v2 + adaptador Cloudflare de TanStack Start), al
+menos no para respuestas de streaming en `POST`. La lectura del código fuente
+de Nitro/h3-v2 hecha al diseñar el fix (que concluía que `request.waitUntil`
+es alcanzable) resultó correcta a nivel de API, pero irrelevante en la
+práctica si el `cancel()` que debería llamarla nunca se ejecuta.
+
+**Lo que sí funciona, y es la mejora real de esta ronda**: antes de esta
+migración, este mismo escenario (desconexión a mitad de generación) perdía
+el crédito **de forma permanente y silenciosa, sin ningún registro** — el
+guard de reembolso era un booleano en memoria de JavaScript, sin ninguna fila
+persistente que probara que la reserva existió. Ahora, el mismo escenario
+deja el crédito en `reserved`: **visible, auditable, recuperable** (se
+resolvió manualmente en esta sesión con trazabilidad completa — ver §15.8) —
+no perdido, no duplicado, no falsamente confirmado. Es un paso real hacia
+adelante, pero no cierra el ciclo automáticamente.
+
+**No se intentó un rediseño del mecanismo de detección de desconexión en
+esta ronda** — excede el alcance explícitamente autorizado (cambios
+específicos a los dos flujos sobre las RPCs ya definidas) y merece su propia
+investigación y autorización, igual que se documentó y difirió el hallazgo de
+`ctx.waitUntil()` en la ronda 4. Recomendación concreta para una tarea
+futura dedicada: confirmar si `request.signal` (el `AbortSignal` nativo de
+la Request, en vez de `ReadableStream.cancel()`) se dispara de forma más
+confiable en este runtime, y/o evaluar si el problema es específico de
+streams `POST` versus `GET`/SSE.
+
+**Riesgo #1, sin cambios desde la auditoría previa**: `reconcile_stale_reservations`
+reembolsa por antigüedad sin verificar evidencia real de fallo/abandono —
+podría devolver crédito por una generación lenta pero exitosa. Sigue sin
+invocarse, sin programarse, sin modificarse. No debe activarse hasta una
+migración futura y autorizada por separado que agregue verificación basada
+en evidencia real.
+
+### 15.7 Validaciones ejecutadas
+
+- `tsc --noEmit`: limpio.
+- `vitest run`: 35 archivos, 325 tests, todos pasando.
+- `playwright test e2e/credit-reservations-live.spec.ts`: 9/9, contra el
+  backend real.
+- `npm run build`: exitoso.
+- Secret scan sobre el diff de archivos modificados/nuevos: sin coincidencias.
+- `supabase migration list --linked`: 34/34, cero drift.
+- Smoke test del Worker de preview: `GET /` → 200; `POST /api/generate-ai`
+  sin auth → 401; generación real completa con la cuenta de QA → éxito con
+  confirmación de `consumed`.
+- Producción (`postulpro.com`, `www.postulpro.com`): 200/200, sin cambios.
+
+### 15.8 Cuenta de QA — reservas creadas y estado final
+
+Todas las reservas de esta ronda quedaron resueltas antes de cerrar:
+
+| Reserva | Tool | Costo | Origen | Resolución |
+|---|---|---|---|---|
+| 9 de `credit-reservations-live.spec.ts` | `qa-e2e-*` | 1 c/u | Suite E2E de concurrencia | Autolimpiadas por la propia suite |
+| `003412eb-...` | `copywriter` | 1 | Generación real end-to-end exitosa | `consumed` (legítimo) |
+| `f2bdf2be-...` | `business-plan` | 5 | Prueba de desconexión (`AbortController`) | Reembolsada manualmente (`manual_qa_cleanup_stuck_after_disconnect_test`) — no se autorresolvió en 90+ s |
+| `aaf93f9d-...` | `business-plan` | 5 | Prueba de desconexión (`reader.cancel()`) | Reembolsada manualmente, mismo motivo |
+| `e4261f32-...` | `copywriter` | 1 | Prueba de desconexión con diagnóstico activo | Reembolsada manualmente, mismo motivo |
+
+Balance final de la cuenta QA: **35/100** — igual al balance inmediatamente
+posterior a la única generación real y legítima que quedó `consumed`;
+ninguna reserva quedó pendiente al cierre.
+
+### 15.9 Despliegue
+
+Desplegado únicamente a `lostykk-postulpro-preview`, Version ID final
+`6568e329-1b68-47b3-9aef-c2828a1c76f9`. Sin cambios a producción, DNS,
+Hotmart ni Marketplace. Sin migraciones nuevas.
+
+### 15.10 Dictamen final
+
+**LEDGER VALIDADO CON CONDICIONES**
+
+El ledger (tabla + RPCs) es correcto, atómico e idempotente bajo
+concurrencia real, y ambos flujos de aplicación lo usan según el contrato
+pedido: ninguna respuesta de éxito se envía antes de confirmar `consumed`;
+ningún crédito se pierde silenciosamente (la falla original de §14.5.3);
+ninguna operación duplica cargos ni reembolsos bajo condiciones de carrera
+reales. Esto está probado con evidencia real contra el backend y el Worker
+desplegado, no solo con mocks.
+
+La condición pendiente es el hallazgo de §15.6: el reembolso automático por
+desconexión no se completa en el runtime desplegado hoy — deja la reserva en
+un estado `reserved` recuperable pero no autorresuelto, y requiere
+investigación adicional (fuera del alcance autorizado en esta ronda) y/o una
+reconciliación basada en evidencia (riesgo #1, §15.6) antes de poder declarar
+el mecanismo de reembolso automático completamente cerrado.
+
+No se realiza cutover visual ni se despliega código nuevo a producción sin
+una autorización adicional y separada.
