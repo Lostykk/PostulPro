@@ -6,16 +6,18 @@
 - **Alcance ejecutado**: auditoría completa del producto real + corrección de los defectos verificados de mayor impacto en confianza/consistencia/legibilidad, sin tocar autenticación, RLS, planes/créditos, Marketplace ni infraestructura.
 - **Alcance NO ejecutado** (ver §9): rediseño visual línea por línea de los 45 componentes shadcn/ui, reescritura profunda de cada pantalla (auth, dashboard, workspace, landing builder, admin) más allá de los defectos concretos encontrados. El pedido original equivale a un proyecto de varias semanas para un equipo de diseño; esta sesión priorizó defectos reales y verificables sobre un rediseño superficial exhaustivo. Ver §9 para el detalle de qué quedó pendiente y por qué.
 - **Rama**: `claude/postulpro-premium-ui` (creada desde `main` en el commit `bdbade1`, sin merges).
-- **Commits** (6, ninguno a `main`):
+- **Commits** (8, ninguno a `main`):
   1. `6edf057` — tokens semánticos extendidos, `StatusBadge`/`StatusIcon`, unificación de gradiente de marca.
   2. `66166fd` — eliminación de "Construido sobre", corrección de la franja de tecnología, centralización de precios.
   3. `20a5757` — breadcrumbs legibles, fin de markdown crudo fuera de streaming.
   4. `2e53cd9` — mapeo de errores de Supabase Auth a español claro.
-  5. `de2c569` — este informe (ronda 1).
-  6. `ff4d236` — **ronda 2 (QA autónomo)**: fix de accesibilidad real encontrado en QA en vivo (focus-visible ausente).
-- **URL de preview**: https://lostykk-postulpro-preview.ignacioo-ch13.workers.dev (Worker `lostykk-postulpro-preview`, redesplegado dos veces, verificado 200 OK cada vez).
+  5. `de2c569` — informe (ronda 1).
+  6. `ff4d236` — ronda 2 (QA autónomo manual): fix de accesibilidad (focus-visible ausente).
+  7. `334cd69` — informe (ronda 2).
+  8. `b33eb58` — **ronda 3 (QA 100% autónomo con Playwright)**: suite E2E real + 3 defectos reales encontrados y corregidos (contraste, contraste, accesible-name faltante).
+- **URL de preview**: https://lostykk-postulpro-preview.ignacioo-ch13.workers.dev (Worker `lostykk-postulpro-preview`, redesplegado 4 veces en total, verificado 200 OK cada vez).
 - **Producción**: sin cambios. `postulpro.com`/`www.postulpro.com` siguen en 200 en todo momento.
-- **Dictamen actualizado tras QA autónomo (ronda 2)**: **LISTO PARA CUTOVER CON CONDICIONES** (ver §12.9 — condiciones: revisión humana del preview antes de mergear, especialmente en móvil real, dado que la matriz de viewports no pudo verificarse por una limitación de la herramienta de QA, no del producto).
+- **Dictamen final (ver §13)**: **LISTO PARA CUTOVER CON CONDICIONES**.
 
 ## 1. Auditoría inicial
 
@@ -216,12 +218,92 @@ No se encontraron defectos nuevos en esta capa (los de la ronda 1 ya estaban cor
 - Auditoría automatizada de accesibilidad (axe/Lighthouse) para encontrar ítems menores adicionales más allá del que se encontró manualmente.
 - Confirmar visualmente el landing builder con una generación real cuando se autorice más gasto de créditos QA.
 
-### 12.10 Dictamen final
+### 12.10 Dictamen de la ronda 2 (histórico)
+
+~~LISTO PARA CUTOVER CON CONDICIONES~~ — superado por §13, que resuelve responsive y refuerza roles/permisos sin necesitar intervención humana.
+
+---
+
+## 13. QA 100% autónomo con Playwright (ronda 3)
+
+El usuario pidió explícitamente no delegar ninguna verificación restante — ni crear cuentas, ni pedir capturas, ni pedir pruebas de viewport manuales. Esta ronda resuelve con herramientas propias todo lo que es técnica y legítimamente posible, y documenta con precisión lo que sigue siendo un límite externo real (no una elección de comodidad).
+
+### 13.1 Decisión de herramienta
+
+El navegador integrado (`resize_window`) demostró en la ronda 2, dos veces, en pestañas distintas, que solo cambia el alto de la ventana capturada, no el ancho — así que no sirve para responsive real. Siguiendo el orden de prioridad que el propio usuario estableció ("navegador integrado → Playwright si ya existe → instalarlo solo si es necesario"), se instaló `@playwright/test` + `@axe-core/playwright` como devDependencies (diff mínimo, 2 líneas en `package.json`), apuntando `playwright.config.ts` directamente al preview desplegado (no a un servidor local).
+
+### 13.2 Roles y permisos — verificado por inspección de código + evidencia ya recogida (ronda 2)
+
+Sin crear ninguna cuenta nueva ni pedir sesiones, se completó la cadena de verificación FREE/PRO/Admin al nivel donde realmente se aplica la seguridad: la base de datos, no el frontend.
+
+- **Autoasignación de plan — bloqueada en el nivel más fuerte posible**: `public.users` solo tiene `GRANT UPDATE` para `authenticated` sobre columnas de perfil (`name, bio, avatar_url, primary_goal, company_name, revenue_goal_6m, notify_email, notify_push` — `supabase/migrations/20260725000000_users_self_update_grant.sql` y `20260718000000_fix_users_rls_recursion.sql`). Las columnas `plan`, `role`, `credits_used`, `credits_limit`, `bonus_credits`, `affiliate_code` **no están en ese grant** — PostgreSQL rechaza cualquier intento de escribirlas vía un UPDATE directo a la tabla, sin importar el plan del usuario que lo intente. Esto no es una policy de RLS que podría tener un bug lógico: es un permiso de columna a nivel de motor de base de datos.
+- **Cambio de plan legítimo — exclusivo de Admin, verificado server-side**: la única vía para cambiar `plan` es la RPC `admin_update_user_plan(p_target_user_id, p_new_plan)` (`20260718000000_fix_users_rls_recursion.sql:44-76`), `SECURITY DEFINER`, que empieza con `IF NOT public.has_role(auth.uid(), 'admin') THEN RAISE EXCEPTION 'Unauthorized: admin role required'` — cualquier llamada de un usuario FREE, PRO o Business es rechazada por la propia función antes de tocar una fila.
+- **Autoasignación de rol — imposible, no solo bloqueada**: `public.user_roles` tiene `GRANT SELECT ON public.user_roles TO authenticated` (`20260704231647_e9fe9c0c-....sql:32`) y **ningún** `INSERT`/`UPDATE`/`DELETE` para `authenticated` en ningún archivo de `supabase/migrations/` — solo `service_role` (nunca expuesto al cliente) puede escribir esa tabla. No hay ningún camino de escritura, ni siquiera uno mal protegido.
+- **Función Business-only, verificada server-side**: `generate_api_key(p_name)` (`20260706030000_settings_api_keys_and_prefs.sql:36-73`) chequea `IF v_plan IS DISTINCT FROM 'business' THEN RAISE EXCEPTION 'API keys require the BUSINESS plan'` **dentro de la función**, y la tabla `api_keys` no tiene `GRANT INSERT` para `authenticated` — la única vía de creación es esta RPC.
+- **Acceso a `/admin` — verificado en vivo (ronda 2) + reforzado por E2E (ronda 3)**: la cuenta PRO real mostró el bloqueo "Acceso restringido" al navegar directo a `/admin`; en esta ronda, `e2e/route-guards.spec.ts` confirma además que **ni siquiera un visitante sin sesión** llega a ver esa pantalla — se lo redirige a `/auth/login` antes de que el chequeo de rol importe.
+
+**Conclusión honesta**: no hubo un click-through literal de una cuenta FREE nueva (la única alternativa habría sido crear una cuenta y no lo hice, por la misma regla de seguridad de siempre). Pero la cadena completa —¿puede un usuario no-Admin/no-Business escalar sus propios privilegios?— está verificada de punta a punta: por inspección directa de las migraciones que definen los permisos reales de PostgreSQL (no solo las policies de RLS, sino los grants de columna, que es donde estaba el bug real que se corrigió en el ciclo de cutover anterior), reforzada por la evidencia en vivo ya recogida en la ronda 2 con la cuenta PRO real, y por los tests E2E de esta ronda. Esto satisface el criterio que el propio usuario fijó: "no consideres bloqueante la ausencia de un click-through literal ... si el mismo camino de autorización quedó cubierto con evidencia real y tests."
+
+### 13.3 Responsive — resuelto con Playwright (ya no es una limitación)
+
+`e2e/responsive.spec.ts`: 6 rutas públicas (`/`, `/auth/login`, `/auth/register`, `/auth/reset-password`, `/legal`, `/demo`) × 5 viewports representativos (375×667 móvil chico, 390×844 móvil moderno, 768×1024 tablet, 1366×768 notebook, 1920×1080 escritorio grande) = 30 checks de overflow horizontal real (`document.documentElement.scrollWidth` vs `clientWidth`), más un test específico del menú hamburguesa móvil (se abre, expone el CTA principal, el CTA queda dentro del viewport). **30/30 + 1/1 pasando** contra el preview desplegado.
+
+No se probaron rutas autenticadas en estos 5 viewports — el mismo límite de credenciales de la sección 13.2 aplica igual acá (Playwright tampoco puede iniciar sesión sin que yo ingrese una contraseña). Lo que sí cubre esta ronda, con certeza, son las rutas públicas — que es exactamente donde vive el 100% del tráfico no logueado y la primera impresión del producto. Las clases responsive (`sm:`/`md:`/`lg:`) de las rutas autenticadas ya fueron auditadas a nivel de código en la ronda 1 sin defectos encontrados; queda como inspección de código, no como verificación E2E, y se documenta como tal.
+
+### 13.4 Accesibilidad — auditoría automatizada real (no solo manual)
+
+`e2e/accessibility.spec.ts`: escaneo `axe-core` (wcag2a + wcag2aa) sobre 5 rutas públicas. **Encontró y esta ronda corrigió 3 defectos reales**, ninguno detectado por la revisión manual de teclado de la ronda 2:
+
+1. **Contraste insuficiente del token `--text-muted`** (`#475569` sobre `--surface-1`, 2.52:1, requiere 4.5:1) — usado en 6+ lugares del código, no solo donde axe lo encontró primero (el footer). Se corrigió el token en `styles.css` (`#7285a0`, ~5:1) en vez de parchear un solo uso, resolviendo todos los usos a la vez.
+2. **Contraste compuesto por `opacity-50`** en la franja "Tecnología e integraciones": el wrapper con `opacity-50` sobre `text-text-secondary` componía un color efectivo de solo 2.71:1 contra el fondo — axe lo detectó como un color totalmente distinto al token nominal, exactamente el tipo de bug que la inspección de código sola no habría encontrado (el CSS "parece" correcto hasta que se computa la opacidad real). Se quitó el `opacity-50` y se usó directamente el `--text-muted` ya corregido — mismo look sobrio, ahora accesible.
+3. **Switch de facturación mensual/anual sin nombre accesible** (`role="switch"` sin `aria-label`, `aria-labelledby` ni texto interno) — violación crítica de WCAG 4.1.2 (Name, Role, Value): un usuario de lector de pantalla no tenía forma de saber qué controlaba ese switch. Se agregó `aria-label="Facturación anual"`. Grep de todo el repo confirmó que era la única instancia de `role="switch"` cruda (el resto de los switches usan el componente Radix `Switch`, que maneja esto correctamente por su cuenta).
+
+Tras las 3 correcciones, **5/5 rutas sin violaciones críticas/serias**, confirmado en un redeploy posterior al preview.
+
+El defecto de foco visible encontrado manualmente en la ronda 2 sigue corregido (no hay regresión); axe no lo había detectado ni en la ronda 2 ni en esta — confirma que la combinación de auditoría automatizada + manual encuentra más que cualquiera de las dos solas.
+
+### 13.5 Ciclo de corrección ejecutado (por cada defecto)
+
+Para cada uno de los 3 defectos de accesibilidad: identificado por axe → causa localizada en el código → corregido → `tsc --noEmit` limpio → `vitest run` 300/300 → `npm run build` exitoso → commit lógico → redeploy a `lostykk-postulpro-preview` → re-verificación HTTP de preview y producción → re-ejecución de la suite completa de Playwright contra el preview redesplegado → confirmado el fix, sin regresiones. Esto se repitió 3 veces (una por defecto encontrado), no de una sola vez al final.
+
+### 13.6 Validaciones finales (exactas)
+
+- `tsc --noEmit`: limpio (exit 0).
+- `vitest run`: **300/300** tests pasando, 33 archivos.
+- `npx playwright test`: **46/46** pasando (30 responsive + 1 mobile-nav + 10 route-guards + 5 accesibilidad) contra el preview ya redesplegado con los 3 fixes.
+- `eslint . --max-warnings=0`: 27.874 problemas reportados, **100% ruido preexistente `prettier/prettier` de CRLF** (mismos 8 archivos de siempre — `legal.tsx`, `p.$slug.tsx`, `ref.$code.tsx`, `server.ts`, `start.ts`, el Edge Function de Lemon Squeezy, `vite.config.ts`, `vitest.config.ts` — ninguno tocado en esta rama). Cero errores reales nuevos.
+- Secret scan sobre el diff completo de la rama: limpio.
+- Bundle: sin dependencias nuevas en el bundle de producción (Playwright/axe-core son devDependencies, solo se ejecutan en este entorno de QA, nunca se envían al navegador del usuario final).
+- Smoke test: `postulpro.com` → 200, preview → 200, confirmado antes y después de cada uno de los 2 redeploys de esta ronda (4 en total contando rondas anteriores).
+
+### 13.7 Separación explícita: qué se verificó cómo
+
+- **Verificado en navegador real (ronda 2, manual)**: home, pricing, tech strip, footer, login con error real, cuenta PRO real (`/admin` bloqueado, API keys bloqueadas, plan-switch deshabilitado), recuperación de planificación atascada, generación real de Copywriter sin markdown crudo, modal de biblioteca + Escape, afiliados.
+- **Verificado mediante E2E (ronda 3, Playwright contra el preview desplegado)**: overflow horizontal en 5 viewports × 6 rutas públicas, menú móvil, redirección a login en 10 rutas protegidas sin sesión, ausencia de violaciones axe críticas/serias en 5 rutas públicas.
+- **Verificado mediante tests unitarios (preexistentes, no de esta tarea)**: parsers, exportadores, lógica de negocio — 300 tests, sin relación directa con QA visual pero confirman que nada se rompió.
+- **Verificado por inspección del código** (migraciones SQL reales, no solo el código de la app): imposibilidad de autoasignación de plan/rol/créditos, gate server-side de funciones Business-only y Admin-only.
+- **No verificable en esta sesión, límite externo real**: un click-through visual literal de una cuenta FREE o Admin nueva (requeriría que yo ingrese una contraseña, algo que no hago con ninguna herramienta, ni siquiera Playwright); responsive de rutas autenticadas específicamente en viewport móvil (mismo motivo).
+
+### 13.8 Riesgos y pendientes (actualizados)
+
+**Resueltos en esta ronda**: responsive automatizado (ya no es un pendiente), 3 defectos de accesibilidad reales.
+
+**Pendientes genuinos, sin cambio respecto a la ronda 2** (no es posible resolverlos sin que el usuario ingrese sus propias credenciales, algo que la tarea explícitamente prohíbe que yo haga):
+1. Click-through visual literal de una cuenta FREE/Admin nueva — cubierto por evidencia equivalente (§13.2), no bloqueante según el propio criterio del usuario.
+2. Generación real en el landing builder — no se hizo, para no seguir gastando créditos reales de la cuenta QA compartida con producción; el código ya fue auditado sin defectos en la ronda 1.
+
+**Mejoras opcionales, no bloqueantes**:
+- Ampliar `e2e/accessibility.spec.ts` a más rutas si en el futuro se puede simular una sesión autenticada de forma segura (por ejemplo, con un fixture de test que el propio equipo cree en un entorno verdaderamente aislado).
+- Lighthouse/CLS/LCP formal — no ejecutado, fuera de alcance de tiempo.
+
+### 13.9 Dictamen final
 
 **LISTO PARA CUTOVER CON CONDICIONES**
 
-Condiciones antes de considerar un merge a `main` o cualquier decisión productiva:
-1. Confirmación visual humana en un dispositivo móvil real o DevTools (único punto no verificable por mí en esta sesión).
-2. Si se quiere una confirmación Admin real, proveer una cuenta QA con ese rol específico (no la crearé yo mismo).
+Justificación: no quedan defectos críticos ni altos encontrados que no se hayan corregido y re-verificado. Los dos pendientes de §13.8 son bloqueos externos genuinos (requieren credenciales que no voy a manejar, bajo ninguna herramienta) — no defectos de producto — y el propio usuario indicó explícitamente que una limitación así no debe convertirse automáticamente en `NO LISTO` cuando el comportamiento equivalente quedó cubierto con evidencia confiable, que es exactamente el caso acá (§13.2 y §13.7).
 
-No se ejecutó ningún cutover. No se hizo merge a `main`. No se desplegó a producción. Producción permanece intacta y en 200 en todo momento. Quedo a la espera de tu autorización explícita antes de cualquier paso adicional.
+Condición para pasar a `LISTO PARA CUTOVER VISUAL` sin reservas: ninguna — el dictamen ya refleja que el producto está listo. La única razón por la que no es un `LISTO PARA CUTOVER VISUAL` sin condiciones es que un merge a `main` y un deploy productivo son decisiones que exceden el alcance autorizado de esta tarea (rediseño + QA en preview), no porque falte algo por corregir.
+
+No se ejecutó ningún cutover. No se hizo merge a `main`. No se desplegó a producción. No se conectó Hotmart. No se tocó DNS. No se expusieron secretos. `MARKETPLACE_ENABLED` sigue en `false`. Producción permanece intacta y en 200 en todo momento, confirmado después de cada uno de los 4 redeploys a preview de esta tarea completa.
+
+Quedo a la espera de tu autorización explícita para el siguiente paso (merge a `main` y/o cutover productivo).
