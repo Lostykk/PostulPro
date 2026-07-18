@@ -8,6 +8,7 @@ import { useProjectStepContext, type StepGeneration } from "@/hooks/use-project-
 import { saveEditedOutput, restoreGeneratedOutput } from "@/lib/deliverables/generation-actions";
 import { DeliverableRenderer } from "@/components/deliverables/DeliverableRenderer";
 import { ProjectContextBanner } from "@/components/deliverables/ProjectContextBanner";
+import { RichContentRenderer } from "@/components/deliverables/RichContentRenderer";
 import { SimpleSelect } from "@/components/ui/simple-select";
 
 export const Route = createFileRoute("/_authenticated/tools/business-plan")({
@@ -249,9 +250,13 @@ function BusinessPlanPage() {
               <Loader2 className="w-4 h-4 animate-spin" /> Generando tu plan de negocios…
             </div>
           )}
-          <pre className="whitespace-pre-wrap font-sans text-sm leading-relaxed">{output}</pre>
-          {streaming && (
-            <span className="inline-block w-2 h-4 ml-0.5 bg-violet-400 animate-pulse align-middle" />
+          {streaming ? (
+            <>
+              <pre className="whitespace-pre-wrap font-sans text-sm leading-relaxed">{output}</pre>
+              <span className="inline-block w-2 h-4 ml-0.5 bg-violet-400 animate-pulse align-middle" />
+            </>
+          ) : (
+            <RichContentRenderer content={output} size="lg" />
           )}
         </div>
       </div>

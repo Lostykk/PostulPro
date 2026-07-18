@@ -12,6 +12,7 @@ import {
 } from "@/lib/deliverables/generation-actions";
 import { DeliverableRenderer } from "@/components/deliverables/DeliverableRenderer";
 import { ProjectContextBanner } from "@/components/deliverables/ProjectContextBanner";
+import { RichContentRenderer } from "@/components/deliverables/RichContentRenderer";
 
 export const Route = createFileRoute("/_authenticated/tools/sales-email")({
   head: () => ({ meta: [{ title: "Sales Email — PostulPro" }] }),
@@ -246,9 +247,7 @@ CTA: ...
                     )}
                     <div>
                       <div className="text-xs text-muted-foreground mb-1">Cuerpo</div>
-                      <pre className="whitespace-pre-wrap font-sans text-sm leading-relaxed">
-                        {sections[activeTab].body}
-                      </pre>
+                      <RichContentRenderer content={sections[activeTab].body} />
                     </div>
                     {sections[activeTab].fields.cta && (
                       <div>

@@ -17,6 +17,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { toast } from "sonner";
 import { TOOL_META } from "@/lib/tool-meta";
+import { RichContentRenderer } from "@/components/deliverables/RichContentRenderer";
 import { projectsApiFetch } from "@/lib/projects/api-client";
 
 export const Route = createFileRoute("/_authenticated/dashboard")({
@@ -411,9 +412,11 @@ function ActivityRow({ gen, onDelete }: { gen: Generation; onDelete: () => void 
               {meta.icon} {title}
             </DialogTitle>
           </DialogHeader>
-          <pre className="whitespace-pre-wrap font-sans text-sm leading-relaxed text-foreground/90">
-            {gen.output ?? "Sin contenido"}
-          </pre>
+          {gen.output ? (
+            <RichContentRenderer content={gen.output} size="lg" />
+          ) : (
+            <p className="text-sm text-muted-foreground">Sin contenido</p>
+          )}
         </DialogContent>
       </Dialog>
     </li>

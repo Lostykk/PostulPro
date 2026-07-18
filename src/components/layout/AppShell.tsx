@@ -35,6 +35,43 @@ import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
 
 type NavItem = { to: string; label: string; shortLabel: string; icon: typeof Home };
 
+// Human-readable breadcrumb labels for known route segments — the topbar
+// must never show raw technical slugs ("build", "tools") or ids to the
+// user (see redesign brief §13.2). Unknown segments fall back to a
+// capitalized/de-hyphenated guess rather than the raw slug; ids are
+// dropped entirely since the page's own <h1> already shows the real
+// entity name (e.g. project title).
+const BREADCRUMB_LABELS: Record<string, string> = {
+  dashboard: "Dashboard",
+  build: "Construir con IA",
+  projects: "Mis proyectos",
+  tools: "Herramientas",
+  marketplace: "Marketplace",
+  library: "Biblioteca",
+  affiliates: "Afiliados",
+  settings: "Configuración",
+  admin: "Administración",
+  onboarding: "Bienvenida",
+  "business-plan": "Plan de negocio",
+  copywriter: "Copywriter",
+  "email-sequences": "Secuencias de email",
+  "landing-copy": "Landing copy",
+  "social-pack": "Social pack",
+  "sales-email": "Email de ventas",
+  consultant: "Consultor IA",
+  sell: "Vender",
+};
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+function breadcrumbLabel(segment: string): string {
+  if (BREADCRUMB_LABELS[segment]) return BREADCRUMB_LABELS[segment];
+  return segment
+    .split("-")
+    .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+    .join(" ");
+}
+
 // "Construir" is the flagship entry point for this phase — it leads, both
 // in the desktop sidebar and as the 2nd mobile tab. The full list is too
 // long for a 6-column bottom bar without shrinking text into
@@ -176,7 +213,11 @@ function TopBar() {
   const { signOut } = useAuth();
   const { profile } = useProfile();
   const pathname = useRouterState({ select: (s) => s.location.pathname });
-  const crumbs = pathname.split("/").filter(Boolean);
+  const crumbs = pathname
+    .split("/")
+    .filter(Boolean)
+    .filter((c) => !UUID_RE.test(c))
+    .map(breadcrumbLabel);
   const [query, setQuery] = useState("");
 
   async function handleSignOut() {
