@@ -105,7 +105,12 @@
   --muted: #1c1c35;
   --muted-foreground: #94a3b8;
   --text-secondary: #94a3b8;
-  --text-muted: #475569;
+  /* Was #475569 (2.52:1 on --surface-1, fails WCAG AA 4.5:1 for normal
+     text) — confirmed by an automated axe-core scan against the deployed
+     preview footer. Lightened to a slate that clears 4.5:1 (~5:1) on the
+     backgrounds this token is actually used against (surface-1/background),
+     while staying visibly less prominent than --text-secondary. */
+  --text-muted: #7285a0;
 
   --accent: #1c1c35;
   --accent-foreground: #f8fafc;

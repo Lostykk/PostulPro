@@ -354,11 +354,11 @@ function TechStrip() {
         <p className="text-center text-xs uppercase tracking-[0.2em] text-text-muted">
           Tecnología e integraciones
         </p>
-        <div className="mt-5 flex flex-wrap items-center justify-center gap-x-10 gap-y-3 opacity-50">
+        <div className="mt-5 flex flex-wrap items-center justify-center gap-x-10 gap-y-3">
           {stack.map((s) => (
             <span
               key={s}
-              className="font-display text-base font-semibold tracking-tight text-text-secondary"
+              className="font-display text-base font-semibold tracking-tight text-text-muted"
             >
               {s}
             </span>
@@ -621,6 +621,7 @@ function Pricing() {
             type="button"
             role="switch"
             aria-checked={annual}
+            aria-label="Facturación anual"
             onClick={() => setAnnual((v) => !v)}
             className={`relative h-7 w-14 rounded-full border border-white/10 transition-colors ${
               annual ? "bg-gradient-brand" : "bg-surface-3"
