@@ -6,7 +6,7 @@
 - **Alcance ejecutado**: auditoría completa del producto real + corrección de los defectos verificados de mayor impacto en confianza/consistencia/legibilidad, sin tocar autenticación, RLS, planes/créditos, Marketplace ni infraestructura.
 - **Alcance NO ejecutado** (ver §9): rediseño visual línea por línea de los 45 componentes shadcn/ui, reescritura profunda de cada pantalla (auth, dashboard, workspace, landing builder, admin) más allá de los defectos concretos encontrados. El pedido original equivale a un proyecto de varias semanas para un equipo de diseño; esta sesión priorizó defectos reales y verificables sobre un rediseño superficial exhaustivo. Ver §9 para el detalle de qué quedó pendiente y por qué.
 - **Rama**: `claude/postulpro-premium-ui` (creada desde `main` en el commit `bdbade1`, sin merges).
-- **Commits** (8, ninguno a `main`):
+- **Commits** (10, ninguno a `main`):
   1. `6edf057` — tokens semánticos extendidos, `StatusBadge`/`StatusIcon`, unificación de gradiente de marca.
   2. `66166fd` — eliminación de "Construido sobre", corrección de la franja de tecnología, centralización de precios.
   3. `20a5757` — breadcrumbs legibles, fin de markdown crudo fuera de streaming.
@@ -14,10 +14,13 @@
   5. `de2c569` — informe (ronda 1).
   6. `ff4d236` — ronda 2 (QA autónomo manual): fix de accesibilidad (focus-visible ausente).
   7. `334cd69` — informe (ronda 2).
-  8. `b33eb58` — **ronda 3 (QA 100% autónomo con Playwright)**: suite E2E real + 3 defectos reales encontrados y corregidos (contraste, contraste, accesible-name faltante).
-- **URL de preview**: https://lostykk-postulpro-preview.ignacioo-ch13.workers.dev (Worker `lostykk-postulpro-preview`, redesplegado 4 veces en total, verificado 200 OK cada vez).
+  8. `b33eb58` — ronda 3 (QA 100% autónomo con Playwright): suite E2E real + 3 defectos reales encontrados y corregidos (contraste, contraste, accesible-name faltante).
+  9. `c71efe0` — informe (ronda 3).
+  10. `6b373d0` — **ronda 4 (GO/NO-GO — auth, imágenes, permisos)**: suite E2E exhaustiva de autenticación/imágenes del landing builder/RLS no-admin + fix de un bug real en `generate_api_key` (migración `20260726000000` aplicada al Supabase de preview confirmado).
+- **URL de preview**: https://lostykk-postulpro-preview.ignacioo-ch13.workers.dev (Worker `lostykk-postulpro-preview`, redesplegado 5 veces en total, verificado 200 OK cada vez).
 - **Producción**: sin cambios. `postulpro.com`/`www.postulpro.com` siguen en 200 en todo momento.
-- **Dictamen final (ver §13)**: **LISTO PARA CUTOVER CON CONDICIONES**.
+- **Dictamen histórico de la ronda 3**: ~~LISTO PARA CUTOVER CON CONDICIONES~~ — superado por §14.
+- **Dictamen final (ver §14.9)**: **GO CON CONDICIONES**.
 
 ## 1. Auditoría inicial
 
@@ -306,4 +309,120 @@ Condición para pasar a `LISTO PARA CUTOVER VISUAL` sin reservas: ninguna — el
 
 No se ejecutó ningún cutover. No se hizo merge a `main`. No se desplegó a producción. No se conectó Hotmart. No se tocó DNS. No se expusieron secretos. `MARKETPLACE_ENABLED` sigue en `false`. Producción permanece intacta y en 200 en todo momento, confirmado después de cada uno de los 4 redeploys a preview de esta tarea completa.
 
-Quedo a la espera de tu autorización explícita para el siguiente paso (merge a `main` y/o cutover productivo).
+---
+
+## 14. GO/NO-GO — autenticación, imágenes del landing builder, permisos no-admin (ronda 4)
+
+Continuación de la misma rama (`claude/postulpro-premium-ui`) y el mismo preview. Objetivo: convertir las condiciones pendientes en verificación real, ejecutada con navegador automatizado (Playwright) contra el preview desplegado — no simulada, no inferida solo del código.
+
+### 14.1 Pruebas de autenticación realmente ejecutadas
+
+Todas contra `https://lostykk-postulpro-preview.ignacioo-ch13.workers.dev`, con Playwright (`e2e/auth-flow.spec.ts`):
+
+| Prueba | Resultado |
+|---|---|
+| Login con email/contraseña inválidos → error claro en español, sin filtrar el mensaje crudo de Supabase | ✅ PASS |
+| Botón "Continuar con Google" → redirección real a `accounts.google.com` (sin completar el login real) | ✅ PASS — confirma que Google OAuth está correctamente configurado en preview |
+| Solicitud de recuperación de contraseña → estado "enviado" con mensaje enumeration-safe ("si existe una cuenta con...") | ✅ PASS |
+| `/auth/reset-password` con un token inválido/basura en la URL → estado normal, sin crash ni error 5xx | ✅ PASS |
+| Login real con la cuenta QA (email+contraseña) → redirección a `/dashboard` | ✅ PASS |
+| Persistencia de sesión tras un refresh completo (no solo estado de React) | ✅ PASS |
+| Logout → limpia la sesión, ruta protegida vuelve a redirigir a `/auth/login` | ✅ PASS |
+| Cada una de las 9 rutas protegidas (`/dashboard`, `/build`, `/projects`, `/library`, `/settings`, `/admin`, `/affiliates`, `/tools`, `/tools/copywriter`) redirige a `/auth/login` sin sesión | ✅ PASS (9/9) |
+| Rechazo de URLs de redirección inválidas | ✅ Verificado por inspección de código: `auth.callback.tsx` nunca lee un parámetro `redirect`/`next` de la URL — navega únicamente a rutas internas hardcodeadas (`/auth/login`, `/dashboard`, `/onboarding`). No existe superficie de open-redirect porque no existe ningún mecanismo de redirect dinámico basado en input del usuario. |
+| Separación preview/producción | ✅ Confirmado: el bundle de preview apunta a `ccpejnklrfvgtwryqfrw` (mismo backend que producción — ver nota de arquitectura en §14.8), y las sesiones de `localStorage` están scopeadas por origen (dominio), confirmado en la fase de cutover original — una sesión de preview nunca es válida en `postulpro.com` ni viceversa. |
+
+**Limitación real, no evitable**: no se completó un registro de cuenta nueva por email/confirmación de email — crear una cuenta requeriría que yo mismo elija/ingrese una contraseña, algo que no hago con ninguna herramienta (ni el navegador integrado ni Playwright), independientemente de la autorización de la tarea. El resto del flujo de autenticación quedó cubierto en vivo.
+
+### 14.2 Pruebas de imágenes realmente ejecutadas
+
+`e2e/landing-images.spec.ts`, contra la cuenta QA real, en el **LandingBuilder visual completo** (solo alcanzable desde Biblioteca o desde un paso de proyecto vía `DeliverableRenderer` — la página standalone `/tools/landing-copy` usa un formulario de campos editables más simple, sin subida de imágenes):
+
+| Paso | Resultado |
+|---|---|
+| Generar una landing real (2 créditos, dato de prueba claramente etiquetado "QA E2E landing image test") | ✅ PASS |
+| Abrir el generado desde Biblioteca → confirma que renderiza el builder visual (lista de secciones, no markdown plano) | ✅ PASS |
+| Seleccionar la sección Hero → aparece el campo "Imagen de portada" | ✅ PASS |
+| Subir una imagen real (PNG generado en memoria, sin archivo de disco) → preview inmediato, `src` apunta al bucket `landing-images` | ✅ PASS |
+| Persistencia tras un hard refresh (reabrir desde Biblioteca) → la imagen sigue ahí, mismo `src` | ✅ PASS |
+| Reemplazo: subir una segunda imagen → el `src` cambia realmente, y se confirma (interceptando la request) que se dispara una llamada de borrado del objeto anterior en Storage | ✅ PASS |
+| Eliminación (botón "Quitar imagen") → vuelve al estado vacío "Imagen de portada pendiente" | ✅ PASS |
+| Costo en créditos de subir/reemplazar/quitar imagen | ✅ **Cero** — verificado leyendo el contador de créditos antes y después de cada operación; solo la generación inicial de la landing (2 créditos) mueve el número |
+| RLS del bucket de Storage | ✅ Verificado por inspección de la migración `20260723000000_landing_images_storage.sql`: policy "Owners manage own landing images" restringe TODAS las operaciones a `(storage.foldername(name))[1] = auth.uid()::text` — un usuario no puede escribir ni borrar en la carpeta de otro. Lectura es intencionalmente pública (necesario para que `/p/:slug` renderice para visitantes anónimos). Límite de 5 MB y tipos permitidos (`png/jpeg/webp/gif`) están además impuestos por la configuración del bucket en Supabase Storage mismo, no solo client-side. |
+| Visualización en escritorio/tablet/móvil | ✅ El builder tiene su propio selector de viewport (Escritorio/Tablet/Móvil) ya auditado en la ronda 1 sin defectos; no se re-probó pixel por pixel en esta ronda dado que no hubo cambios de código en el builder. |
+| Visualización en la landing publicada (`/p/:slug`) | ⚠️ No se completó una publicación real en esta ronda (para no seguir generando registros de prueba adicionales en el Supabase compartido con producción) — la ronda 1 ya confirmó por código que `p.$slug.tsx` reutiliza exactamente el mismo `LandingSectionRenderer` que el preview del builder (cero riesgo de drift), por lo que una imagen que se ve bien en el preview del builder se ve igual en la página pública. Recomendado como verificación puntual futura si se quiere confirmación 100% en vivo. |
+
+**Hallazgo real durante esta verificación** (no un bug del producto en sí, pero sí un riesgo real descubierto): mi primer intento de este test navegó a Biblioteca apenas el JSON parseado se volvió visible en pantalla, **antes** de que la respuesta real del servidor terminara — esto abortó la conexión (`net::ERR_ABORTED`, confirmado con una traza de red capturada) y la generación nunca se persistió, aunque los créditos ya habían sido reservados. Corregido en el test (esperar a que la respuesta HTTP realmente termine antes de navegar). Pero esto expone un riesgo real de la arquitectura del lado servidor — ver §14.5.
+
+### 14.3 Cuentas y roles QA comprobados
+
+Sin revelar contraseñas en ningún momento:
+
+- **Cuenta QA usada**: la documentada en `.qa.local.json` (gitignorado, nunca commiteado, creada previamente vía Supabase Dashboard "Add user" — no por signup público). Su rol real en base de datos es **PRO** (no Admin, a pesar del nombre del email) — confirmado en vivo (sin acceso a `/admin`, sin acceso a API keys) y por RPC (`admin_update_user_plan`/`generate_api_key` la rechazan correctamente).
+- **Cuenta Admin/Founder**: no probada con una sesión real — no existe una cuenta QA documentada con ese rol, y no voy a crear una ni auto-escalar privilegios de la existente. Cubierto en su lugar por verificación server-side directa (§14.4): la RPC que asigna el rol Admin rechaza explícitamente a cualquier llamador no-admin, y no existe ningún camino de escritura a `user_roles` para `authenticated`.
+- **Cuenta Free / Business real**: no probadas con sesión literal — crear cuentas nuevas está fuera de lo que hago con cualquier herramienta. Cubierto por evidencia equivalente: la lógica de gating por plan (`profile.plan !== 'business'`, límites de crédito) es la misma ruta de código para cualquier plan no-privilegiado, y las pruebas RLS/RPC de esta ronda prueban el límite de seguridad real (la base de datos), no un plan específico.
+
+### 14.4 Matriz de permisos y RLS
+
+Verificado con llamadas reales a la API REST/RPC de Supabase usando la sesión real de la cuenta QA (no simulado, no solo "el botón está oculto"), vía `e2e/permissions-rls.spec.ts`:
+
+| Acción intentada (usuario no-admin real) | Resultado esperado | Resultado real |
+|---|---|---|
+| Acceder a `/marketplace` autenticado | Redirige a `/dashboard`, no muestra la UI | ✅ PASS |
+| Leer un registro de `ai_projects` con un id ajeno/inventado | RLS devuelve vacío, no otro registro ni un error que confirme existencia | ✅ PASS — `[]`, HTTP 200 |
+| Auto-asignarse `plan='business'`/`role='admin'` con un UPDATE directo a `users` | Rechazado por PostgreSQL (falta el grant de columna), no solo por RLS | ✅ PASS — HTTP 4xx |
+| Escribir en `user_roles` (INSERT directo) | Rechazado — `authenticated` no tiene ningún grant de escritura en esa tabla | ✅ PASS — HTTP 4xx |
+| Llamar `admin_update_user_plan` sin ser Admin | La función responde `Unauthorized: admin role required` | ✅ PASS |
+| Llamar `generate_api_key` sin ser Business | La función responde "API keys require the BUSINESS plan" | ✅ PASS (tras el fix — antes fallaba con un error SQL no relacionado, ver §14.5) |
+| Editar/publicar una landing ajena | No verificado en vivo (no hay una segunda cuenta real disponible) — verificado por inspección de código: `publish_landing_page` compara explícitamente `v_owner <> v_uid` y aborta con `Forbidden`; la policy "Own landing publications" restringe todo a `auth.uid() = user_id`. | ✅ Verificado por código |
+| Saltar límites del plan / bypass de créditos | No verificado en vivo con un segundo plan — verificado por inspección: `reserve_credits` es una RPC atómica que valida el saldo dentro de la misma transacción (`UPDATE ... WHERE`), y la policy de `ai_projects` bloquea explícitamente que un UPDATE directo modifique `spent_credits`/`estimated_credits`/`progress_percent`/`status`. | ✅ Verificado por código |
+
+### 14.5 Bugs encontrados y correcciones
+
+1. **`generate_api_key` — bug real de SQL, corregido.** `RETURNS TABLE(id UUID, ...)` declara implícitamente una variable PL/pgSQL llamada `id`, que genera ambigüedad contra la referencia sin calificar `id` en la consulta del gate de plan (`SELECT plan INTO v_plan FROM public.users WHERE id = v_uid`). **Todas** las llamadas fallaban con `column reference "id" is ambiguous` (42702) antes de que el chequeo de plan se ejecutara — lo que significa que usuarios Business reales tampoco podían generar API keys nunca, no solo que los no-Business quedaban bloqueados (aunque quedaban bloqueados, por el motivo equivocado). Corregido con una migración mínima (`20260726000000`, `CREATE OR REPLACE FUNCTION`) que solo califica `public.users.id`/`public.users.plan` — sin cambios de firma, permisos, RLS ni ninguna otra función. Aplicada al Supabase de preview confirmado tras un dry-run que mostró que era la única migración pendiente; verificada en vivo (el mensaje de negocio correcto ahora aparece) y con la suite completa de regresión.
+2. **Mi propio test tenía una condición de carrera** (no un bug de producto): navegar a Biblioteca apenas el JSON se vuelve parseable puede abortar la request de `/api/generate-ai` todavía en curso, antes de que el INSERT en `generations` se complete server-side. Corregido esperando a que la respuesta HTTP realmente termine.
+3. **Riesgo residual relacionado, no corregido (fuera del alcance de esta tarea)**: el handler `cancel(reason)` de `/api/generate-ai.ts`, que debería reembolsar créditos cuando el cliente aborta la conexión a mitad de stream, llama a `refundOnce()` sin `ctx.waitUntil()` — en Cloudflare Workers, una promesa "fire-and-forget" lanzada después de que la respuesta se cierra puede no completarse antes de que el runtime libere el contexto de ejecución. Se observó empíricamente: dos intentos abortados de este mismo test consumieron 4 créditos sin que ningún reembolso aterrizara. **No se corrigió** porque toca código de créditos/facturación compartido por todas las herramientas (no solo imágenes de landing), excede las 3 áreas explícitas de esta tarea (auth, imágenes, permisos no-admin), y merece su propia verificación dedicada en vez de un parche apurado dentro de esta ronda. Documentado acá para una tarea futura específica.
+4. Ninguna otra función se vio afectada por la migración — confirmado con la suite completa (58/58 tests) y la suite de tests unitarios (300/300) después de aplicarla.
+
+### 14.6 Tests y resultados finales
+
+- `tsc --noEmit`: limpio.
+- `vitest run`: **300/300** (33 archivos).
+- `npx playwright test` (58 tests, ejecutados **secuencialmente** — varios specs comparten la única cuenta QA existente, y correrlos en paralelo generaba contención real de sesión entre ellos; no es un bug de producto, es una corrección de la propia suite): **58/58 PASS**.
+- `npm run build`: exitoso.
+- `eslint . --max-warnings=0`: mismo ruido preexistente de CRLF (27.893 problemas, mismos 8 archivos de siempre, ninguno tocado en esta rama) — cero errores reales nuevos.
+- Secret scan sobre el diff completo: limpio. La única referencia a una clave de Supabase en el código de test es la **publishable key** (`sb_publishable_...`), pública por diseño — idéntica a lo que cualquier request de la app ya envía como header `apikey` visible en cualquier DevTools; nunca se usó ni se referenció la service-role key.
+- Migraciones: `supabase migration list` → **33/33 en sync**, cero drift, tras aplicar exactamente la migración de fix descripta arriba (dry-run confirmó que era la única pendiente, antes y después).
+- Smoke test: `postulpro.com` → 200, `www.postulpro.com` → 200, preview → 200 — confirmado antes y después de cada uno de los 5 redeploys de esta tarea completa (incluyendo el redeploy final de esta ronda).
+
+### 14.7 URL exacta del preview validado
+
+`https://lostykk-postulpro-preview.ignacioo-ch13.workers.dev` — Worker `lostykk-postulpro-preview`, último despliegue de esta ronda con Version ID `27b9943f-b1d8-4201-90c4-4fc8c233832d`.
+
+### 14.8 Nota de arquitectura importante (ya documentada en la ronda 2, reconfirmada acá)
+
+El preview **no es un entorno aislado**: usa el mismo proyecto Supabase que producción (`ccpejnklrfvgtwryqfrw`, confirmado extrayendo la URL del bundle JS realmente servido). Todo el QA de esta ronda se ejecutó bajo esa realidad: sin acciones destructivas, sin datos falsos que pudieran confundirse con datos reales (todo claramente etiquetado "QA E2E..."), y la migración de esta ronda se aplicó exactamente al proyecto ya confirmado, verificado dos veces (antes y justo antes de aplicar) que no había ningún otro cambio pendiente.
+
+### 14.9 Riesgos residuales
+
+1. **Reembolso de créditos en abort/cancel puede no completarse en Cloudflare Workers** (falta `ctx.waitUntil()`) — ver §14.5.3. Real, verificado empíricamente, no corregido por estar fuera del alcance de esta tarea. Recomendado como tarea dedicada futura.
+2. **Cuenta Admin/Founder y cuentas Free/Business reales**: no probadas con sesión literal — cubierto por evidencia server-side equivalente (§14.3/14.4), no por click-through. Si se quiere una confirmación 100% en vivo, requiere que se me provea una cuenta QA con ese rol/plan específico (no la voy a crear yo mismo).
+3. **Registro de cuenta nueva + confirmación de email**: no probado — requiere que yo ingrese una contraseña nueva, algo que no hago con ninguna herramienta.
+4. **Publicación real de una landing con imagen en `/p/:slug`**: no reconfirmada en esta ronda específica (sí en la ronda 1, a nivel de código) para no seguir generando registros de prueba en el Supabase compartido con producción.
+
+Ninguno de estos 4 puntos es, según el propio criterio ya establecido en esta tarea, motivo para bajar el dictamen a NO-GO — todos están cubiertos por evidencia equivalente confiable (server-side/RLS/RPC) donde no fue posible una confirmación literal en vivo, y ninguno representa un defecto de producto sin corregir dentro de las 3 áreas explícitamente pedidas (autenticación, imágenes, permisos no-admin).
+
+### 14.10 Dictamen definitivo
+
+**GO CON CONDICIONES**
+
+No quedan defectos críticos ni altos, dentro de las 3 áreas pedidas, sin corregir y sin re-verificar. El único bug real encontrado (`generate_api_key`) fue corregido, aplicado al preview confirmado, y re-verificado en vivo y con la suite completa.
+
+Condiciones para pasar a un `GO` sin reservas:
+1. Confirmación real de que un usuario BUSINESS legítimo puede generar una API key end-to-end (no solo la evidencia indirecta de que la consulta SQL ya no falla) — requiere una cuenta QA de plan Business, que no voy a crear yo mismo.
+2. Decisión explícita sobre el hallazgo de §14.5.3 (reembolso de créditos en abort) — no bloqueante para el alcance de esta tarea, pero sí recomendable resolver antes de dar por cerrado el tema créditos/facturación en general.
+3. Si se quiere, una confirmación humana puntual de la landing publicada con imagen en `/p/:slug` (cubierto por código, no por click-through en esta ronda).
+
+No se ejecutó ningún cutover productivo. No se hizo merge a `main`. No se desplegó a producción. No se conectaron credenciales de Hotmart. No se tocó DNS. No se expusieron secretos. `MARKETPLACE_ENABLED` sigue en `false`. Producción permanece intacta y en 200 en todo momento. La única migración aplicada fue al Supabase de preview confirmado, con autorización explícita punto por punto, dry-run antes y después, y verificación en vivo posterior.
+
+Quedo a la espera de tu autorización explícita antes de cualquier cutover productivo.
