@@ -420,6 +420,63 @@ export type Database = {
           },
         ];
       };
+      credit_reservations: {
+        Row: {
+          consumed_at: string | null;
+          cost: number;
+          created_at: string;
+          generation_id: string | null;
+          id: string;
+          refund_reason: string | null;
+          refunded_at: string | null;
+          status: string;
+          tool: string;
+          updated_at: string;
+          user_id: string;
+        };
+        Insert: {
+          consumed_at?: string | null;
+          cost: number;
+          created_at?: string;
+          generation_id?: string | null;
+          id?: string;
+          refund_reason?: string | null;
+          refunded_at?: string | null;
+          status?: string;
+          tool: string;
+          updated_at?: string;
+          user_id: string;
+        };
+        Update: {
+          consumed_at?: string | null;
+          cost?: number;
+          created_at?: string;
+          generation_id?: string | null;
+          id?: string;
+          refund_reason?: string | null;
+          refunded_at?: string | null;
+          status?: string;
+          tool?: string;
+          updated_at?: string;
+          user_id?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "credit_reservations_generation_id_fkey";
+            columns: ["generation_id"];
+            isOneToOne: false;
+            referencedRelation: "generations";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "credit_reservations_user_id_fkey";
+            columns: ["user_id"];
+            isOneToOne: false;
+            referencedRelation: "users";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
       folders: {
         Row: {
           color: string | null;
@@ -1109,6 +1166,13 @@ export type Database = {
           slug: string;
         }[];
       };
+      reconcile_stale_reservations: {
+        Args: { p_older_than_minutes?: number };
+        Returns: {
+          outcome: string;
+          reservation_id: string;
+        }[];
+      };
       refund_credits: {
         Args: { p_cost: number };
         Returns: {
@@ -1122,6 +1186,28 @@ export type Database = {
           credits_limit: number;
           credits_used: number;
           ok: boolean;
+        }[];
+      };
+      reserve_credits_v2: {
+        Args: { p_cost: number; p_tool: string };
+        Returns: {
+          credits_limit: number;
+          credits_used: number;
+          ok: boolean;
+          reservation_id: string;
+        }[];
+      };
+      resolve_credit_reservation: {
+        Args: {
+          p_generation_id?: string;
+          p_outcome: string;
+          p_reason?: string;
+          p_reservation_id: string;
+        };
+        Returns: {
+          final_status: string;
+          refunded_cost: number;
+          resolved: boolean;
         }[];
       };
       resume_ai_project: { Args: { p_project_id: string }; Returns: undefined };
