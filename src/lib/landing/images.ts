@@ -30,3 +30,30 @@ export async function uploadLandingImage(userId: string, file: File): Promise<st
   if (error) throw new Error(error.message);
   return supabase.storage.from("landing-images").getPublicUrl(path).data.publicUrl;
 }
+
+// Pure extraction so it's testable without mocking the Supabase client —
+// only matches URLs that are actually inside our own bucket (a user may
+// have pasted an arbitrary external URL into the fallback text field
+// instead of uploading), returns null for anything else.
+export function landingImagePathFromUrl(url: string): string | null {
+  const marker = "/landing-images/";
+  const idx = url.indexOf(marker);
+  if (idx === -1) return null;
+  const path = decodeURIComponent(url.slice(idx + marker.length).split(/[?#]/)[0]);
+  return path || null;
+}
+
+// Best-effort cleanup for the blob a remove/replace leaves behind — every
+// upload gets a fresh timestamped filename (see above), so nothing else
+// ever points at the old path once it's swapped out. Never throws: a
+// failed cleanup shouldn't block the user from removing/replacing the
+// image in their own document.
+export async function deleteLandingImage(url: string): Promise<void> {
+  const path = landingImagePathFromUrl(url);
+  if (!path) return;
+  try {
+    await supabase.storage.from("landing-images").remove([path]);
+  } catch {
+    // best-effort — see comment above
+  }
+}

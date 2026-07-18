@@ -2,7 +2,7 @@ import { useState } from "react";
 import { Loader2, Plus, Trash2, Upload, X } from "lucide-react";
 import { toast } from "sonner";
 import type { LandingImage, LandingSection, SectionContent } from "@/lib/landing/schema";
-import { uploadLandingImage, validateLandingImage } from "@/lib/landing/images";
+import { deleteLandingImage, uploadLandingImage, validateLandingImage } from "@/lib/landing/images";
 
 // Type-specific form controls (Fase H): title/subtitle/body/CTA/link plus
 // add/remove for list-shaped fields (items, faq, testimonials, pricing).
@@ -204,14 +204,21 @@ function HeroImageField({
     }
     setUploading(true);
     try {
+      const previousUrl = image?.url;
       const url = await uploadLandingImage(userId, file);
       onChange({ url, alt: image?.alt ?? "" });
       toast.success("Imagen subida");
+      if (previousUrl) void deleteLandingImage(previousUrl);
     } catch (e) {
       toast.error((e as Error).message);
     } finally {
       setUploading(false);
     }
+  }
+
+  function handleRemove() {
+    if (image?.url) void deleteLandingImage(image.url);
+    onChange({ url: null, alt: "" });
   }
 
   return (
@@ -222,7 +229,7 @@ function HeroImageField({
           <img src={image.url} alt={image.alt} className="w-full h-32 object-cover rounded-lg border border-white/10" />
           <button
             type="button"
-            onClick={() => onChange({ url: null, alt: "" })}
+            onClick={handleRemove}
             aria-label="Quitar imagen"
             className="absolute top-1.5 right-1.5 p-1 rounded bg-black/60 text-white hover:bg-black/80"
           >

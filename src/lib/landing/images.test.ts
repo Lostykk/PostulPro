@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { validateLandingImage } from "@/lib/landing/images";
+import { landingImagePathFromUrl, validateLandingImage } from "@/lib/landing/images";
 
 function makeFile(type: string, sizeBytes: number): File {
   return new File([new Uint8Array(sizeBytes)], "test", { type });
@@ -27,5 +27,26 @@ describe("validateLandingImage", () => {
 
   it("accepts a file right at the boundary", () => {
     expect(validateLandingImage(makeFile("image/png", 5 * 1024 * 1024))).toBeNull();
+  });
+});
+
+describe("landingImagePathFromUrl", () => {
+  it("extracts the owner-scoped path from a real Supabase public URL", () => {
+    const url =
+      "https://ccpejnklrfvgtwryqfrw.supabase.co/storage/v1/object/public/landing-images/abc-123/1234-xy9z.png";
+    expect(landingImagePathFromUrl(url)).toBe("abc-123/1234-xy9z.png");
+  });
+
+  it("strips query/hash suffixes and decodes the path", () => {
+    const url = "https://x.supabase.co/storage/v1/object/public/landing-images/u1/my%20file.png?t=1";
+    expect(landingImagePathFromUrl(url)).toBe("u1/my file.png");
+  });
+
+  it("returns null for URLs outside our bucket (e.g. a pasted external URL)", () => {
+    expect(landingImagePathFromUrl("https://ejemplo.com/imagen-hero-seguros.jpg")).toBeNull();
+  });
+
+  it("returns null when the bucket marker is present but nothing follows it", () => {
+    expect(landingImagePathFromUrl("https://x.supabase.co/storage/v1/object/public/landing-images/")).toBeNull();
   });
 });
