@@ -239,3 +239,120 @@ Las condiciones pendientes antes de "LISTO PARA CONFIGURACIÓN EN HOTMART" sin r
 5. Completar la UI de administración visual (riesgo #4) — no bloqueante para activar el webhook, pero sí para que un admin pueda operar sobre eventos fallidos sin usar Supabase directamente.
 
 No se hizo merge a `main`, no se aplicó ninguna migración, no se desplegó a preview, no se conectó Hotmart, no se usaron credenciales productivas, no se realizó ninguna compra real, no se tocó Marketplace, no se cambiaron precios/planes/créditos. Se detiene esta tarea aquí, a la espera de los identificadores/secretos de §14 o de autorización explícita para continuar de otra forma.
+
+---
+
+## 18. Fase 8B — datos comerciales reales incorporados
+
+Retomada desde `3a3abd1` (verificado idéntico a `origin/claude/postulpro-hotmart-integration` antes de tocar nada — working tree limpio, 6 migraciones Hotmart todavía con `remote: ""`, secret scan limpio, producción `200`/`200`). No se reinició ninguna fase anterior.
+
+### 18.1 Datos reales incorporados
+
+| Constante | Valor |
+|---|---|
+| `HOTMART_PRODUCT_ID` | `8148076` |
+| Offer PRO mensual | `w6nw1f3o` — `https://pay.hotmart.com/E106787841U?off=w6nw1f3o` — USD 29 |
+| Offer PRO anual | `z7l3u209` — `https://pay.hotmart.com/E106787841U?off=z7l3u209` — USD 276 |
+| Offer BUSINESS mensual | `zy2exb4h` — `https://pay.hotmart.com/E106787841U?off=zy2exb4h` — USD 99 |
+| Offer BUSINESS anual | `64lrx4be` — `https://pay.hotmart.com/E106787841U?off=64lrx4be` — USD 948 |
+
+**Discrepancias con la configuración central (`plans.ts`)**: ninguna. Los 4 precios coinciden exactamente (`monthlyPrice`/`yearlyMonthlyPrice * 12`) — verificado antes de escribir cualquier código, no después.
+
+### 18.2 Diseño: identificadores reales, no más resolución por variable de entorno
+
+`src/lib/hotmart-config.ts` (nuevo, client-safe, sin secretos) es ahora la única fuente de verdad — reemplaza el diseño anterior basado en `HOTMART_PRODUCT_ID_ENV_KEY`/`HOTMART_OFFER_ENV_KEYS`. Los identificadores son hardcodeados (mismo precedente que `supabase/functions/lemon-squeezy-webhook/index.ts`, que documenta explícitamente "Variant IDs are not secret — hardcoded below"), porque Hotmart no tiene una cuenta Test Mode separada para este producto — no hay un valor legítimamente distinto por entorno para el product_id/offer_id. `src/lib/hotmart.server.ts` reexporta esos datos e implementa únicamente lo genuinamente server-only: `validateHotmartConfig()` ahora solo exige `HOTMART_HOTTOK` (el único secreto real pendiente). Se conservan hooks de override (`HOTMART_PRODUCT_ID_OVERRIDE`, `HOTMART_OFFER_<KEY>_OVERRIDE`) para un futuro sandbox, nunca el camino primario.
+
+### 18.3 Checkout en la UI
+
+`src/routes/_authenticated/settings.tsx`: el grid "Cambiar de plan" ahora renderiza, detrás del flag `VITE_HOTMART_CHECKOUT_ENABLED` (mismo patrón que `AI_GENERATION_ENABLED`/`APP_ENV`, no se inventó un mecanismo nuevo), enlaces directos a la Checkout URL real de cada oferta en vez de llamar a `/api/billing/checkout` (Lemon Squeezy). Cada URL ya codifica su plan+intervalo exacto (`?off=<id>`), así que PRO no puede enlazar al checkout de Business ni viceversa — no hay lógica de resolución adicional que pueda equivocarse. Flag no configurado en ningún entorno todavía (`false` por defecto) — no cambia nada hasta una decisión de cutover deliberada, y de todos modos no llega a producción esta ronda (sin merge).
+
+### 18.4 Auditoría completa del webhook (24 puntos, §9 de la consigna)
+
+Repasados uno por uno contra el código real. 23/24 correctos sin cambios. **Un gap real encontrado y corregido**: el guard de eventos fuera de orden (`p_provider_updated_at`) existía y estaba probado a nivel de RPC desde la ronda anterior, pero el webhook nunca extraía ni enviaba ningún timestamp — toda invocación real lo habría dejado en `NULL`, desactivando el guard de punta a punta pese a "existir". Corregido: `normalize.ts` ahora extrae `creation_date` (el único campo de timestamp CONFIRMADO del payload 2.0.0 en la investigación de la Fase B) cuando está presente, con conversión defensiva segundos/milisegundos. **Sigue siendo best-effort documentado**: ese campo nunca se confirmó presente en el formato plano/1.0.0 que este normalizador toma como objetivo principal — puede seguir inactivo hasta confirmar contra un evento de prueba real.
+
+### 18.5 Cambio de plan (upgrade/downgrade) — hallazgo importante
+
+`normalize.ts` nunca produce el evento interno `plan_change` — ningún valor de `status` mapea a él. Investigando esto: Hotmart documenta un webhook **dedicado y separado** ("Plan change event" / `switch-plan-webhook`) para cambios de plan, con un payload cuya forma exacta no se pudo confirmar en la Fase B. Esto podría parecer un gap crítico, pero **se verificó que no lo es en la práctica**: un upgrade/downgrade real (un nuevo offer_id `approved` sobre el mismo `subscriber_code` ya vinculado) se resuelve correctamente a través del camino `renewal_approved` — la rama del RPC es exactamente la misma (`WHEN 'purchase_approved', 'renewal_approved', 'plan_change' THEN`), así que el plan/créditos se actualizan correctamente al nuevo valor sin importar la etiqueta interna. Confirmado con tests reales: PRO→Business y Business→PRO, ambos vía los 4 offer_id reales.
+
+**Riesgo residual honesto**: si el webhook dedicado de "cambio de plan" de Hotmart envía una forma de payload distinta a la del webhook general de compra (no confirmado), ese caso específico podría no reconocerse hasta verificarlo con un evento real.
+
+### 18.6 Tests — conteo final
+
+| Archivo | Tests |
+|---|---|
+| `hotmart.server.test.ts` | 9 |
+| `hotmart-events-migration.test.ts` (RPC dry-run) | 13 |
+| `webhook-rate-limit-migration.test.ts` | 4 |
+| `admin-resolve-pending-link-migration.test.ts` | 4 |
+| `reconcile-hotmart-migration.test.ts` | 7 |
+| `admin-read-access-migration.test.ts` | 3 |
+| `buyer-linking.server.test.ts` | 8 |
+| `normalize.test.ts` (nuevo) | 21 |
+| `webhooks/hotmart.test.ts` | 23 |
+| **Total Hotmart** | **92** |
+
+Suite completa del proyecto: **446/446**. Typecheck limpio. Build exitoso. Secret scan limpio sobre `origin/main..HEAD`. Bundle: `reconcile-hotmart` registrado, `triggers.crons` solo contiene el cron ya activo de créditos, ruta `/api/webhooks/hotmart` presente. Producción `200`/`200`, sin cambios.
+
+**No ejecutado esta ronda** (honesto, no ocultado): E2E/Playwright visual del checkout de Hotmart, mobile, accesibilidad del nuevo botón (#44-47 de la consigna) — los E2E de este proyecto corren contra el Worker de preview real ya desplegado, que todavía sirve el código de `main` (sin este trabajo). Ejecutarlos de forma significativa requiere desplegar primero esta rama a preview, lo cual depende de la decisión de migración de §19. Panel admin bloqueado para `user` (#48): ya cubierto por el mecanismo RLS ya probado extensivamente en rondas anteriores (mismo `has_role`), aplicado sin cambios a las tablas Hotmart.
+
+### 18.7 Commits de esta ronda
+
+```
+2f94d5c feat(hotmart): incorporate real product/offer ids + checkout URLs (Fase 8B)
+51aeb67 fix(hotmart): wire the out-of-order guard through the webhook (Fase 8B audit)
+ce85905 test(hotmart): real offer combos, upgrade/downgrade coverage (Fase 8B.3)
+```
+
+Sobre las 10 de la ronda anterior — **13 commits totales** sobre `origin/main`, pusheados a `origin/claude/postulpro-hotmart-integration`. Ningún PR abierto todavía (falta: migración aplicada, Hottok, webhook configurado, prueba real).
+
+## 19. Punto de autorización para migraciones — DETENIDO AQUÍ
+
+### 19.1 Evidencia: Supabase es compartido entre preview y producción
+
+Confirmado con evidencia directa, no supuesto: durante la ronda de limpieza QA post-cutover de esta misma sesión, se consultó el proyecto `ccpejnklrfvgtwryqfrw` y se encontraron, en la misma tabla `public.users`, tanto cuentas QA creadas específicamente para pruebas de preview como las cuentas reales de producción (el Founder/Admin real y usuarios FREE reales) — mismo project ref, mismo `service_role` key, sin ninguna partición por entorno. No existe un segundo proyecto Supabase exclusivo de preview. Por lo tanto, aplicar cualquier migración significa aplicarla a la base de datos que también sirve a `postulpro.com` en este mismo momento.
+
+**Esto activa la rama B del §12 de la consigna: no se aplica automáticamente. Se detiene aquí.**
+
+### 19.2 Paquete de autorización completo
+
+**Project ref objetivo**: `ccpejnklrfvgtwryqfrw` (compartido preview+producción).
+**Migraciones actuales**: 35 preexistentes + 6 Hotmart = 41 totales localmente; remoto en 35/35 sincronizado (cero drift) antes de estas 6.
+
+| # | Archivo | Objetos | RLS/Grants | SECURITY DEFINER / search_path | Idempotencia |
+|---|---|---|---|---|---|
+| 1 | `20260729000000_hotmart_events.sql` | Tablas `hotmart_events`, `hotmart_pending_links` | RLS on, sin grants a `anon`/`authenticated` en la creación (ver #6) | N/A (tablas) | `UNIQUE(idempotency_key)` |
+| 2 | `20260729010000_process_hotmart_event_rpc.sql` | Función `process_hotmart_event` | `REVOKE ALL FROM PUBLIC, authenticated`; `GRANT EXECUTE TO anon` (gated por hash de secreto compartido) | `SECURITY DEFINER`, `SET search_path = public` | Ledger `hotmart_events` + secreto |
+| 3 | `20260729020000_webhook_rate_limit.sql` | Tabla `webhook_rate_limit_events`, función `claim_webhook_rate_limit` | Igual patrón que #2 | Igual | Ventana temporal + `pg_advisory_xact_lock` |
+| 4 | `20260729030000_admin_resolve_hotmart_pending_link.sql` | Función `admin_resolve_hotmart_pending_link` | `REVOKE FROM PUBLIC, anon`; `GRANT TO authenticated` (gated por `has_role(auth.uid(),'admin')` dentro de la función) | Igual | Chequeo de `status <> 'pending'` |
+| 5 | `20260729040000_reconcile_hotmart_stale.sql` | Función `reconcile_hotmart_stale` | `GRANT` solo a `service_role` | Igual | Filtros por estado ya resuelto |
+| 6 | `20260729050000_hotmart_admin_read_access.sql` | Políticas RLS `SELECT` admin-only + `GRANT SELECT TO authenticated` sobre las 2 tablas de #1 | Ver arriba | N/A | N/A (solo lectura) |
+
+**Orden de aplicación**: exactamente el de la tabla (dependencias: #2 depende de #1; #3 es independiente; #4 depende de #1; #5 depende de #1; #6 depende de #1). `supabase db push` respeta este orden automáticamente por el prefijo de timestamp del nombre de archivo.
+
+**Dependencias externas**: `process_hotmart_event` y `claim_webhook_rate_limit` leen `public.billing_rpc_config` (ya existe, aplicado en una ronda de billing anterior) para el hash del secreto compartido — no se crea ni modifica esa tabla. Todas las funciones que mutan `public.users`/`public.subscriptions`/`public.billing_history` usan exactamente esas tablas ya existentes, sin agregar columnas a ninguna.
+
+**Compatibilidad hacia atrás**: 100% aditiva. Cero `ALTER TABLE` sobre tablas preexistentes, cero renombrado, cero columna eliminada, cero función reemplazada (`process_lemon_squeezy_event`, `admin_update_user_plan`, `claim_plan_rate_limit`, `reconcile_stale_reservations_v2` no aparecen en ninguna de estas 6 migraciones).
+
+**Impacto sobre producción**: ninguno hasta que (a) estas migraciones se apliquen y (b) el Worker productivo (`lostykk-postulpro`, no tocado esta tarea) tenga el código de esta rama desplegado con `HOTMART_HOTTOK` configurado — ninguna de las dos cosas ocurrió. Aplicar las migraciones por sí solo, sin ese despliegue, deja las tablas/funciones nuevas existiendo pero sin ningún llamador real en producción (el Worker productivo actual no tiene este código).
+
+**Rollback**: `docs/hotmart-events-rollback.sql`, completo, orden inverso explícito, nunca toca objetos preexistentes.
+
+**Dry-run**: 92 tests Hotmart, todos contra pglite local o mocks — nunca contra `ccpejnklrfvgtwryqfrw`.
+
+**Riesgos pendientes**: los de §15, sin cambios, más el hallazgo de §18.5 (webhook dedicado de cambio de plan no confirmado).
+
+### 19.3 Recomendación
+
+Aplicar estas 6 migraciones al proyecto compartido es de bajo riesgo real: son puramente aditivas, ya probadas exhaustivamente en dry-run, y no tienen ningún llamador activo hasta que el Worker productivo se despliegue con este código (lo cual no va a ocurrir sin un merge a `main` separado y explícitamente no autorizado todavía). El riesgo no está en la migración en sí, sino en el precedente de tocar la base compartida — por eso se presenta este paquete completo y se detiene la tarea acá en vez de ejecutar `supabase db push` de forma autónoma.
+
+**No se ejecutó `supabase db push`. No se desplegó a preview. No se registró ningún webhook en Hotmart. No se realizó ninguna compra real. No se tocó `main`.**
+
+## 20. Dictamen final (Fase 8B)
+
+**FASE 8 LISTA PARA AUTORIZAR MIGRACIONES**
+
+Código completo con los identificadores reales incorporados (§18.1), checkout real wireado tras un flag seguro (§18.3), auditoría completa de los 24 puntos del webhook con un gap real encontrado y corregido (§18.4), el caso de upgrade/downgrade verificado explícitamente en vez de asumido (§18.5), 92 tests Hotmart (446 en total del proyecto), build/typecheck/secret-scan limpios, producción intacta. 13 commits pusheados a `origin/claude/postulpro-hotmart-integration`, `main` sin tocar.
+
+El único punto pendiente es exactamente el que la consigna pidió identificar y detener: **autorización explícita y separada para aplicar las 6 migraciones al proyecto Supabase compartido** (§19). Una vez autorizado ese paso, el camino queda: aplicar migraciones → confirmar cero impacto en producción → desplegar a preview con `HOTMART_HOTTOK` (a introducir vos mismo, nunca en texto) → obtener la URL real del webhook de preview → configurarlo en el panel de Hotmart (guía pendiente de completar en §22, una vez exista la URL real de preview) → enviar un evento de prueba real → recién ahí "LISTA PARA CONFIGURACIÓN EN HOTMART" sin reservas.
+
+Se detiene esta tarea aquí, a la espera de la autorización de §19.
