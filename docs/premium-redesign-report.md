@@ -21,11 +21,14 @@
   12. `9cdcd4d` — **ronda 5, verificación en vivo**: suite Playwright contra el backend real (`e2e/credit-reservations-live.spec.ts`) + regeneración de `types.ts`.
   13. `a5d0911` — **ronda 5, código de aplicación**: `generate-ai.ts` y `executor.server.ts` migrados a `reserve_credits_v2`/`resolve_credit_reservation`.
   14. `9e00ad8` — **ronda 5, diagnóstico**: logging de `cancel()` que reveló un hallazgo nuevo (ver §15.6).
-- **URL de preview**: https://lostykk-postulpro-preview.ignacioo-ch13.workers.dev (Worker `lostykk-postulpro-preview`, redesplegado 7 veces en total, verificado 200 OK cada vez).
+  15. `71161a6` — **ronda 6, fix real**: la generación completa (no solo el reembolso) envuelta en `waitUntil()` — hallazgo empírico de por qué el reembolso automático por desconexión no cerraba el ciclo (ver §16.3).
+  16. `5274558` — **ronda 6, reconciliador** (migración NO aplicada): `reconcile_stale_reservations_v2` basado en evidencia + endpoint interno inerte, preparados y validados localmente, pendientes de autorización separada.
+- **URL de preview**: https://lostykk-postulpro-preview.ignacioo-ch13.workers.dev (Worker `lostykk-postulpro-preview`, redesplegado 9 veces en total, verificado 200 OK cada vez).
 - **Producción**: sin cambios. `postulpro.com`/`www.postulpro.com` siguen en 200 en todo momento.
 - **Dictamen histórico de la ronda 3**: ~~LISTO PARA CUTOVER CON CONDICIONES~~ — superado por §14.
 - **Dictamen histórico de la ronda 4**: GO CON CONDICIONES (ver §14.9) — la condición #2 de esa ronda (reembolso de créditos en abort) es exactamente lo que resuelve, parcialmente, la ronda 5.
-- **Dictamen final (ver §15.7)**: **LEDGER VALIDADO CON CONDICIONES**.
+- **Dictamen histórico de la ronda 5**: LEDGER VALIDADO CON CONDICIONES (ver §15.10) — la condición pendiente (el reembolso automático por desconexión no cerraba el ciclo) es lo que investiga y resuelve la ronda 6.
+- **Dictamen final (ver §16.9)**: **LEDGER LISTO CON CONDICIONES**.
 
 ## 1. Auditoría inicial
 
@@ -630,3 +633,411 @@ el mecanismo de reembolso automático completamente cerrado.
 
 No se realiza cutover visual ni se despliega código nuevo a producción sin
 una autorización adicional y separada.
+
+---
+
+## 16. Cierre del ledger — cancelación robusta y reconciliación segura (ronda 6)
+
+Resuelve los dos riesgos pendientes de §15.6/§15.10: la detección de
+cancelación/desconexión, y la reconciliación segura de reservas
+estancadas. Misma rama, mismo preview.
+
+### 16.1 APIs de detección investigadas
+
+Revisadas todas las mencionadas en la consigna, verificando implementación
+real (no solo el tipo declarado) en el stack compilado (Nitro +
+`h3+rou3+srvx` + adaptador Cloudflare de TanStack Start, leído directamente
+de `.output/server/index.mjs` y `_libs/h3+rou3+srvx.mjs`, no solo de
+`node_modules` genérico):
+
+| API | Existe en este stack | Comportamiento real observado |
+|---|---|---|
+| `request.signal` | Sí, tipado nativamente (`readonly signal: AbortSignal`) | **No se disparó en ningún test real de desconexión** (0/5) |
+| `ReadableStream.cancel()` | Sí, parte del contrato estándar del stream devuelto | **No se disparó en ningún test real de desconexión** (0/5) |
+| `event.node.req` | No existe — este stack corre 100% sobre el adaptador Cloudflare (`srvx`/Request nativo), no el compat de Node | N/A |
+| `event.web?.request` | La request cruda SÍ llega sin clonar hasta `H3Event` (`this.req = req`, verificado línea por línea en `h3+rou3+srvx.mjs`) y hasta el handler de TanStack Start (`new H3Event(request)` con la misma referencia) | Confirma que `request.waitUntil` (adjuntado por `augmentReq` en el entrypoint `fetch(request, env, context)`) sobrevive intacto hasta el route handler |
+| `onRequestAbort` / `onClosed` / `onError` | No existen como hooks propios de H3Core/Nitro en este stack — no hay tal API expuesta | N/A |
+| `ExecutionContext.waitUntil` | Sí, es el mecanismo real | Funciona, pero con techo — ver §16.3 |
+| Hooks propios de Nitro (`cloudflare:scheduled`, `cloudflare:email`, etc.) | Existen para triggers de plataforma (cron, email, queue), no para cancelación de fetch | N/A para este problema |
+
+**Metodología**: se instrumentó temporalmente `generate-ai.ts` con logs de
+diagnóstico (sin prompts/JWT/cookies/claves — solo ids de reserva y tiempos
+transcurridos) en: creación de la reserva, inicio del stream, primer delta
+recibido, fallo de `enqueue()`, entrada al `catch`, y disparo de `cancel()`
++ del listener de `request.signal`. Desplegado a `lostykk-postulpro-preview`
+y probado en vivo con `wrangler tail` corriendo en paralelo, usando la
+cuenta QA real, en 5+ desconexiones reales: `AbortController.abort()`
+inmediato, `AbortController.abort()` tras 5 chunks reales recibidos, y
+`reader.cancel()` (la forma estándar del Fetch API de señalizar que el
+cliente dejó de leer el stream) tras el primer chunk. **Ningún log de
+`cancel()` ni de `request.signal` apareció en ningún caso** — ni siquiera
+los logs normales de una generación exitosa y conectada aparecían, lo cual
+llevó al hallazgo real en §16.3. Los logs de diagnóstico fueron eliminados
+antes del commit final (`71161a6`); solo quedaron los cambios estructurales
+que resultaron de lo que revelaron.
+
+**Orden de señales real, en los pocos casos donde algo SÍ se observó**: la
+telemetría propia de Cloudflare (visible en `wrangler tail` como
+`POST ... - Canceled @ ...`) sí marca la solicitud como cancelada a nivel
+de plataforma — pero eso es la clasificación de Cloudflare del resultado
+HTTP, no un evento JavaScript entregado a nuestro código. Ningún callback
+de aplicación (`cancel()`, `request.signal`'s `abort`, ni siquiera un
+`catch` genérico) se disparó nunca como consecuencia directa de eso.
+
+**Conclusión de la investigación**: en este stack específico, ninguna de
+las señales de cancelación a nivel de aplicación es confiable. El diseño
+no puede depender de ellas — y no depende, ver §16.2.
+
+### 16.2 Diseño: la resolución depende del estado del trabajo, no de la señal del cliente
+
+Dado que ninguna señal de desconexión es confiable, el flujo se diseñó (y
+ya estaba parcialmente así desde la ronda 5) para que la señal del cliente
+sea, en el mejor de los casos, un *disparador de cancelación best-effort*
+— nunca la base de una decisión financiera:
+
+- `cancel()` y el listener de `request.signal` (ronda 6) **solo llaman a
+  `abortController.abort()`** — ya no llaman a `refundOnce()`
+  directamente (antes de esta ronda, `cancel()` sí lo hacía). Si ninguna
+  de las dos señales se dispara — que es el caso empíricamente observado
+  — esto no importa: la generación sigue corriendo.
+- El único camino real hacia un reembolso es el `catch` de
+  `runGeneration()`/`runStep()`, que solo se ejecuta cuando `callModel()`
+  efectivamente rechaza su promesa — evidencia real de que el intento no
+  terminó, nunca una suposición basada en que "el cliente se fue".
+- Una generación que sigue corriendo y termina bien después de que el
+  cliente se desconectó llega al mismo camino de éxito de siempre
+  (`confirmConsumedOrLog` → `consumed`) — **verificado en vivo, ver
+  §16.3**.
+- Una reserva que queda sin resolver porque el propio runtime mató el
+  aislamiento (ver §16.3) no se pierde ni se reembolsa a ciegas: queda
+  `reserved`, recuperable, y es exactamente el caso para el que existe el
+  reconciliador de §16.4 (migración preparada, no aplicada).
+
+### 16.3 El hallazgo real: no era (solo) la señal de cancelación
+
+La hipótesis inicial de la ronda 5 — que bastaba con envolver el
+reembolso en `waitUntil()` — resultó incompleta. La investigación de esta
+ronda encontró la causa real con evidencia directa:
+
+1. Con instrumentación activa, **ni siquiera los logs de una generación
+   exitosa y con cliente conectado aparecían** dentro del callback
+   `start()` del `ReadableStream` — solo los logs anteriores a que se
+   construyera el `Response` sí se veían. Esto sugería que el contexto de
+   ejecución de `start()` (que sigue corriendo de forma asíncrona
+   *después* de que el `Response` ya fue devuelto a la plataforma) no
+   estaba garantizado por el runtime salvo que se registrara
+   explícitamente con `waitUntil()`.
+2. **Se corrigió envolviendo la generación COMPLETA (no solo el
+   sub-tarea de reembolso) en `waitUntil()`** — un cambio estructural:
+   `runGeneration()`/`runStep()` ahora es una función nombrada cuya
+   promesa se pasa tanto a `await` (comportamiento normal con cliente
+   conectado) como a `waitUntil()` (extensión de vida del aislamiento).
+3. **Verificado en vivo, con éxito**: una generación de `copywriter`
+   abortada por el cliente justo después del primer chunk (`AbortController`)
+   **completó igual y se resolvió correctamente a `consumed`**, con
+   `generation_id` vinculado — algo que antes de este fix era
+   sistemáticamente imposible (la reserva quedaba `reserved` para
+   siempre, sin ningún log posterior).
+4. **Pero `waitUntil()` tiene un techo impuesto por la plataforma**:
+   probado con `business-plan` (más lento, hasta 8000 tokens), la misma
+   prueba de desconexión produjo en los logs de Cloudflare:
+   `"waitUntil() tasks did not complete within the allowed time after
+   invocation end and have been cancelled."` — un mensaje oficial de la
+   plataforma, no de nuestro código. La reserva de esa prueba quedó
+   `reserved` de forma permanente (confirmado con reintentos durante
+   90+ segundos), sin ningún callback de aplicación disparado.
+
+**Conclusión**: `waitUntil()` sobre la generación completa **rescata de
+forma confiable las generaciones rápidas** (probado con `copywriter`,
+~2 segundos) tras una desconexión, pero **no es una garantía para las
+lentas** (`business-plan`, potencialmente 10-30+ segundos) — el propio
+runtime puede matar el aislamiento antes de que termine, sin darle a
+ningún código la oportunidad de reaccionar. Esto confirma exactamente lo
+que la consigna de esta ronda anticipaba: ninguna señal o mecanismo del
+lado del cliente/runtime puede ser la única garantía financiera — de ahí
+el reconciliador de §16.4.
+
+### 16.4 Estado persistente del trabajo
+
+`generations` no tenía (y sigue sin necesitar) una máquina de estados
+propia — es una tabla de "solo se inserta cuando el resultado ya existe",
+sin fila para intentos en curso. En vez de agregar una máquina de estados
+paralela innecesaria, se usó ese mismo hecho como señal: **la existencia o
+ausencia de una fila en `generations` vinculada a la reserva ES la
+evidencia de "completado"**, sin inventar un estado nuevo para eso.
+
+Migración nueva (**NO aplicada** — ver §16.5):
+`supabase/migrations/20260728000000_reservation_job_evidence.sql`, sobre la
+ya aplicada `20260727000000`:
+
+1. **`generations.credit_reservation_id`** (UUID, `REFERENCES
+   credit_reservations`, `ON DELETE SET NULL`, índice parcial) — evidencia
+   positiva de finalización, pensada para ser seteada por el código de
+   aplicación al momento del `INSERT` (no solo al resolver la reserva
+   como hizo siempre `resolve_credit_reservation`).
+2. **`credit_reservations.job_outcome`** (`'failed' | 'aborted' |
+   'timed_out'`, nullable) + `job_outcome_reason` + `job_outcome_at` —
+   evidencia negativa confirmada, seteada solo por una RPC nueva,
+   `mark_reservation_job_outcome(p_reservation_id, p_outcome, p_reason)`
+   (`authenticated`, dueño únicamente, CAS: solo mientras `status =
+   'reserved' AND job_outcome IS NULL` — set-once, no sobreescribible).
+
+Cada reserva ya se relaciona inequívocamente con usuario/generación (o
+job)/herramienta/costo/estado/timestamps — eso ya existía desde la ronda 5
+(`20260727000000`); esta migración solo agrega la evidencia de *qué pasó
+con el intento*, que es lo que faltaba para reconciliar con seguridad.
+
+### 16.5 Reconciliador seguro — preparado, migración NO aplicada
+
+`reconcile_stale_reservations_v2(p_batch_limit INT DEFAULT 200)`
+(`service_role` únicamente, `EXECUTE` revocado de `PUBLIC`/`anon`/
+`authenticated`), por cada reserva `reserved` en el lote:
+
+1. **Evidencia de finalización** (fila en `generations` con
+   `credit_reservation_id` = esta reserva) → `consumed`, vinculando esa
+   generación. Gana incluso si además hay un `job_outcome` contradictorio
+   (probado explícitamente — nunca se descarta contenido realmente
+   entregado).
+2. **Evidencia de fallo confirmado** (`job_outcome IS NOT NULL`) →
+   `refunded`, motivo = el valor de `job_outcome`.
+3. **Sin evidencia de ningún tipo, pero más vieja que un umbral seguro
+   por herramienta** (10 min para `copywriter`/`landing-copy`, 15 para
+   `sales-email`/`consultant`, 20 para `social-pack`/`email-sequences`,
+   30 para `business-plan` y cualquier herramienta desconocida — múltiplos
+   generosos de `maxTokens` en `tools-config.server.ts`, no la duración
+   típica) → `refunded`, motivo `no_evidence_after_threshold`. Es la
+   única rama con algún riesgo de falso positivo, y por eso el umbral es
+   deliberadamente generoso en vez de los 30 minutos planos del
+   `reconcile_stale_reservations` original.
+4. **Sin evidencia y todavía dentro del umbral** → sin tocar. Caso común
+   para cualquier reserva genuinamente en curso.
+
+El `reconcile_stale_reservations` original (ciego por antigüedad) queda
+intacto, sin invocar, superseded — no se borró para no complicar el
+rollback de una función ya inerte.
+
+**Validado localmente** (`src/lib/credits/reservation-job-evidence.test.ts`,
+15 tests con pglite, ejecutando el archivo real de migración sobre la
+20260727000000 ya aplicada, nunca contra el Supabase remoto): completado →
+`consumed`; fallado/abortado/timeout → `refunded`; activo sin evidencia →
+sin tocar; sin evidencia pasado el umbral (por herramienta, incluyendo que
+una herramienta lenta NO se toca antes de su propio umbral aunque uno
+rápido ya lo hubiera cruzado) → `refunded`; reconciliación repetida →
+idempotente (segunda corrida no toca nada); `mark_reservation_job_outcome`
+rechaza marcar la reserva de otro usuario; el reconciliador nunca toca la
+reserva de un usuario no relacionado en el mismo lote; lote con estados
+mixtos resuelto correctamente en una sola llamada; evidencia set-once (un
+segundo marcado contradictorio se ignora); RPCs viejas intactas.
+
+**Estado real confirmado**: `npx supabase migration list --linked` muestra
+`20260728000000` con `local` presente y `remote` vacío — **no aplicada**,
+exactamente como corresponde antes de una autorización explícita.
+
+### 16.6 Mecanismo de ejecución — preparado, NO activado
+
+Elegido: **endpoint interno protegido**
+(`src/routes/api/internal/reconcile-credits.ts`) en vez de un Cloudflare
+Cron Trigger directo, porque activar un Cron Trigger requeriría modificar
+la sección `[triggers]` de `wrangler.jsonc` (la config fuente, versionada)
+y agregar un handler `scheduled()` — dos cambios de infraestructura de
+despliegue que exceden el alcance autorizado de esta tarea. Un endpoint
+interno no requiere ningún cambio de configuración del proyecto Cloudflare
+para *prepararlo* — solo para activarlo.
+
+- Requiere el header `X-Reconcile-Secret`, comparado con
+  `timingSafeEqual` (mismo patrón que la verificación de firma del webhook
+  de facturación) contra `process.env.RECONCILE_SECRET`.
+- Usa un cliente Supabase `service_role` (`SUPABASE_SERVICE_ROLE_KEY`) —
+  necesario porque `reconcile_stale_reservations_v2` opera across todos
+  los usuarios, algo que ninguna llamada `authenticated` con RLS podría
+  hacer con seguridad.
+- **Ninguno de los dos secretos está configurado** en ningún entorno
+  (ni preview ni producción) — sin ellos, el endpoint responde `501 "Not
+  configured"` inmediatamente, sin tocar Supabase. Confirmado en vivo tras
+  desplegarlo: `POST /api/internal/reconcile-credits` → `501`.
+- Sin parámetro `user_id` ni ningún filtro controlable por el cliente —
+  el único input aceptado es el tamaño del lote, acotado a un máximo de
+  500.
+- No está conectado a ningún Cloudflare Cron Trigger ni a ningún proceso
+  programado — hoy solo se ejecuta si algo lo llama explícitamente (una
+  llamada manual, o un scheduler externo apuntado a esta URL con el
+  secreto, una vez configurado).
+- **Es seguro tenerlo desplegado ya** precisamente porque es inerte sin
+  configuración — se desplegó a `lostykk-postulpro-preview` como parte de
+  esta ronda (ver §16.8) y se verificó en vivo que responde `501` sin
+  hacer nada más.
+
+**Pendiente de configuración externa, requiere autorización separada**:
+1. `wrangler secret put RECONCILE_SECRET --env preview` (un valor random largo).
+2. `wrangler secret put SUPABASE_SERVICE_ROLE_KEY --env preview`.
+3. Decidir y configurar el scheduler externo que llamará al endpoint
+   (frecuencia sugerida: cada 5-10 minutos, dado que el umbral más corto
+   por herramienta es de 10 minutos).
+4. Aplicar la migración `20260728000000` (ver §16.5) — sin ella, el RPC
+   no existe y el endpoint devuelve `500` en vez de `501`.
+
+No se tocó `wrangler.jsonc`, no se agregó ningún `[triggers]`, no se
+configuró ningún secreto real en esta sesión.
+
+### 16.7 Pruebas reales ejecutadas
+
+| # | Escenario | Cómo se probó | Resultado |
+|---|---|---|---|
+| 1 | Generación exitosa con cliente conectado | Real, contra el Worker desplegado | ✅ `consumed`, sin cambios de comportamiento |
+| 2 | Generación exitosa tras desconexión del cliente | Real, `AbortController` tras 1er chunk, contra el Worker desplegado | ✅ **`consumed` con `generation_id` vinculado** — el hallazgo central de esta ronda (§16.3) |
+| 3 | `AbortController` | Real, 3 variantes (inmediato, tras 5 chunks, tras 1 chunk) | ✅ Ni `cancel()` ni `request.signal` se disparan; resolución depende de `waitUntil` (rápidas) o queda para el reconciliador (lentas) |
+| 4 | `reader.cancel()` | Real, tras 1er chunk | ✅ Mismo comportamiento que `AbortController` — API estándar del Fetch, misma ausencia de señal |
+| 5 | Cierre de pestaña | No distinguible de #3/#4 a nivel de servidor — un cierre de pestaña real produce la misma condición de "conexión cerrada" que un abort explícito; no hay una señal adicional que un navegador real dispare que `AbortController`/`reader.cancel()` no repliquen ya a nivel HTTP | Cubierto por evidencia equivalente (#3/#4) |
+| 6 | Navegación a otra ruta | Mismo razonamiento que #5 | Cubierto por evidencia equivalente |
+| 7 | Pérdida de red simulada | Mismo razonamiento — a nivel del servidor, una conexión que se cae abruptamente y una que se cierra de forma "prolija" producen la misma condición observable (el socket deja de estar disponible); no se pudo diferenciar de forma confiable con las herramientas de este entorno | Cubierto por evidencia equivalente |
+| 8 | Fallo del proveedor | **Real** — un prompt deliberadamente sobredimensionado (~200k tokens) contra el Worker desplegado produjo un 429 real de OpenAI | ✅ `refunded`, `refund_reason: "provider_error"`, balance neto sin cambios (verificado antes/después) |
+| 9 | Timeout definitivo | No se logró forzar un timeout real de proveedor bajo demanda; el caso de `business-plan` en #10 es el proxy más cercano disponible (el runtime mata la ejecución antes de completar) | Parcialmente cubierto — ver limitación abajo |
+| 10 | Worker que termina después de responder | **Real** — `business-plan` con desconexión temprana, log oficial de Cloudflare confirmando la terminación forzada de `waitUntil()` | ✅ Confirma el techo de §16.3; la reserva queda `reserved`, recuperable, limpiada manualmente esta sesión (§16.8) |
+| 11 | Dos señales de cancelación simultáneas | Local (pglite) + en vivo (ronda 5, `e2e/credit-reservations-live.spec.ts`) sobre el CAS de `resolve_credit_reservation` | ✅ Colapsan a exactamente un resultado |
+| 12 | Cancelación compitiendo con finalización exitosa | Local (pglite) + en vivo (ronda 5) | ✅ Exactamente un resultado gana |
+| 13 | Reconciliador sobre `completed` | Local (pglite, `reservation-job-evidence.test.ts`) | ✅ `consumed`, generación vinculada |
+| 14 | Reconciliador sobre `failed` | Local (pglite) | ✅ `refunded`, evidencia `"failed"` |
+| 15 | Reconciliador sobre `aborted` | Local (pglite) | ✅ `refunded`, evidencia `"aborted"` |
+| 16 | Reconciliador sobre job todavía activo | Local (pglite) — sin evidencia, reciente → sin tocar; sin evidencia, vieja pero bajo el umbral de su herramienta → sin tocar | ✅ Ambos casos verificados |
+| 17 | Reconciliador repetido dos veces | Local (pglite) | ✅ Segunda corrida no-op, sin doble reembolso |
+| 18 | Reserva ajena | Local (pglite) — `mark_reservation_job_outcome` rechaza marcar la reserva de otro usuario; el reconciliador nunca toca la reserva de un usuario no relacionado en el mismo lote | ✅ Ambos verificados |
+| 19 | Lote con estados mixtos | Local (pglite) — completado + fallado + activo + viejo-sin-evidencia en una sola llamada | ✅ Cada uno resuelto correctamente, sin interferencia cruzada |
+| 20 | Reserva sin generación asociada | Local (pglite) — refund vía umbral por herramienta, confirmando que herramientas distintas usan umbrales distintos | ✅ Verificado, incluyendo el caso "todavía no pasó el umbral de esta herramienta lenta" |
+
+**Limitación honesta sobre #9**: no existe una forma confiable de forzar un
+timeout genuino del proveedor bajo demanda sin arriesgar comportamiento
+impredecible en producción compartida. El caso #10 (terminación forzada
+por el propio runtime) cubre el mismo resultado observable — una reserva
+que queda `reserved` sin ningún callback de aplicación — que es lo que
+importa para el diseño del reconciliador, independientemente de si la
+causa exacta fue un timeout del proveedor o un techo de `waitUntil`.
+
+Resultados requeridos, confirmados en todos los casos probados: exactamente
+un estado terminal; exactamente un consumo o reembolso; ningún crédito
+duplicado; ningún saldo negativo; ninguna reserva ajena modificada; ningún
+reembolso de una generación exitosa (el caso #2 es la prueba directa de
+esto); ninguna reserva fallida con evidencia quedó abandonada
+indefinidamente en las pruebas del reconciliador.
+
+### 16.8 Reservas QA creadas y limpiadas
+
+Todas las reservas generadas durante la investigación y las pruebas en
+vivo de esta ronda fueron resueltas antes de cerrar:
+
+| Reserva | Tool | Costo | Origen | Resolución |
+|---|---|---|---|---|
+| `0ddf7672-...` | `copywriter` | 1 | Prueba de desconexión (investigación, pre-fix) | Reembolsada manualmente — quedó `reserved` antes de que el fix de `waitUntil` completo existiera |
+| `6b551ab4-...` | `copywriter` | 1 | Prueba de desconexión (investigación, pre-fix) | Reembolsada manualmente, mismo motivo |
+| `7635e31d-...` | `business-plan` | 5 | Prueba de desconexión (investigación, pre-fix) | Reembolsada manualmente, mismo motivo |
+| `b3ee31ad-...` | `business-plan` | 5 | Prueba del techo de `waitUntil` (post-fix, confirmando el hallazgo de §16.3) | Reembolsada manualmente — este caso específico es la evidencia real de por qué el reconciliador es necesario |
+| `2cca0ce7-...` | `copywriter` | 1 | Prueba real de fallo del proveedor (#8) | Refund automático real, `refund_reason: "provider_error"` — no requirió limpieza manual |
+| `003412eb-...`, `5f18a647-...`, y las generaciones exitosas de sanity-check | `copywriter` | 1 c/u | Pruebas de éxito real (incluyendo éxito-tras-desconexión, #2) | `consumed` — legítimas, no requirieron limpieza |
+
+Balance final de la cuenta QA: **43/100 créditos usados**, cero reservas
+`reserved` pendientes (confirmado con una consulta directa antes de cerrar
+esta ronda).
+
+### 16.9 Validaciones ejecutadas
+
+- `tsc --noEmit`: limpio.
+- `vitest run`: **36 archivos, 340 tests**, todos pasando (325 de la ronda 5
+  + 15 nuevos de `reservation-job-evidence.test.ts`).
+- `npx playwright test` (suite completa, 67 tests + reintentos): **65
+  passed, 2 flaky** (pasaron en el reintento) — ambos re-ejecutados en
+  aislamiento y confirmados como no relacionados a esta ronda: uno es un
+  timeout de login preexistente en `permissions-rls.spec.ts` (pasó limpio
+  en aislamiento), el otro es la prueba de reintento tardío de
+  `credit-reservations-live.spec.ts` (sensible a la latencia real de red
+  contra la cuenta QA compartida, que esta sesión usó intensivamente).
+  Ninguno de los dos toca código modificado en esta ronda de forma que
+  explique la falla.
+- `npm run build`: exitoso.
+- Secret scan sobre el diff de archivos nuevos/modificados: sin coincidencias.
+- `npx supabase migration list --linked`: **34/34 aplicadas, cero drift** —
+  `20260728000000` presente localmente, `remote` vacío, confirmando que
+  no fue aplicada.
+- Smoke test del Worker de preview: homepage → 200; `POST
+  /api/generate-ai` sin auth → 401; `POST
+  /api/internal/reconcile-credits` sin configurar → 501 (inerte,
+  confirmado en vivo).
+- Producción (`postulpro.com`, `www.postulpro.com`): 200/200, sin cambios.
+- Logs de diagnóstico temporales: eliminados antes del commit final
+  (`71161a6`) — no quedó ningún `console.error` de diagnóstico en el
+  código desplegado.
+
+### 16.10 Commits de esta ronda
+
+En `claude/postulpro-premium-ui`, sin merge a `main`:
+
+- `71161a6` — `fix(credits): keep generations alive past client disconnect via waitUntil`
+- `5274558` — `feat(credits): evidence-based reconciler for stuck reservations (NOT APPLIED)`
+
+### 16.11 Despliegue
+
+Desplegado únicamente a `lostykk-postulpro-preview`
+(`https://lostykk-postulpro-preview.ignacioo-ch13.workers.dev`), Version ID
+final `43873ec4-fbf9-4bd8-8a39-16f61b085b8e`. Incluye el fix de `waitUntil`
+(activo) y el endpoint interno de reconciliación (desplegado pero inerte).
+La migración `20260728000000` NO fue aplicada a ningún entorno. Sin
+cambios a producción, DNS, Hotmart ni Marketplace. Sin triggers de
+Cloudflare configurados.
+
+### 16.12 Riesgos restantes y configuración externa pendiente
+
+1. **Generaciones lentas desconectadas dependen enteramente del
+   reconciliador** (no de una resolución en tiempo real) hasta que la
+   migración de §16.5 sea autorizada y aplicada — hoy, ese caso
+   específico (confirmado real en §16.3/§16.7#10) deja la reserva
+   `reserved` sin ningún mecanismo automático de cierre. No hay pérdida
+   de crédito (el estado es seguro y recuperable), pero tampoco hay
+   autorreparación todavía.
+2. **El reconciliador y su endpoint están inertes hasta 4 pasos de
+   configuración externa** (§16.6), ninguno ejecutado en esta sesión:
+   aplicar la migración, configurar 2 secretos de Cloudflare, y decidir/
+   configurar un scheduler externo. Nada de esto se activó ni se
+   configuró.
+3. **`reconcile_stale_reservations` (la versión ciega original) sigue
+   existiendo**, sin invocar, superseded por la v2 — riesgo latente si
+   alguna vez se conecta por error a un proceso automático; documentado
+   explícitamente para que nunca se use.
+4. No se pudo forzar un timeout real de proveedor bajo demanda (§16.7#9)
+   — cubierto por evidencia equivalente, no por una reproducción exacta
+   de esa causa específica.
+
+### 16.13 Dictamen final
+
+**LEDGER LISTO CON CONDICIONES**
+
+No corresponde "LEDGER LISTO PARA CUTOVER" sin reservas: aunque el diseño
+ya no depende de que el navegador avise correctamente (el reconciliador
+basado en evidencia existe, está validado localmente, y el flujo de
+aplicación ya no reembolsa nunca a ciegas por una señal de desconexión),
+**el cierre automático del ciclo para generaciones lentas y desconectadas
+todavía requiere que la migración `20260728000000` y su mecanismo de
+ejecución sean autorizados y activados** — hasta entonces, ese caso
+específico permanece seguro (nunca pierde ni duplica crédito) pero no
+autorreparado.
+
+Lo que SÍ está completamente cerrado y validado con evidencia real (no solo
+mocks): el reembolso nunca depende de que el cliente avise su desconexión;
+una generación que sigue corriendo tras la desconexión y termina bien se
+cobra correctamente; un fallo real de proveedor se reembolsa automáticamente
+sin depender de la conexión del cliente; la reconciliación, una vez
+autorizada, nunca reembolsa una generación exitosa ni dejará una reserva con
+evidencia de fallo abandonada indefinidamente.
+
+Condiciones para pasar a `LEDGER LISTO PARA CUTOVER` sin reservas:
+1. Autorización explícita y separada para aplicar
+   `supabase/migrations/20260728000000_reservation_job_evidence.sql`.
+2. Autorización explícita y separada para configurar
+   `RECONCILE_SECRET`/`SUPABASE_SERVICE_ROLE_KEY` como secretos de
+   Cloudflare y activar un scheduler externo apuntando al endpoint interno.
+3. Integrar `mark_reservation_job_outcome`/`generations.credit_reservation_id`
+   en `generate-ai.ts`/`executor.server.ts` de forma limpia y tipada
+   (requiere regenerar `types.ts` después de aplicar la migración) —
+   diseño ya completo, implementación deliberadamente diferida para no
+   introducir *casts* sin verificar contra el esquema real.
+
+No se realiza cutover visual ni se despliega código nuevo a producción sin
+una autorización adicional y separada. Se detiene esta tarea aquí, a la
+espera de esa autorización.
