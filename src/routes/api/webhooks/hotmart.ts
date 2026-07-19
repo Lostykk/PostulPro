@@ -211,6 +211,27 @@ async function handlePost({ request }: { request: Request }) {
     return json({ ok: true, message: "ignored" }, 200);
   }
 
+  // Currency is validated against the mapped offer's expected currency,
+  // never used to infer the plan (see hotmart.server.ts's
+  // HotmartOfferMapping.expectedCurrency and Fase D's explicit "no
+  // mapear por moneda solamente" rule). A mismatch on an otherwise
+  // correctly-mapped offer is unusual enough (a different storefront
+  // currency, a misconfigured offer) to hold for review rather than
+  // silently grant access at a price point that was never actually
+  // approved for that currency.
+  if (mapping && event.currency && event.currency.toUpperCase() !== mapping.expectedCurrency) {
+    await supabaseAdmin
+      .from("hotmart_events")
+      .update({
+        processing_status: "error",
+        processed_at: new Date().toISOString(),
+        last_error: `unexpected currency: ${event.currency}`,
+      })
+      .eq("id", hotmartEventRowId);
+    log({ result: "error", reason: "unexpected_currency", latency_ms: Date.now() - startedAt });
+    return json({ ok: false, error: "Unexpected currency" }, 400);
+  }
+
   // Resolve user_id: for the very first event on a subscription (no
   // existing subscriptions row for this provider_subscription_id yet),
   // resolve the buyer by email (existing account or invite a new one —

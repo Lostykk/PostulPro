@@ -407,6 +407,74 @@ describe("Hotmart migrations dry-run (local pglite, never the shared remote proj
     expect(sub.rows[0].status).toBe("active"); // from the renewal, not overwritten by the stale event
   });
 
+  it("reactivation restores the plan from the subscription's own stored data, never double-crediting", async () => {
+    const purchaseKey = "reactPurchase".padEnd(32, "0");
+    await insertPendingEvent(db, { idempotencyKey: purchaseKey, eventType: "purchase_approved" });
+    await callRpc(db, {
+      idempotencyKey: purchaseKey,
+      eventType: "purchase_approved",
+      userId: USER_A,
+      providerSubscriptionId: "SUB8",
+      plan: "business",
+      billingInterval: "year",
+      creditsLimit: 500,
+    });
+
+    const cancelKey = "reactCancel".padEnd(32, "0");
+    await insertPendingEvent(db, { idempotencyKey: cancelKey, eventType: "subscription_cancelled" });
+    await callRpc(db, { idempotencyKey: cancelKey, eventType: "subscription_cancelled", providerSubscriptionId: "SUB8" });
+
+    const reactKey = "reactEvent".padEnd(32, "0");
+    await insertPendingEvent(db, { idempotencyKey: reactKey, eventType: "reactivation" });
+    const row = await callRpc(db, { idempotencyKey: reactKey, eventType: "reactivation", providerSubscriptionId: "SUB8", status: "active" });
+    expect(row.ok).toBe(true);
+
+    const user = await db.query<{ plan: string; credits_limit: number }>(`SELECT plan, credits_limit FROM public.users WHERE id = $1`, [
+      USER_A,
+    ]);
+    expect(user.rows[0]).toEqual({ plan: "business", credits_limit: 500 });
+
+    const sub = await db.query<{ cancelled: boolean; status: string }>(
+      `SELECT cancelled, status FROM public.subscriptions WHERE provider_subscription_id = 'SUB8'`,
+    );
+    expect(sub.rows[0]).toEqual({ cancelled: false, status: "active" });
+  });
+
+  it("plan_change updates plan/credits the same way a fresh purchase does", async () => {
+    const purchaseKey = "planChangePurchase".padEnd(32, "0");
+    await insertPendingEvent(db, { idempotencyKey: purchaseKey, eventType: "purchase_approved" });
+    await callRpc(db, {
+      idempotencyKey: purchaseKey,
+      eventType: "purchase_approved",
+      userId: USER_A,
+      providerSubscriptionId: "SUB9",
+      plan: "pro",
+      billingInterval: "month",
+      creditsLimit: 100,
+    });
+
+    const changeKey = "planChangeEvent".padEnd(32, "0");
+    await insertPendingEvent(db, { idempotencyKey: changeKey, eventType: "plan_change" });
+    const row = await callRpc(db, {
+      idempotencyKey: changeKey,
+      eventType: "plan_change",
+      userId: USER_A,
+      providerSubscriptionId: "SUB9",
+      plan: "business",
+      billingInterval: "month",
+      creditsLimit: 500,
+      status: "active",
+    });
+    expect(row.ok).toBe(true);
+    // plan_change never sends the welcome email — only purchase_approved does.
+    expect(row.notify_kind).toBeNull();
+
+    const user = await db.query<{ plan: string; credits_limit: number }>(`SELECT plan, credits_limit FROM public.users WHERE id = $1`, [
+      USER_A,
+    ]);
+    expect(user.rows[0]).toEqual({ plan: "business", credits_limit: 500 });
+  });
+
   it("only anon (not authenticated, not PUBLIC) may execute the function", async () => {
     const grants = await db.query<{ grantee: string; privilege_type: string }>(
       `SELECT grantee, privilege_type FROM information_schema.routine_privileges

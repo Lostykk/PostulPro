@@ -258,6 +258,19 @@ describe("POST /api/webhooks/hotmart", () => {
     expect(calls.find((c) => c.rpcName === "process_hotmart_event")).toBeUndefined();
   });
 
+  it("rejects an unexpected currency on an otherwise-mapped offer", async () => {
+    const res = await handler({ request: makeRequest(approvedPurchaseBody({ currency: "BRL" })) });
+    expect(res.status).toBe(400);
+    expect(calls.find((c) => c.rpcName === "process_hotmart_event")).toBeUndefined();
+  });
+
+  it("accepts the matching expected currency", async () => {
+    activeScenario.usersLookup = { data: { id: "existing-user-1" }, error: null };
+    const res = await handler({ request: makeRequest(approvedPurchaseBody({ currency: "USD" })) });
+    expect(res.status).toBe(200);
+    expect(calls.find((c) => c.rpcName === "process_hotmart_event")).toBeTruthy();
+  });
+
   it("rejects a body over the size limit with 413", async () => {
     const hugeEmail = "a".repeat(200_000);
     const res = await handler({ request: makeRequest(approvedPurchaseBody({ email: hugeEmail })) });
