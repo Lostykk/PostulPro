@@ -8,6 +8,7 @@ import { defineConfig } from "@lovable.dev/vite-tanstack-config";
 import { fileURLToPath } from "node:url";
 
 const reconcileTaskPath = fileURLToPath(new URL("./tasks/reconcile-credits.ts", import.meta.url));
+const reconcileHotmartTaskPath = fileURLToPath(new URL("./tasks/reconcile-hotmart.ts", import.meta.url));
 
 export default defineConfig({
   tanstackStart: {
@@ -65,6 +66,17 @@ export default defineConfig({
       "reconcile-credits": {
         handler: reconcileTaskPath,
         description: "Reconcile stale credit_reservations via reconcile_stale_reservations_v2",
+      },
+      // Fase I (Hotmart commercial reconciliation) — registered so it's
+      // bundled and invocable via runTask("reconcile-hotmart", ...) for
+      // manual/preview testing, but deliberately NOT added to
+      // `scheduledTasks` below: no Cron Trigger for this task in any
+      // environment yet. Activating it in production is a separate,
+      // later, explicitly authorized step — see
+      // docs/hotmart-integration-report.md §I.
+      "reconcile-hotmart": {
+        handler: reconcileHotmartTaskPath,
+        description: "Reconcile stale Hotmart subscriptions/events via reconcile_hotmart_stale",
       },
     },
     scheduledTasks: {

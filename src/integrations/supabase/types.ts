@@ -621,6 +621,147 @@ export type Database = {
           },
         ];
       };
+      hotmart_events: {
+        Row: {
+          action_taken: string | null;
+          buyer_email: string | null;
+          buyer_external_id: string | null;
+          created_at: string;
+          event_type: string;
+          external_event_id: string | null;
+          id: string;
+          idempotency_key: string;
+          last_error: string | null;
+          offer_id: string | null;
+          payload_hash: string | null;
+          processed_at: string | null;
+          processing_attempts: number;
+          processing_status: string;
+          product_id: string | null;
+          received_at: string;
+          subscription_id: string | null;
+          transaction_id: string | null;
+          user_id: string | null;
+        };
+        Insert: {
+          action_taken?: string | null;
+          buyer_email?: string | null;
+          buyer_external_id?: string | null;
+          created_at?: string;
+          event_type: string;
+          external_event_id?: string | null;
+          id?: string;
+          idempotency_key: string;
+          last_error?: string | null;
+          offer_id?: string | null;
+          payload_hash?: string | null;
+          processed_at?: string | null;
+          processing_attempts?: number;
+          processing_status?: string;
+          product_id?: string | null;
+          received_at?: string;
+          subscription_id?: string | null;
+          transaction_id?: string | null;
+          user_id?: string | null;
+        };
+        Update: {
+          action_taken?: string | null;
+          buyer_email?: string | null;
+          buyer_external_id?: string | null;
+          created_at?: string;
+          event_type?: string;
+          external_event_id?: string | null;
+          id?: string;
+          idempotency_key?: string;
+          last_error?: string | null;
+          offer_id?: string | null;
+          payload_hash?: string | null;
+          processed_at?: string | null;
+          processing_attempts?: number;
+          processing_status?: string;
+          product_id?: string | null;
+          received_at?: string;
+          subscription_id?: string | null;
+          transaction_id?: string | null;
+          user_id?: string | null;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "hotmart_events_user_id_fkey";
+            columns: ["user_id"];
+            isOneToOne: false;
+            referencedRelation: "users";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      hotmart_pending_links: {
+        Row: {
+          buyer_email: string;
+          created_at: string;
+          hotmart_event_id: string;
+          id: string;
+          offer_id: string | null;
+          product_id: string | null;
+          resolved_at: string | null;
+          resolved_by: string | null;
+          resolved_user_id: string | null;
+          status: string;
+          subscription_id: string | null;
+          transaction_id: string | null;
+        };
+        Insert: {
+          buyer_email: string;
+          created_at?: string;
+          hotmart_event_id: string;
+          id?: string;
+          offer_id?: string | null;
+          product_id?: string | null;
+          resolved_at?: string | null;
+          resolved_by?: string | null;
+          resolved_user_id?: string | null;
+          status?: string;
+          subscription_id?: string | null;
+          transaction_id?: string | null;
+        };
+        Update: {
+          buyer_email?: string;
+          created_at?: string;
+          hotmart_event_id?: string;
+          id?: string;
+          offer_id?: string | null;
+          product_id?: string | null;
+          resolved_at?: string | null;
+          resolved_by?: string | null;
+          resolved_user_id?: string | null;
+          status?: string;
+          subscription_id?: string | null;
+          transaction_id?: string | null;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "hotmart_pending_links_hotmart_event_id_fkey";
+            columns: ["hotmart_event_id"];
+            isOneToOne: false;
+            referencedRelation: "hotmart_events";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "hotmart_pending_links_resolved_by_fkey";
+            columns: ["resolved_by"];
+            isOneToOne: false;
+            referencedRelation: "users";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "hotmart_pending_links_resolved_user_id_fkey";
+            columns: ["resolved_user_id"];
+            isOneToOne: false;
+            referencedRelation: "users";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
       landing_publications: {
         Row: {
           created_at: string;
@@ -1037,6 +1178,19 @@ export type Database = {
       [_ in never]: never;
     };
     Functions: {
+      admin_resolve_hotmart_pending_link: {
+        Args: {
+          p_billing_interval: string;
+          p_credits_limit: number;
+          p_pending_link_id: string;
+          p_plan: string;
+          p_target_user_id: string;
+        };
+        Returns: {
+          message: string;
+          ok: boolean;
+        }[];
+      };
       admin_update_user_plan: {
         Args: { p_new_plan: string; p_target_user_id: string };
         Returns: {
@@ -1071,6 +1225,19 @@ export type Database = {
         Returns: {
           allowed: boolean;
           daily_remaining: number;
+          remaining: number;
+          reset_at: string;
+        }[];
+      };
+      claim_webhook_rate_limit: {
+        Args: {
+          p_max_requests: number;
+          p_rate_key: string;
+          p_secret: string;
+          p_window_seconds: number;
+        };
+        Returns: {
+          allowed: boolean;
           remaining: number;
           reset_at: string;
         }[];
@@ -1154,6 +1321,32 @@ export type Database = {
         Returns: undefined;
       };
       pause_ai_project: { Args: { p_project_id: string }; Returns: undefined };
+      process_hotmart_event: {
+        Args: {
+          p_billing_interval: string;
+          p_credits_limit: number;
+          p_ends_at?: string;
+          p_event_type: string;
+          p_idempotency_key: string;
+          p_offer_id: string;
+          p_plan: string;
+          p_product_id: string;
+          p_provider_customer_id: string;
+          p_provider_subscription_id: string;
+          p_provider_updated_at?: string;
+          p_renews_at?: string;
+          p_secret: string;
+          p_status: string;
+          p_user_id: string;
+        };
+        Returns: {
+          message: string;
+          notify_email: string;
+          notify_kind: string;
+          notify_plan: string;
+          ok: boolean;
+        }[];
+      };
       process_lemon_squeezy_event: {
         Args: {
           p_cancelled: boolean;
@@ -1187,6 +1380,13 @@ export type Database = {
         Returns: {
           published_at: string;
           slug: string;
+        }[];
+      };
+      reconcile_hotmart_stale: {
+        Args: { p_batch_limit?: number };
+        Returns: {
+          expired_subscriptions: number;
+          stuck_events_flagged: number;
         }[];
       };
       reconcile_stale_reservations: {
