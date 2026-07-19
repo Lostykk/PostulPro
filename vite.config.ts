@@ -5,6 +5,9 @@
 //     error logger plugins, and sandbox detection (port/host/strictPort).
 // You can pass additional config via defineConfig({ vite: { ... }, etc... }) if needed.
 import { defineConfig } from "@lovable.dev/vite-tanstack-config";
+import { fileURLToPath } from "node:url";
+
+const reconcileTaskPath = fileURLToPath(new URL("./tasks/reconcile-credits.ts", import.meta.url));
 
 export default defineConfig({
   tanstackStart: {
@@ -12,4 +15,45 @@ export default defineConfig({
     // nitro/vite builds from this
     server: { entry: "server" },
   },
+  // Enables Nitro's official (if still labeled experimental) Tasks
+  // feature — tasks/*.ts files become invocable via runTask(), and the
+  // cloudflare-module preset's own generated scheduled() handler gains a
+  // real dispatch path to them (see node_modules/nitro/dist/_build/
+  // common.mjs's `_tasks: nitro.options.experimental.tasks` and
+  // presets/cloudflare/runtime/_module-handler.mjs's
+  // `if (import.meta._tasks) { context.waitUntil(runCronTasks(...)) }`,
+  // both read and confirmed before relying on this). This flag alone,
+  // with no `scheduledTasks` mapping, registers the task but wires no
+  // Cron Trigger — Cloudflare only ever calls scheduled() at all for a
+  // Worker that has one actually registered, which requires a
+  // `[triggers]` entry in wrangler config that nothing here adds.
+  //
+  // Cast: @lovable.dev/vite-tanstack-config's declared `nitro` option
+  // type deliberately only exposes a narrow, stable subset of Nitro v3's
+  // (pre-RC) config surface — `experimental` isn't in that declared
+  // type. At runtime the wrapper does a plain object spread with no
+  // validation (`{ defaultPreset: "cloudflare-module", ...userNitroOpts }`
+  // passed straight to `nitro()`), so this reaches real Nitro unchanged —
+  // verified by inspecting the compiled bundle after this build, not
+  // assumed. Documented risk: a future wrapper version could add runtime
+  // validation that strips unknown keys, which would silently disable
+  // this without a build error.
+  // `tasks/reconcile-credits.ts` alone is not enough — Nitro's file-based
+  // scanning of `tasks/` isn't active in this project's build (same root
+  // cause already found for `server/plugins/`: confirmed by building
+  // with only `experimental.tasks: true` and finding `var tasks = {}` —
+  // an empty registry — in the compiled bundle). Registering the task
+  // explicitly here bypasses directory scanning entirely by pointing
+  // straight at the file, per Nitro's own documented config-based
+  // registration path (nitro/docs/tasks, "Registering tasks via config").
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- see comment above
+  nitro: {
+    experimental: { tasks: true },
+    tasks: {
+      "reconcile-credits": {
+        handler: reconcileTaskPath,
+        description: "Reconcile stale credit_reservations via reconcile_stale_reservations_v2",
+      },
+    },
+  } as any,
 });

@@ -1,18 +1,21 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { timingSafeEqual } from "node:crypto";
-import { createClient } from "@supabase/supabase-js";
-import type { Database } from "@/integrations/supabase/types";
-import { ReconcileRejected, runReconciliation } from "@/lib/ai/reconcile-credits.server";
+import { runTask } from "nitro/task";
+import type { ReconciliationSummary } from "@/lib/ai/reconcile-credits.server";
 
-// Internal endpoint invoking reconcile_stale_reservations_v2 (from
-// supabase/migrations/20260728000000_reservation_job_evidence.sql, applied
-// to ccpejnklrfvgtwryqfrw) via the shared runReconciliation() runner (see
-// lib/ai/reconcile-credits.server.ts — the same function server.ts's
-// scheduled() export calls, so there is exactly one invocation path, not
-// two that could drift). Secrets (RECONCILE_SECRET,
-// SUPABASE_SERVICE_ROLE_KEY) are configured on the preview Worker only —
-// deployed to lostykk-postulpro-preview, deliberately NOT deployed to
-// production.
+// Internal endpoint dispatching to the "reconcile-credits" Nitro Task
+// (tasks/reconcile-credits.ts) via runTask() — the exact same dispatch
+// mechanism a real Cloudflare Cron Trigger would use
+// (scheduled() -> runCronTasks() -> runTask()), exercised here through
+// this already-secret-gated HTTP channel instead of needing an actual
+// Cron Trigger configured anywhere. The task itself calls the shared
+// runReconciliation() runner (lib/ai/reconcile-credits.server.ts), which
+// is the only place that ever calls reconcile_stale_reservations_v2 (from
+// supabase/migrations/20260728000000_reservation_job_evidence.sql,
+// applied to ccpejnklrfvgtwryqfrw) — no logic duplicated in either layer.
+// Secrets (RECONCILE_SECRET, SUPABASE_SERVICE_ROLE_KEY) are configured on
+// the preview Worker only — deployed to lostykk-postulpro-preview,
+// deliberately NOT deployed to production.
 //
 // Not wired to any Cloudflare Cron Trigger — no `[triggers] crons = [...]`
 // exists in wrangler.jsonc, and none should be added without separate
@@ -57,26 +60,29 @@ async function handlePost({ request }: { request: Request }) {
     /* no body / invalid JSON — the runner falls back to its own default */
   }
 
-  // service_role client — never derived from a caller's session, and this
-  // route never accepts or forwards a client-supplied user_id, so there is
-  // no way for a caller to target an arbitrary user's reservation through
-  // this endpoint even with a valid secret.
-  const supabase = createClient<Database>(SUPABASE_URL, SERVICE_ROLE_KEY, {
-    auth: { persistSession: false, autoRefreshToken: false, storage: undefined },
-  });
-
+  // No client-supplied user_id/reservation_id of any kind reaches the
+  // task — only the batch size, clamped by the runner itself regardless
+  // of what's passed here.
   try {
-    const summary = await runReconciliation(supabase, batchLimit, "http");
-    if (!summary.ok) return json({ error: "Reconciliation failed" }, 500);
-    return json(summary);
-  } catch (err) {
-    if (err instanceof ReconcileRejected) {
-      return json(
-        { error: "Reconciliation already in progress or called too soon", reason: err.reason },
-        429,
-        { "Retry-After": "5" },
-      );
+    const { result } = await runTask("reconcile-credits", {
+      payload: { batchLimit, triggerSource: "http" },
+    });
+    const summary = result as ReconciliationSummary;
+    if (!summary.ok) {
+      // The task catches the shared runner's concurrency/rate-limit
+      // guard internally and reports it as errorMessage rather than
+      // letting runTask() throw — see tasks/reconcile-credits.ts.
+      if (summary.errorMessage === "concurrent" || summary.errorMessage === "rate_limited") {
+        return json(
+          { error: "Reconciliation already in progress or called too soon", reason: summary.errorMessage },
+          429,
+          { "Retry-After": "5" },
+        );
+      }
+      return json({ error: "Reconciliation failed" }, 500);
     }
+    return json(summary);
+  } catch {
     return json({ error: "Reconciliation failed" }, 500);
   }
 }
