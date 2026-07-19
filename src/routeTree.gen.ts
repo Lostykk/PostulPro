@@ -34,6 +34,7 @@ import { Route as ApiProjectsIndexRouteImport } from './routes/api/projects/inde
 import { Route as AuthenticatedToolsIndexRouteImport } from './routes/_authenticated/tools.index'
 import { Route as AuthenticatedProjectsIndexRouteImport } from './routes/_authenticated/projects.index'
 import { Route as AuthenticatedMarketplaceIndexRouteImport } from './routes/_authenticated/marketplace.index'
+import { Route as ApiWebhooksHotmartRouteImport } from './routes/api/webhooks/hotmart'
 import { Route as ApiProjectsCapabilitiesRouteImport } from './routes/api/projects/capabilities'
 import { Route as ApiProjectsIdRouteImport } from './routes/api/projects/$id'
 import { Route as ApiNotificationsWelcomeRouteImport } from './routes/api/notifications/welcome'
@@ -190,6 +191,11 @@ const AuthenticatedMarketplaceIndexRoute =
     path: '/',
     getParentRoute: () => AuthenticatedMarketplaceRoute,
   } as any)
+const ApiWebhooksHotmartRoute = ApiWebhooksHotmartRouteImport.update({
+  id: '/api/webhooks/hotmart',
+  path: '/api/webhooks/hotmart',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiProjectsCapabilitiesRoute = ApiProjectsCapabilitiesRouteImport.update({
   id: '/api/projects/capabilities',
   path: '/api/projects/capabilities',
@@ -384,6 +390,7 @@ export interface FileRoutesByFullPath {
   '/api/notifications/welcome': typeof ApiNotificationsWelcomeRoute
   '/api/projects/$id': typeof ApiProjectsIdRouteWithChildren
   '/api/projects/capabilities': typeof ApiProjectsCapabilitiesRoute
+  '/api/webhooks/hotmart': typeof ApiWebhooksHotmartRoute
   '/marketplace/': typeof AuthenticatedMarketplaceIndexRoute
   '/projects/': typeof AuthenticatedProjectsIndexRoute
   '/tools/': typeof AuthenticatedToolsIndexRoute
@@ -437,6 +444,7 @@ export interface FileRoutesByTo {
   '/api/notifications/welcome': typeof ApiNotificationsWelcomeRoute
   '/api/projects/$id': typeof ApiProjectsIdRouteWithChildren
   '/api/projects/capabilities': typeof ApiProjectsCapabilitiesRoute
+  '/api/webhooks/hotmart': typeof ApiWebhooksHotmartRoute
   '/marketplace': typeof AuthenticatedMarketplaceIndexRoute
   '/projects': typeof AuthenticatedProjectsIndexRoute
   '/tools': typeof AuthenticatedToolsIndexRoute
@@ -493,6 +501,7 @@ export interface FileRoutesById {
   '/api/notifications/welcome': typeof ApiNotificationsWelcomeRoute
   '/api/projects/$id': typeof ApiProjectsIdRouteWithChildren
   '/api/projects/capabilities': typeof ApiProjectsCapabilitiesRoute
+  '/api/webhooks/hotmart': typeof ApiWebhooksHotmartRoute
   '/_authenticated/marketplace/': typeof AuthenticatedMarketplaceIndexRoute
   '/_authenticated/projects/': typeof AuthenticatedProjectsIndexRoute
   '/_authenticated/tools/': typeof AuthenticatedToolsIndexRoute
@@ -549,6 +558,7 @@ export interface FileRouteTypes {
     | '/api/notifications/welcome'
     | '/api/projects/$id'
     | '/api/projects/capabilities'
+    | '/api/webhooks/hotmart'
     | '/marketplace/'
     | '/projects/'
     | '/tools/'
@@ -602,6 +612,7 @@ export interface FileRouteTypes {
     | '/api/notifications/welcome'
     | '/api/projects/$id'
     | '/api/projects/capabilities'
+    | '/api/webhooks/hotmart'
     | '/marketplace'
     | '/projects'
     | '/tools'
@@ -657,6 +668,7 @@ export interface FileRouteTypes {
     | '/api/notifications/welcome'
     | '/api/projects/$id'
     | '/api/projects/capabilities'
+    | '/api/webhooks/hotmart'
     | '/_authenticated/marketplace/'
     | '/_authenticated/projects/'
     | '/_authenticated/tools/'
@@ -695,6 +707,7 @@ export interface RootRouteChildren {
   ApiNotificationsWelcomeRoute: typeof ApiNotificationsWelcomeRoute
   ApiProjectsIdRoute: typeof ApiProjectsIdRouteWithChildren
   ApiProjectsCapabilitiesRoute: typeof ApiProjectsCapabilitiesRoute
+  ApiWebhooksHotmartRoute: typeof ApiWebhooksHotmartRoute
   ApiProjectsIndexRoute: typeof ApiProjectsIndexRoute
 }
 
@@ -874,6 +887,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/marketplace/'
       preLoaderRoute: typeof AuthenticatedMarketplaceIndexRouteImport
       parentRoute: typeof AuthenticatedMarketplaceRoute
+    }
+    '/api/webhooks/hotmart': {
+      id: '/api/webhooks/hotmart'
+      path: '/api/webhooks/hotmart'
+      fullPath: '/api/webhooks/hotmart'
+      preLoaderRoute: typeof ApiWebhooksHotmartRouteImport
+      parentRoute: typeof rootRouteImport
     }
     '/api/projects/capabilities': {
       id: '/api/projects/capabilities'
@@ -1190,6 +1210,7 @@ const rootRouteChildren: RootRouteChildren = {
   ApiNotificationsWelcomeRoute: ApiNotificationsWelcomeRoute,
   ApiProjectsIdRoute: ApiProjectsIdRouteWithChildren,
   ApiProjectsCapabilitiesRoute: ApiProjectsCapabilitiesRoute,
+  ApiWebhooksHotmartRoute: ApiWebhooksHotmartRoute,
   ApiProjectsIndexRoute: ApiProjectsIndexRoute,
 }
 export const routeTree = rootRouteImport
