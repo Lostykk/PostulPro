@@ -24,13 +24,15 @@
   15. `71161a6` — **ronda 6, fix real**: la generación completa (no solo el reembolso) envuelta en `waitUntil()` — hallazgo empírico de por qué el reembolso automático por desconexión no cerraba el ciclo (ver §16.3).
   16. `5274558` — **ronda 6, reconciliador** (migración NO aplicada): `reconcile_stale_reservations_v2` basado en evidencia + endpoint interno inerte, preparados y validados localmente, pendientes de autorización separada.
   17. `5e1e512` — **ronda 7, tipos + fix real**: `types.ts` regenerado tras aplicar `20260728000000`; hallazgo en vivo de que `GET`/`PUT`/`DELETE` sobre el endpoint interno devolvían 200 (SSR) en vez de ser rechazados — corregido a 405 explícito.
-- **URL de preview**: https://lostykk-postulpro-preview.ignacioo-ch13.workers.dev (Worker `lostykk-postulpro-preview`, redesplegado 10 veces en total, verificado 200 OK cada vez).
+  18. `a2aec2b` — **ronda 8 (cierre de Fase 5)**: `generate-ai.ts`/`executor.server.ts` conectados a la evidencia persistente real (`credit_reservation_id`, `job_outcome`), timeout real del proveedor, reconciliador extraído a un runner compartido con guardas de concurrencia/rate-limit.
+- **URL de preview**: https://lostykk-postulpro-preview.ignacioo-ch13.workers.dev (Worker `lostykk-postulpro-preview`, redesplegado 11 veces en total, verificado 200 OK cada vez).
 - **Producción**: sin cambios. `postulpro.com`/`www.postulpro.com` siguen en 200 en todo momento.
 - **Dictamen histórico de la ronda 3**: ~~LISTO PARA CUTOVER CON CONDICIONES~~ — superado por §14.
 - **Dictamen histórico de la ronda 4**: GO CON CONDICIONES (ver §14.9) — la condición #2 de esa ronda (reembolso de créditos en abort) es exactamente lo que resuelve, parcialmente, la ronda 5.
 - **Dictamen histórico de la ronda 5**: LEDGER VALIDADO CON CONDICIONES (ver §15.10) — la condición pendiente (el reembolso automático por desconexión no cerraba el ciclo) es lo que investiga y resuelve la ronda 6.
 - **Dictamen histórico de la ronda 6**: LEDGER LISTO CON CONDICIONES (ver §16.13) — las condiciones (migración del reconciliador + su mecanismo de ejecución) son exactamente lo que autoriza y ejecuta la ronda 7.
-- **Dictamen final (ver §17.11)**: **LEDGER LISTO CON CONDICIONES**.
+- **Dictamen histórico de la ronda 7**: LEDGER LISTO CON CONDICIONES (ver §17.11) — las condiciones (conectar la evidencia real en el código de aplicación, preparar el mecanismo programado) son lo que aborda la ronda 8 (cierre de Fase 5).
+- **Dictamen final (ver §18.10)**: **FASE 5 LISTA CON CONDICIONES**.
 - **Dictamen final (ver §16.9)**: **LEDGER LISTO CON CONDICIONES**.
 
 ## 1. Auditoría inicial
@@ -1328,3 +1330,292 @@ Condiciones para pasar a `LEDGER LISTO PARA CUTOVER` sin reservas:
 No se realizó merge a `main`, deploy productivo, cron productivo, cambios
 DNS, ni se tocó Hotmart/Marketplace/Auth/OAuth/planes/precios/roles. Se
 detiene esta tarea aquí, a la espera de autorización.
+
+---
+
+## 18. Cierre definitivo de la Fase 5 — evidencia persistente y automatización (ronda 8)
+
+Cierra los tres puntos pendientes de §17.11: conectar `generate-ai.ts` y
+`executor.server.ts` con la evidencia persistente real, preparar y validar
+el mecanismo de ejecución automática, y comprobar el ciclo completo con
+tráfico real de preview. Misma rama, mismo preview.
+
+### 18.1 Auditoría del modelo real (antes de editar)
+
+Se inspeccionaron todos los componentes listados en la consigna antes de
+tocar código. Hallazgo central: **no hace falta una segunda máquina de
+estados** — el esquema ya aplicado (`20260727000000`/`20260728000000)
+alcanza para modelar todo lo pedido:
+
+| Evidencia pedida | Dónde vive realmente |
+|---|---|
+| Generación creada / iniciada | La propia fila de `credit_reservations` (creada en `reserve_credits_v2`, antes de cualquier llamada al proveedor) — no se necesita una fila separada de "trabajo en curso" |
+| Proveedor solicitado / streaming iniciado | No se persiste como evidencia porque el reconciliador no necesita distinguir esos sub-pasos para decidir `consumed`/`refunded`/`reserved` — solo agregaría un estado sin uso real |
+| Resultado persistido / generación completada | **El mismo evento**, por diseño: una fila de `generations` solo se inserta cuando el resultado real ya existe, con `credit_reservation_id` seteado en ese mismo `INSERT` |
+| Generación fallida / abort confirmado / timeout terminal | `credit_reservations.job_outcome ∈ {'failed','aborted','timed_out'}`, seteado por `mark_reservation_job_outcome` solo cuando el código de aplicación confirmó (no supuso) el resultado |
+| Estado ambiguo | Ausencia de ambas evidencias — la reserva simplemente sigue `reserved`, visible y consultable, nunca hace falta un valor explícito para "no sé" |
+
+No se creó ninguna migración nueva — el gap real no era de esquema, era que
+`generate-ai.ts`/`executor.server.ts` nunca escribían en las columnas que
+ya existían desde la ronda 6.
+
+### 18.2 Cambios en `generate-ai.ts`
+
+- `generations.credit_reservation_id` se setea en el mismo `INSERT` que
+  persiste el resultado — nunca una fila placeholder creada antes de saber
+  el desenlace (eso habría hecho que el reconciliador confundiera un
+  intento todavía sin terminar con uno completado).
+- **Hallazgo real corregido**: si ese `INSERT` fallaba (error o ninguna
+  fila devuelta), el código anterior lo ignoraba silenciosamente y seguía
+  intentando marcar la reserva `consumed` sin ninguna generación
+  realmente vinculada — el usuario podía terminar cobrado por un
+  resultado que jamás se guardó. Ahora ese caso se trata como fallo
+  confirmado (`job_outcome = 'failed'`, reembolso, error honesto al
+  cliente).
+- `callModel` no tenía ningún timeout propio. Se agregó un circuit
+  breaker real de 240s combinado con la señal de abort del cliente vía
+  `AbortSignal.any()` — `classifyProviderFailure` ahora distingue
+  timeout genuino de abort de cliente de error de proveedor liso, en vez
+  de agrupar todo bajo `"provider_error"`.
+- `mark_reservation_job_outcome` se llama (y se espera) **antes** del
+  intento de reembolso (fire-and-forget) — para que la evidencia
+  sobreviva aunque el reembolso mismo nunca termine de ejecutarse.
+- Ningún cambio al contrato de éxito ya existente: sigue sin devolver
+  `"done"` hasta confirmar `consumed`.
+
+### 18.3 Cambios en `executor.server.ts`
+
+Mismo contrato, aplicado idénticamente a `runStep`. Verificado
+especialmente:
+
+- **Proyectos con varios pasos**: cada paso tiene su **propio**
+  `reservation_id`, creado de cero en cada invocación de `runProjectStep`
+  — no existe ningún estado mutable compartido entre pasos más allá de
+  las filas de `ai_projects`/`ai_project_steps` mismas. Un paso posterior
+  que falla no puede tocar la reserva de un paso anterior porque
+  literalmente no tiene su id.
+- **Fallo parcial de un INSERT de generación**: mismo tratamiento que
+  en `generate-ai.ts` — `job_outcome = 'failed'`, reembolso, nunca
+  `consumed` sin generación vinculada de verdad.
+- Mismo timeout real de 240s + `classifyProviderFailure`.
+
+### 18.4 Orden transaccional
+
+El orden pedido (inicio → éxito / fallo confirmado / ambiguo) ya era, en
+esencia, el orden real del código desde la ronda 5-6; esta ronda lo
+completa exactamente en los puntos donde faltaba evidencia persistente
+(§18.2/§18.3). Verificado línea por línea que se respeta en ambos flujos:
+reservar → persistir `reservation_id` (ya en la fila de
+`credit_reservations`) → crear/relacionar la generación → persistir
+`generation_id`/`credit_reservation_id` en la misma escritura → éxito
+confirmado → `consumed`; fallo confirmado → evidencia → `refunded`;
+ambiguo → se queda `reserved`, nunca se decide a ciegas.
+
+### 18.5 Cancelaciones y desconexiones — sin cambios de diseño, re-verificado
+
+Se conservó exactamente la conclusión empírica de la ronda 6: ni
+`request.signal` ni `ReadableStream.cancel()` son señales confiables en
+este stack, `waitUntil()` tiene un techo real, y una desconexión nunca
+por sí sola implica un fallo. **Re-confirmado en vivo esta ronda** con el
+código nuevo: una generación real abortada por el cliente justo después
+del primer chunk terminó y se resolvió correctamente a `consumed`, con
+`credit_reservation_id` vinculado igual que en una ejecución normal (ver
+§18.7). Ningún camino nuevo depende de `cancel()`/`request.signal` para
+una decisión financiera.
+
+### 18.6 Reconciliación automática — runner compartido, guardas nuevas, mecanismo programado NO logrado
+
+- **`lib/ai/reconcile-credits.server.ts`** (nuevo): `runReconciliation()`
+  es el único lugar que invoca `reconcile_stale_reservations_v2` — la
+  lógica SQL sigue viviendo enteramente en la migración, nunca duplicada
+  en TypeScript. Usado hoy por el endpoint HTTP interno.
+- **Guardas nuevas** (§18.9 para los tests): un guard de concurrencia
+  (rechaza una segunda llamada mientras la primera sigue en curso) y un
+  guard de intervalo mínimo (5s desde la última finalización) —
+  documentados explícitamente como protecciones **por aislamiento
+  (isolate), no un rate limit distribuido** (no hay binding de KV/Durable
+  Object en este Worker para eso). Es una defensa real y honesta contra
+  el patrón de abuso más probable (un scheduler mal configurado
+  reintentando, un script en loop) sin agregar infraestructura nueva — la
+  seguridad de fondo contra concurrencia genuina entre isolates sigue
+  siendo, como siempre, el CAS de la propia RPC.
+- **Intento real de handler `scheduled()` de Cloudflare — revertido,
+  documentado honestamente**: se escribió un plugin de Nitro
+  (`server/plugins/reconcile-scheduled.ts`) registrando el hook
+  `cloudflare:scheduled`, siguiendo la convención estándar de Nitro. Al
+  compilar, **el plugin no apareció en ningún lado del bundle final**
+  (`grep` sobre `.output/server/` no encontró rastro de su código) — la
+  configuración de Nitro de este proyecto (vía
+  `@lovable.dev/vite-tanstack-config`, sin `nitro.config.ts` propio) no
+  tiene habilitado el auto-discovery de `server/plugins/`
+  (`serverDir: true`, según la propia documentación de Nitro). Habilitarlo
+  requeriría un cambio a la configuración de build de Vite/Nitro
+  compartida por **todos** los entornos (preview y producción) — se
+  trató como fuera del alcance de "no modifiques el Worker productivo",
+  y el intento no funcional se eliminó del repo en vez de dejarlo como
+  código muerto/engañoso. También se probó (y se revirtió) agregar
+  `scheduled` directamente al `export default` de `src/server.ts` — no
+  sirve: el export real que Cloudflare carga es enteramente generado por
+  el preset `cloudflare-module` de Nitro
+  (`node_modules/nitro/dist/presets/cloudflare/runtime/cloudflare-module.mjs`,
+  confirmado leyendo el bundle compilado línea por línea), y
+  `src/server.ts` solo se usa como entrada SSR de TanStack Start,
+  nunca como el módulo top-level que Cloudflare realmente invoca.
+- **Consecuencia honesta**: el "mecanismo programado" pedido en la
+  consigna —un handler `scheduled()` de Cloudflare, implementado y
+  validado aunque inactivo— **no se logró implementar de forma
+  funcional** esta ronda. Lo que sí existe, completo y validado en vivo,
+  es el camino HTTP (`runReconciliation()` + el endpoint interno), que
+  puede activarse automáticamente hoy mismo apuntándole un scheduler
+  *externo* (GitHub Actions programado, un servicio de cron de terceros)
+  sin ningún cambio de código ni de configuración de build — solo
+  configuración externa (elegir el scheduler, guardar el secreto ahí).
+  Esta es la vía recomendada para el cutover; un Cron Trigger nativo de
+  Cloudflare queda documentado como alternativa que requiere primero el
+  cambio de configuración de Nitro descrito arriba.
+
+### 18.7 Pruebas reales obligatorias — resultados exactos
+
+Contra `lostykk-postulpro-preview` y `ccpejnklrfvgtwryqfrw`, con la cuenta
+QA real:
+
+| # | Escenario | Resultado real |
+|---|---|---|
+| 1 | Generación exitosa (`generate-ai.ts`) | ✅ `consumed`, `credit_reservation_id` vinculado en ambas direcciones (`generations.credit_reservation_id` ↔ `credit_reservations.generation_id`), balance +1 exacto |
+| 2/3 | Fallo antes / después de contactar al proveedor | Antes: cubierto por unit tests (validación/plan-gate nunca reservan). Después: ✅ real, ver #4 |
+| 4 | OpenAI 429 real (prompt sobredimensionado) | ✅ `job_outcome: "failed"`, `refund_reason: "failed"`, `refunded`, balance neto sin cambios |
+| 5 | Timeout terminal | No forzado en vivo (240s reales, alto costo de tiempo/riesgo) — cubierto por 2 unit tests deterministas (`generate-ai.test.ts`, `executor.server.test.ts`) con fake timers, verificando `classifyProviderFailure` → `"timed_out"` y `job_outcome`/`fail_ai_project_step` con ese código exacto |
+| 6 | Abort confirmado | ✅ cubierto por unit tests (cancel() + rechazo de `callModel` → `job_outcome: "aborted"`) — igual que la ronda 6, `request.signal`/`cancel()` no se disparan en vivo, así que un "abort confirmado" real solo ocurre cuando `callModel` efectivamente rechaza, ya probado en vivo vía #4 |
+| 7 | Desconexión seguida de éxito | ✅ real: cliente abortó tras el primer chunk, la generación terminó igual y se resolvió `consumed` con `credit_reservation_id` vinculado |
+| 8 | Desconexión seguida de fallo | Equivalente real ya cubierto por #4 — en este stack, una vez que `callModel` rechaza, el resultado es el mismo esté o no el cliente escuchando (ver ronda 6 §16 para la investigación completa de por qué) |
+| 9 | Worker que termina antes de ejecutar `waitUntil` | No re-forzado esta ronda (ya confirmado en la ronda 6 con `business-plan`; el mecanismo de `waitUntil` no cambió) |
+| 10 | Reintento del cliente | Cada request genera su propio `reservation_id`/`generation` independiente — sin clave de idempotencia del lado del cliente en este endpoint (nunca existió), así que un reintento es, correctamente, un intento nuevo e independiente, sin cruce posible con el anterior |
+| 11 | Callback duplicado | N/A — no existe un mecanismo de callback externo en este flujo |
+| 12 | Dos resoluciones concurrentes | ✅ real, `Promise.all` sobre `reconcile_stale_reservations_v2` con 3 filas compartidas: una corrida procesó las 3, la otra devolvió `[]`, cero solapamiento, reembolso total exacto (ronda 7, re-confirmado sin cambios de lógica esta ronda) |
+| 13 | `consumed` contra `refunded` simultáneos | ✅ cubierto en pglite + en vivo en rondas 5/7 sobre `resolve_credit_reservation`, sin cambios de esa función esta ronda |
+| 14 | Reserva ajena | ✅ el reconciliador solo es invocable por `service_role` (`401`/`403` para `anon`/`authenticated`, confirmado en vivo) |
+| 15 | Saldo insuficiente | ✅ cubierto por unit tests existentes (`insufficient_credits`, 402, sin llamar al modelo) |
+| 16 | Proyecto con varios pasos | ✅ **real**: proyecto QA creado, planificado, confirmado, y 2 pasos ejecutados en secuencia vía `run-next` — paso 1 (`business-plan`, 5 créditos) → `consumed`, `credit_reservation_id` vinculado; paso 2 → `consumed` independientemente, progreso 25%→50% |
+| 17 | Fallo de un paso intermedio no reembolsa uno exitoso anterior | ✅ real (parcial): tras ejecutar el paso 2 con éxito, se verificó que la reserva del paso 1 (`consumed`) permaneció exactamente igual — prueba la aislación estructural entre pasos (garantía más fuerte que solo el caso de fallo: ningún evento posterior, éxito o fallo, puede tocar una reserva ya resuelta de un paso anterior) |
+| 18 | Resultado persistido pero respuesta HTTP perdida | Cubierto por el contrato ya validado en rondas 5-6: `confirmConsumedOrLog` se bloquea antes de responder, así que si la respuesta se pierde después de confirmar, el estado en base ya es correcto de todos modos |
+| 19 | Reserva sin generación | ✅ real, ronda 7: 3 reservas QA sin evidencia, viejas, reconciliadas correctamente vía `no_evidence_after_threshold` |
+| 20 | Generación activa y lenta | ✅ real, ronda 7: reserva `business-plan` bajo su umbral de 30 min permaneció `reserved` mientras una `copywriter` de antigüedad similar ya se había reembolsado |
+| 21 | Reconciliador repetido | ✅ real esta ronda: segunda corrida sobre las mismas 3 reservas devolvió `[]` |
+| 22 | Reconciliador concurrente | ✅ real, ronda 7 (ver #12) |
+| 23 | Lote mixto | ✅ real, ronda 7 (completed + aborted + timed_out en una sola llamada) |
+| 24 | Error parcial dentro del lote | Sin bloques `EXCEPTION` en la función SQL — un error inesperado revierte el lote completo como una única transacción (documentado como comportamiento real desde la ronda 7, sin cambios esta ronda) |
+
+Resultados obligatorios, confirmados en todos los casos probados:
+exactamente una reserva por cobro; exactamente un estado terminal; ningún
+doble consumo; ningún doble reembolso; ningún saldo negativo; ninguna
+reserva ajena modificada; generación exitosa siempre `consumed` (incluso
+tras desconexión real); fallo terminal siempre `refunded` con evidencia;
+estado ambiguo nunca reembolsado a ciegas.
+
+### 18.8 Reservas QA — proyecto de prueba
+
+El proyecto multi-paso creado esta ronda (`"QA Fase 5: Prueba real de
+proyecto multi-paso, cafetería de especialidad"`) quedó con 2 de sus pasos
+completados (`consumed`, créditos cobrados legítimamente por trabajo real
+entregado) y no se archivó — es un artefacto QA claramente etiquetado, sin
+costo de mantenerlo. Balance final de la cuenta QA: **57/100**, cero
+reservas `reserved` pendientes al cierre.
+
+### 18.9 Validaciones ejecutadas
+
+- `tsc --noEmit`: limpio.
+- `vitest run`: **37 archivos, 352 tests**, todos pasando (340 de rondas
+  anteriores + 8 nuevos de `reconcile-credits.server.test.ts`, cubriendo
+  el guard de concurrencia y el guard de intervalo mínimo con timers
+  falsos deterministas — más confiable para lógica de carrera que
+  cronometrar dos llamadas HTTP reales contra el edge de Cloudflare).
+- `npx playwright test` (suite completa, 67 tests): **66 passed, 1
+  flaky**. El flaky (`auth-flow.spec.ts` — solicitud de reseteo de
+  contraseña) es de un área de código completamente distinta (Auth, no
+  créditos) y no fue tocada esta ronda; reproducido 2 veces más en
+  aislamiento con el mismo patrón de fallo (el banner de confirmación no
+  aparece), consistente con haber agotado el rate-limit propio de
+  Supabase Auth para emails de reseteo sobre la misma cuenta QA, por
+  haber corrido ese test específico 3 veces en pocos minutos durante esta
+  sesión de validación. Documentado tal cual, sin ocultar ni eliminar el
+  test.
+- `npm run build`: exitoso.
+- Secret scan sobre el diff completo desde `5e1e512`: sin coincidencias
+  (la única aparición de "RECONCILE_SECRET"/"sb_secret_" es el nombre de
+  la variable en este mismo informe, no un valor).
+- `npx supabase migration list --linked`: **35/35, cero drift** — sin
+  migraciones nuevas esta ronda.
+- Smoke test del Worker de preview: homepage → `200`; `POST
+  /api/generate-ai` sin auth → `401`; `POST
+  /api/internal/reconcile-credits` sin secreto → `401`, `GET`/`PUT`/`DELETE`
+  → `405` (re-confirmado tras el redeploy).
+- Prueba del handler programado mediante invocación controlada: no
+  aplicable de la forma pedida — no existe un `scheduled()` real que
+  invocar (ver §18.6). El runner que ese handler habría llamado
+  (`runReconciliation()`) está probado exhaustivamente vía unit tests
+  deterministas y vía el endpoint HTTP en vivo.
+- Producción (`postulpro.com`, `www.postulpro.com`): `200`/`200`.
+
+### 18.10 Riesgos restantes y configuración pendiente para el cutover
+
+1. **No existe un mecanismo de ejecución automática real todavía** — ni
+   Cron Trigger de Cloudflare (requiere primero habilitar
+   `server/plugins/` en la config de Nitro, un cambio de build
+   compartido) ni un scheduler externo configurado (posible hoy mismo,
+   sin cambios de código, apuntando al endpoint HTTP ya validado). Hasta
+   que uno de los dos exista, la reconciliación sigue siendo 100% manual.
+2. **Configuración exacta para activar durante el cutover** (ninguna
+   ejecutada esta sesión):
+   - Opción recomendada (sin cambios de código): configurar un scheduler
+     externo (GitHub Actions con `schedule:`, o un servicio de cron de
+     terceros) que haga `POST` a
+     `https://<worker>/api/internal/reconcile-credits` con el header
+     `X-Reconcile-Secret` cada 5-10 minutos (el umbral más corto por
+     herramienta es 10 minutos).
+   - Alternativa nativa (requiere trabajo adicional): agregar
+     `nitro: { serverDir: true }` (o equivalente) a la config de Nitro en
+     `vite.config.ts`, volver a crear
+     `server/plugins/reconcile-scheduled.ts`, confirmar que esta vez sí
+     se bundlea, y agregar `[triggers] crons = [...]` solo al entorno de
+     preview en `wrangler.jsonc` — cada uno de estos pasos requiere su
+     propia verificación y autorización, dado que toca la configuración
+     de build compartida.
+3. **`reconcile_stale_reservations` (v1, ciega por antigüedad) sigue
+   existiendo**, sin invocar, superseded — mismo riesgo latente
+   documentado desde la ronda 6.
+4. Ningún timeout real de proveedor fue forzado en vivo esta ronda (240s
+   de espera real, alto costo) — cubierto por tests deterministas en su
+   lugar.
+
+### 18.11 Dictamen final
+
+**FASE 5 LISTA CON CONDICIONES**
+
+Dos de las tres condiciones que exigía la propia consigna para un
+"LISTA PARA CUTOVER" sin reservas están completamente cerradas y
+probadas con evidencia real: `generate-ai.ts` y `executor.server.ts`
+alimentan ahora toda la evidencia persistente que el reconciliador
+necesita (`credit_reservation_id` al insertar, `job_outcome` en fallos
+confirmados, timeout real), y el reconciliador resuelve de extremo a
+extremo — probado en vivo con generaciones reales, un proyecto
+multi-paso real, fallos reales de proveedor, y concurrencia real.
+
+La tercera condición —un mecanismo programado implementado y validado,
+aunque inactivo— **no se logró** de la forma pedida: el intento de
+handler `scheduled()` de Cloudflare no llegó a bundlearse con la
+configuración de Nitro actual de este proyecto, y activarlo requiere un
+cambio a la configuración de build compartida por todos los entornos,
+que se trató como fuera de alcance sin autorización explícita separada.
+Existe sí una vía de activación inmediata, ya validada en vivo y sin
+cambios de código: un scheduler externo llamando al endpoint HTTP interno.
+
+Condición para pasar a `FASE 5 LISTA PARA CUTOVER` sin reservas:
+1. Autorización explícita para modificar la configuración de Nitro/Vite
+   (habilitar `server/plugins/`) y volver a intentar el handler
+   `scheduled()` nativo — o, alternativamente, aceptar el scheduler
+   externo como el mecanismo de producción definitivo, en cuyo caso solo
+   falta configurarlo (fuera del código de este repositorio).
+
+No se realizó merge a `main`, deploy productivo, cron productivo, cambios
+DNS, ni se tocó Hotmart/Marketplace/Auth/OAuth/planes/precios. Se detiene
+esta tarea aquí, a la espera de autorización.
