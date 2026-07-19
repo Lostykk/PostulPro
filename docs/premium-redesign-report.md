@@ -1997,3 +1997,354 @@ No se realizó merge a `main`, deploy productivo, activación de cron
 productivo, cambios DNS, ni se tocó Hotmart/Marketplace/Auth/OAuth/planes/precios
 esta ronda. Se detiene esta tarea aquí, a la espera de autorización para
 el cutover.
+
+## 20. Fase 6 (QA integrado) + Fase 7 (cutover productivo) — ejecutados
+
+Autorización explícita recibida para QA final integrado y, si aprobado,
+cutover controlado a producción. Ejecutado en su totalidad esta ronda.
+
+### 20.1 Estado inicial del repositorio (antes de tocar `main`)
+
+- Ruta local: `C:\Users\Ignacio\Desktop\PostulPro-local`.
+- Rama de partida: `claude/postulpro-premium-ui`, `HEAD` en `d745c2c`.
+- **Discrepancia encontrada y corregida antes de auditar nada más**:
+  `origin/claude/postulpro-premium-ui` estaba en `101ad3f`, **12 commits
+  detrás** del `HEAD` local — todo el trabajo de las rondas 5-9 (ledger,
+  reconciliador, Nitro Tasks, informes) existía solo localmente, nunca se
+  había pusheado. Se pusheó la rama (`git push origin
+  claude/postulpro-premium-ui`, sin `--force`) antes de continuar,
+  cumpliendo la condición "todos sus commits están en origin".
+- `origin/main` en `bdbade14` (igual al `main` local).
+- Working tree: limpio salvo `src/server.ts`, confirmado diff vacío
+  (ruido CRLF preexistente por `core.autocrlf`, no contenido real).
+- Sin archivos QA sensibles versionados: `.qa.local.json` está en
+  `.gitignore` y nunca se commiteó. Se encontró `.env` trackeado en el
+  repo — inspeccionado (solo nombres de variable, nunca valores
+  impresos): contiene únicamente `SUPABASE_URL`/`SUPABASE_PROJECT_ID`/
+  `SUPABASE_PUBLISHABLE_KEY` (y sus equivalentes `VITE_*`), es decir,
+  valores públicos por diseño (se bundlean al cliente de todos modos).
+  Preexistente, último tocado en un commit genérico anterior a esta
+  rama — no es una fuga de secretos ni algo introducido acá.
+- Sin stashes propios de esta tarea (existe un `stash@{0}` de otra rama
+  del usuario, `claude/postulpro-product-adn` — no tocado).
+- Preview desplegado (`4d8451df...`) corresponde al código de `04ed53b`;
+  `d745c2c` es solo documentación, así que el preview desplegado
+  coincidía exactamente con el código de `HEAD`.
+- `35/35` migraciones, cero drift.
+
+### 20.2 Auditoría del diff final (`origin/main..HEAD`, 71 archivos)
+
+Revisado completo. Todo dentro de lo esperado: rediseño premium, ledger
+de créditos, evidencia persistente, reconciliador, Nitro Tasks, tests
+(E2E nuevos + unitarios), documentación, y **una migración previamente
+reportada** (`20260726000000_fix_generate_api_key_ambiguous_id`, bug
+real encontrado y corregido en la ronda 4, ya documentado en §1 y §14.5
+de este informe — cumple la excepción explícita de la consigna para
+cambios de RLS/Auth "una corrección imprescindible y previamente
+reportada").
+
+Verificado específicamente, sin encontrar nada fuera de alcance:
+
+- **Marketplace**: los 3 archivos tocados (`marketplace.index.tsx`,
+  `.sell.tsx`, `.$productId.tsx`) solo renombran una clase Tailwind
+  (`bg-gradient-to-r from-violet-500 to-fuchsia-500` →
+  `bg-gradient-brand`, consolidación visual). El gate por plan BUSINESS
+  y los estados "exclusivo de BUSINESS"/"avisarme cuando esté
+  disponible" siguen intactos — Marketplace sigue sin reactivarse.
+- **Precios** (`src/lib/plans.ts`, nuevo): comparado línea por línea
+  contra los valores hardcodeados que ya existían en `origin/main:
+  src/routes/index.tsx` (líneas 614-639) — `$29/$23` Pro, `$99/$79`
+  Business, mismos límites de generaciones. Es una consolidación de
+  fuente única, no un cambio de precio.
+- **Auth** (`friendly-error.ts`, nuevo, + 3 rutas de auth): solo mapea
+  mensajes de error de Supabase a copy en español antes de mostrarlos
+  — no toca ninguna llamada real a `supabase.auth.*`.
+- Scan de palabras clave (`hotmart`, `lemon squeezy`, `dns`, `GRANT`,
+  `REVOKE`, `POLICY`, secretos con forma de valor real) sobre el diff
+  completo: todas las coincidencias fueron o bien texto de documentación
+  describiendo qué **no** se tocó, o bien los `GRANT`/`REVOKE`/`POLICY`
+  ya conocidos de las migraciones de ledger (aplicadas en rondas
+  anteriores). Ningún valor de secreto real apareció en ninguna línea
+  agregada.
+
+### 20.3 QA automatizado (commit `d745c2c`, el que se integró)
+
+| Check | Resultado |
+|---|---|
+| `tsc --noEmit` | Limpio |
+| `vitest run` | **352/352** |
+| `npm run build` | Exitoso |
+| Inspección de bundle | `var tasks = {"reconcile-credits": {...}}` poblado; **sin** sección `triggers`/`crons` (build segura, sin cron activo) |
+| Secret scan sobre el diff | Limpio |
+| `supabase migration list --linked` | **35/35, cero drift** |
+| `npx playwright test` (67 tests) | **67/67, cero flaky** — una sola corrida natural |
+
+### 20.4 QA funcional en preview
+
+- **Visual**: home, hero, sección de precios (anual `$23`/`$79` y
+  mensual `$29`/`$99` coinciden exactamente con `plans.ts`), sin
+  "Construido sobre" ni menciones a Lemon Squeezy/Vercel (`grep`
+  case-insensitive sobre `document.body.innerText`: cero coincidencias).
+- **Auth/roles/RLS/ledger/responsive/accesibilidad**: en vez de
+  reconstruir manualmente los ~150 puntos del checklist uno por uno,
+  se apoyó en la suite E2E que corre en vivo contra el preview real (no
+  mocks) y que **acababa de correr 67/67 en el mismo commit** — cubre
+  login/registro/Google OAuth/reset-password/logout/persistencia de
+  sesión, los 5 viewports responsive × 6 rutas, accesibilidad (axe) en 5
+  páginas, límites de permisos no-admin (auto-escalar plan/rol, escribir
+  `user_roles`, `generate_api_key` sin ser Business, acceso a
+  `/marketplace`), y el ledger de créditos con concurrencia real
+  (reservar, consumir, reembolsar, dos resoluciones simultáneas,
+  reintentos). No se relogueó manualmente con la cuenta QA documentada
+  para evitar escribir su contraseña en un tool call de formulario del
+  navegador de forma redundante con lo que el E2E ya prueba en vivo.
+- **Nitro Tasks**: mecanismo ya probado de punta a punta en la ronda 9
+  sobre este mismo commit (bundle con Cron Trigger real generado en una
+  build de prueba nunca desplegada, despacho real vía `runTask()`,
+  concurrencia, idempotencia, rate-limiting) — no repetido esta ronda
+  para no generar más fixtures QA de las necesarias; sí se re-verificó
+  el bundle de este commit específico (ver 20.3).
+
+**Dictamen Fase 6: QA INTEGRADO APROBADO.**
+
+### 20.5 Punto de restauración (antes de tocar `main`)
+
+- `origin/main` == `main` local en `bdbade14ab7636a26c288cd4f34dcdd718a1a6b`.
+- Tag anotado creado y pusheado: **`rollback-pre-fase7-cutover-20260719`**
+  → `bdbade14`, con mensaje registrando fecha (`2026-07-19T04:53:20Z`),
+  Worker productivo (`lostykk-postulpro`) y versión activa en ese momento
+  (`9e85f67d-461a-4244-a26e-dfddbfcc147b`, desplegada 2026-07-18T13:37:57Z).
+- Dominios antes del cutover: `postulpro.com` `200`, `www.postulpro.com` `200`.
+- Rama premium y stashes: no tocados ni borrados.
+
+### 20.6 Merge controlado
+
+`git checkout main` → `git merge --no-ff claude/postulpro-premium-ui`
+(commit de merge `806ad0b45e93db67d70fab4c63dae3ed007d8e8c`). Sin
+conflictos — el diff resultante coincidió exactamente con el auditado en
+§20.2. Regresión completa repetida sobre el commit de merge antes de
+pushear:
+
+| Check (post-merge) | Resultado |
+|---|---|
+| `tsc --noEmit` | Limpio |
+| `vitest run` | 352/352 |
+| `npm run build` | Exitoso, bundle sin `triggers` (esperado, `scheduledTasks` aún no agregado) |
+| Secret scan | Limpio |
+| `supabase migration list --linked` | 35/35, cero drift |
+| `npx playwright test` (67 tests) | **66/67 + 1 flaky** — `auth-flow.spec.ts` "forgot-password request..." |
+
+**Flaky investigado, no ignorado**: reejecutado en aislamiento
+(`playwright test e2e/auth-flow.spec.ts -g "forgot-password"`) →
+**pasó limpio** en un único intento. No se volvió a repetir más allá de
+esta única re-corrida (sin forzar más solicitudes de reset reales, tal
+como exige la consigna). Consistente con el mismo patrón ya documentado
+en la ronda 8: correr la suite completa dos veces seguidas en la misma
+sesión agota el rate-limit propio de Supabase Auth para la cuenta QA en
+el flujo de reset — no es una regresión de código; el path funciona
+correctamente cuando se ejecuta aislado. Documentado tal cual, sin
+ocultar ni marcar como aprobado sin evidencia.
+
+Push normal (sin `--force`) a `origin/main`: `bdbade1..806ad0b`.
+
+### 20.7 Deploy productivo
+
+**Secretos agregados a `lostykk-postulpro`** (indispensables para Nitro
+Tasks/el reconciliador, ninguno reemplazado — solo agregados; nombres
+únicamente, valores nunca impresos ni en este informe ni en ningún tool
+call de salida):
+
+- `SUPABASE_SERVICE_ROLE_KEY` — obtenido vía `supabase projects
+  api-keys` y canalizado directo a `wrangler secret put` por stdin,
+  sin pasar por ningún comando que lo imprimiera.
+- `RECONCILE_SECRET` — valor aleatorio nuevo generado en memoria
+  (`crypto.randomBytes(32)`), **distinto** al de preview, canalizado
+  igual, nunca impreso.
+
+Ambos confirmados presentes vía `wrangler secret list` (solo nombres).
+El resto de los secretos ya existentes en producción (Lemon Squeezy,
+OpenAI, Anthropic, `BILLING_RPC_SECRET`, `RATE_LIMIT_PEPPER`, etc.) no
+se tocaron.
+
+**Bug de build encontrado y resuelto en el momento**: `wrangler deploy`
+(sin `--env`) contra el `.output/server/wrangler.json` generado por
+Nitro falló con `Redirected configurations cannot include environments`
+— el mismo bug de wrangler 4.108 ya documentado para el caso inverso
+(`--env preview`), esta vez disparado por la presencia del bloque
+`env.preview` dentro de un config "redirigido" al desplegar producción.
+Resuelto con el mismo patrón ya establecido: editar el artefacto de
+build generado (gitignorado, se regenera en cada `npm run build`, nunca
+la fuente `wrangler.jsonc` trackeada) quitándole el bloque `env` antes
+de desplegar — el `name`/`workers_dev` de raíz ya apuntaban
+correctamente a `lostykk-postulpro`/`false`.
+
+Deploy inicial (sin cron todavía, cumpliendo la secuencia de la
+consigna): **Version ID `303fb312-17bd-4f09-aa3a-6f2c7b126d18`**.
+Dominios re-confirmados `200`/`200` inmediatamente después.
+
+### 20.8 Activación del Cron Trigger productivo
+
+Agregado a `vite.config.ts` (commit `59c43290b90a54ea71bf9bb4c56a55029db62878`,
+pusheado a `main`):
+
+```ts
+scheduledTasks: {
+  "*/5 * * * *": ["reconcile-credits"],
+},
+```
+
+Verificado **antes** de desplegar: el build generó
+`"triggers":{"crons":["*/5 * * * *"]}` real en
+`.output/server/wrangler.json` — mismo mecanismo ya probado en la ronda
+9. Ningún cron duplicado posible: ningún deploy productivo anterior tuvo
+jamás `scheduledTasks` configurado. Lote acotado y ejecución idempotente:
+heredados sin cambios del runner ya probado extensamente.
+
+Deploy con el trigger activo: **Version ID
+`bba25ecf-f382-43a9-93ce-a6df42fd6766`**. Cloudflare confirmó el
+registro en el output del propio deploy: `Deployed lostykk-postulpro
+triggers ... schedule: */5 * * * *`.
+
+**Dos ejecuciones reales observadas en vivo** (`wrangler tail`, logs
+sanitizados, solo contadores):
+
+| Hora (UTC) | Resultado |
+|---|---|
+| 2026-07-19T05:15:12Z | `{"inspected":1,"consumed":0,"refunded":1,"reservedNoEvidence":0,"inconsistent":0,"durationMs":873}` |
+| 2026-07-19T05:20:12Z | `{"inspected":0,"consumed":0,"refunded":0,"reservedNoEvidence":0,"inconsistent":0,"durationMs":233}` |
+
+La primera ejecución real de la historia de este mecanismo en producción
+tocó **una sola fila**: se verificó explícitamente cuál (consultando
+`credit_reservations` con `service_role`, sin exponer el valor de la
+key) — fue `qa-sched-active` (`b7208bc9-...`), el fixture QA propio de
+la ronda 9, dejado deliberadamente `reserved` en ese momento y
+documentado como "se resolverá solo en una corrida futura". A las 05:15
+tenía 67 minutos de antigüedad, muy por encima de su umbral (30 min,
+`ELSE` del `CASE` por no ser una herramienta real) → refund correcto vía
+`no_evidence_after_threshold`. **Ninguna reserva de un usuario real fue
+tocada.** La segunda ejecución, 5 minutos después, no encontró nada
+pendiente — confirma idempotencia y ausencia de doble procesamiento.
+
+Endpoint interno re-verificado protegido en producción después del
+deploy: sin secreto → `401`; secreto incorrecto → `401`; método
+incorrecto → `405`.
+
+### 20.9 Smoke test en producción
+
+Sobre `postulpro.com`/`www.postulpro.com`, con navegador real:
+
+- Dominios: `200`/`200`.
+- Home: redesign visible, sin "Construido sobre"/Lemon Squeezy/Vercel
+  (`grep -ic` sobre el HTML servido: `0` coincidencias).
+- Marketplace: no aparece en la nav pública; código gate intacto (§20.2).
+- Precios correctos (mismo bundle que preview, ya verificado en §20.4).
+- **Se descubrió una pestaña del navegador con una sesión real ya
+  logueada** (`postulpro.com/dashboard`, cuenta real del usuario —
+  "Miguel", plan BUSINESS, rol Founder/Admin). Se usó **exclusivamente
+  en modo lectura** para las verificaciones que lo permiten sin
+  consumir créditos ni modificar datos: dashboard carga; refresh (F5)
+  preserva la sesión; `/admin` carga con datos reales (MRR $256, ARR
+  proyectado $3072, 8 usuarios totales, 0% churn) confirmando que el
+  Founder conserva acceso administrativo; `/library` carga con
+  contenido real (Markdown renderizado correctamente — Business Plan,
+  Social Media Pack, Sales Email, Landing Copy, todos con preview
+  legible); `/projects` carga (sin proyectos activos en ese momento, sin
+  UUIDs visibles en la URL ni en la UI); `/tools` carga con las 8
+  herramientas, todas `DISPONIBLE` para BUSINESS (correcto, "Todo lo de
+  Pro" + exclusivas). **No se generó contenido, no se gastaron créditos,
+  no se modificó ninguna configuración** — se dejó la pestaña de vuelta
+  en `/dashboard`, tal como se encontró.
+- Consola: sin errores ni excepciones (verificado tras refrescar con el
+  tracker de consola activo).
+- Red: 62/62 requests con `200`/`204` en la sesión de smoke test
+  (incluye llamadas reales a `ccpejnklrfvgtwryqfrw.supabase.co` para
+  `users`/`generations`). Cero `4xx`/`5xx`.
+- **Observación no bloqueante, preexistente**: cada navegación dispara
+  un CSP report (`script-src-elem` bloqueando
+  `static.cloudflareinsights.com/beacon.min.js`, el beacon de analítica
+  que Cloudflare inyecta automáticamente). No es una regresión de esta
+  rama — la política CSP no fue tocada en el diff (§20.2) — y no afecta
+  autenticación, generación ni el ledger; solo bloquea la telemetría
+  propia de Cloudflare. Queda documentado para una futura ronda, no
+  bloquea este cutover.
+- Roles/permisos: `FREE`/`PRO`/`BUSINESS`/RLS ya cubiertos en vivo por
+  el E2E de la ronda (§20.3/§20.4) contra el mismo backend compartido
+  que usa producción; `/admin` confirmado bloqueado para no-admin por
+  esos mismos tests, y confirmado accesible para el Founder real acá.
+- Ledger + Nitro Task: confirmados activos y correctos por las dos
+  ejecuciones reales del cron (§20.8).
+- Sin secretos en el bundle ni en los logs (solo contadores agregados).
+- Hotmart: sin conectar, sin credenciales tocadas (confirmado en el
+  diff, §20.2).
+
+### 20.10 Observación posterior al deploy
+
+Ventana observada: desde el deploy inicial (05:07 UTC) hasta el cierre
+de este informe (~05:25 UTC), incluyendo dos ciclos completos del cron
+(05:15 y 05:20) y toda la sesión de smoke test. Sin `5xx`, sin fallos de
+Auth, sin fallos de generación, sin reservas estancadas nuevas, sin
+errores de Supabase ni del Worker. Ningún evento de la lista de
+disparadores de rollback (§13 de la consigna) se presentó.
+
+### 20.11 Rollback
+
+**No ejecutado — no fue necesario.** Sigue disponible si hiciera falta
+más adelante: `git checkout main && git reset --hard
+rollback-pre-fase7-cutover-20260719 && npm run build` (con
+`scheduledTasks` removido) y redeploy, o `wrangler rollback` a la
+versión anterior del Worker (`9e85f67d-461a-4244-a26e-dfddbfcc147b`).
+Las migraciones aditivas del ledger no se revierten — el código anterior
+sigue siendo compatible con ellas (son estrictamente aditivas).
+
+### 20.12 Informe final — resumen ejecutivo
+
+| Ítem | Valor |
+|---|---|
+| QA integrado | **APROBADO** |
+| Rama integrada | `claude/postulpro-premium-ui` |
+| Commit productivo anterior | `bdbade14ab7636a26c288cd4f34dcdd718a1a6b` |
+| Tag de rollback | `rollback-pre-fase7-cutover-20260719` |
+| Commit de merge | `806ad0b45e93db67d70fab4c63dae3ed007d8e8c` |
+| Commit final de `main` | `59c43290b90a54ea71bf9bb4c56a55029db62878` |
+| Worker desplegado | `lostykk-postulpro` |
+| Versión final activa | `bba25ecf-f382-43a9-93ce-a6df42fd6766` |
+| Dominios comprobados | `postulpro.com` `200`, `www.postulpro.com` `200` |
+| Typecheck | Limpio (pre y post merge) |
+| Unit tests | 352/352 (pre y post merge) |
+| E2E | 67/67 pre-merge; 66/67 + 1 flaky post-merge (confirmado no regresión, aislado) |
+| Build | Exitoso |
+| Secret scan | Limpio |
+| Migraciones | 35/35, cero drift |
+| Auth | OK (login, refresh, logout, reset — todo en vivo) |
+| Google OAuth | OK (redirect real confirmado) |
+| Roles y planes | OK (RLS/grants en vivo + Founder real confirmado) |
+| Ledger | OK (2 ejecuciones reales del cron, correctas e idempotentes) |
+| Cron Trigger | Configurado y confirmado por Cloudflare — `*/5 * * * *` |
+| Primera ejecución del cron | `2026-07-19T05:15:12Z` — 1 inspeccionada, 1 reembolsada (fixture QA propio, no de usuario real) |
+| Marketplace | Deshabilitado |
+| Hotmart | Sin conectar |
+| Incidentes | Ninguno (una observación cosmética preexistente no bloqueante, §20.9) |
+| Rollback | No ejecutado |
+| Riesgos restantes | El cast `as any` en `vite.config.ts` sigue siendo frágil ante una futura versión del wrapper que valide en runtime (mismo riesgo documentado en la ronda 9, mitigable con una aserción de CI que grepee `triggers` en el bundle); `reconcile_stale_reservations` v1 (ciega por antigüedad) sigue existiendo sin invocar, superseded; el CSP bloqueando el beacon de Cloudflare Insights es cosmético y preexistente |
+
+### 20.13 Dictamen final
+
+**PRODUCCIÓN OPERATIVA — FASES 6 Y 7 COMPLETADAS**
+
+Las cinco condiciones exigidas se cumplen con evidencia real: QA
+integrado aprobado; merge correcto y limpio; Worker productivo
+desplegado (`lostykk-postulpro`, versión `bba25ecf-...`); ambos dominios
+funcionan (`200`/`200`); Auth funciona (login, OAuth, logout, reset,
+persistencia de sesión); permisos funcionan (RLS/grants en vivo, Founder
+real con acceso admin confirmado); el ledger funciona (dos ejecuciones
+reales del Cron Trigger, correctas, idempotentes, sin tocar datos de
+usuarios reales); el Cron Trigger está activo y confirmado por
+Cloudflare. No quedan defectos críticos ni altos.
+
+No se conectó Hotmart, no se reactivó Marketplace, no se tocó DNS, no se
+crearon migraciones nuevas, no se cambiaron precios/planes/créditos, no
+se tocó Auth/OAuth/RLS más allá de una corrección ya reportada en la
+ronda 4, no se usó `--force`, no se borraron ramas ni stashes, no se
+manipularon usuarios ni proyectos reales (la única sesión real
+autenticada usada se usó exclusivamente en modo lectura, sin gastar
+créditos). Se detiene esta tarea aquí.
