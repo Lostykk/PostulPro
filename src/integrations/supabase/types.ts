@@ -427,6 +427,9 @@ export type Database = {
           created_at: string;
           generation_id: string | null;
           id: string;
+          job_outcome: string | null;
+          job_outcome_at: string | null;
+          job_outcome_reason: string | null;
           refund_reason: string | null;
           refunded_at: string | null;
           status: string;
@@ -440,6 +443,9 @@ export type Database = {
           created_at?: string;
           generation_id?: string | null;
           id?: string;
+          job_outcome?: string | null;
+          job_outcome_at?: string | null;
+          job_outcome_reason?: string | null;
           refund_reason?: string | null;
           refunded_at?: string | null;
           status?: string;
@@ -453,6 +459,9 @@ export type Database = {
           created_at?: string;
           generation_id?: string | null;
           id?: string;
+          job_outcome?: string | null;
+          job_outcome_at?: string | null;
+          job_outcome_reason?: string | null;
           refund_reason?: string | null;
           refunded_at?: string | null;
           status?: string;
@@ -524,6 +533,7 @@ export type Database = {
           approvals_json: Json;
           artifact_type: string | null;
           created_at: string;
+          credit_reservation_id: string | null;
           edited_output: string | null;
           folder_id: string | null;
           id: string;
@@ -541,6 +551,7 @@ export type Database = {
           approvals_json?: Json;
           artifact_type?: string | null;
           created_at?: string;
+          credit_reservation_id?: string | null;
           edited_output?: string | null;
           folder_id?: string | null;
           id?: string;
@@ -558,6 +569,7 @@ export type Database = {
           approvals_json?: Json;
           artifact_type?: string | null;
           created_at?: string;
+          credit_reservation_id?: string | null;
           edited_output?: string | null;
           folder_id?: string | null;
           id?: string;
@@ -572,6 +584,13 @@ export type Database = {
           user_id?: string;
         };
         Relationships: [
+          {
+            foreignKeyName: "generations_credit_reservation_id_fkey";
+            columns: ["credit_reservation_id"];
+            isOneToOne: false;
+            referencedRelation: "credit_reservations";
+            referencedColumns: ["id"];
+          },
           {
             foreignKeyName: "generations_folder_id_fkey";
             columns: ["folder_id"];
@@ -1126,6 +1145,10 @@ export type Database = {
         };
         Returns: boolean;
       };
+      mark_reservation_job_outcome: {
+        Args: { p_outcome: string; p_reason?: string; p_reservation_id: string };
+        Returns: boolean;
+      };
       mark_step_credits_reserved: {
         Args: { p_step_id: string };
         Returns: undefined;
@@ -1169,6 +1192,14 @@ export type Database = {
       reconcile_stale_reservations: {
         Args: { p_older_than_minutes?: number };
         Returns: {
+          outcome: string;
+          reservation_id: string;
+        }[];
+      };
+      reconcile_stale_reservations_v2: {
+        Args: { p_batch_limit?: number };
+        Returns: {
+          evidence: string;
           outcome: string;
           reservation_id: string;
         }[];
