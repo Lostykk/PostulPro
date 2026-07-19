@@ -7,6 +7,7 @@ import { useAuth } from "@/hooks/use-auth";
 import { useProfile } from "@/hooks/use-profile";
 import { isOwner } from "@/lib/auth/is-owner";
 import { PLAN_BILLING_OPTIONS } from "@/lib/plans";
+import { HOTMART_OFFER_PLAN_MAP, hotmartCheckoutEnabled, type HotmartPlanKey } from "@/lib/hotmart-config";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { SimpleSelect } from "@/components/ui/simple-select";
 import {
@@ -358,18 +359,44 @@ function BillingTab() {
           </p>
         )}
         <div className="grid sm:grid-cols-2 gap-2">
-          {PLAN_BILLING_OPTIONS.map((p) => (
-            <button
-              key={p.key}
-              type="button"
-              onClick={() => callCheckout("subscription", p.key)}
-              disabled={loading !== null || hasActiveSub}
-              className="flex items-center justify-between rounded-lg border border-white/10 bg-white/5 px-4 h-11 text-sm hover:border-violet-500/40 transition disabled:opacity-50"
-            >
-              <span>{p.label}</span>
-              <span className="text-muted-foreground text-xs">{p.price}</span>
-            </button>
-          ))}
+          {hotmartCheckoutEnabled()
+            ? PLAN_BILLING_OPTIONS.map((p) => {
+                // p.key is exactly a HotmartPlanKey ("pro_monthly" |
+                // "pro_annual" | "business_monthly" | "business_annual") —
+                // PLAN_BILLING_OPTIONS is built from the same plan keys in
+                // src/lib/plans.ts. Each offer's own checkoutUrl already
+                // encodes its exact plan+interval (?off=<offer id>), so PRO
+                // can never link to the Business checkout or vice versa.
+                const offer = HOTMART_OFFER_PLAN_MAP[p.key as HotmartPlanKey];
+                return (
+                  <a
+                    key={p.key}
+                    href={offer.checkoutUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    aria-disabled={hasActiveSub}
+                    onClick={(e) => {
+                      if (hasActiveSub) e.preventDefault();
+                    }}
+                    className="flex items-center justify-between rounded-lg border border-white/10 bg-white/5 px-4 h-11 text-sm hover:border-violet-500/40 transition aria-disabled:opacity-50 aria-disabled:pointer-events-none"
+                  >
+                    <span>{p.label}</span>
+                    <span className="text-muted-foreground text-xs">{p.price}</span>
+                  </a>
+                );
+              })
+            : PLAN_BILLING_OPTIONS.map((p) => (
+                <button
+                  key={p.key}
+                  type="button"
+                  onClick={() => callCheckout("subscription", p.key)}
+                  disabled={loading !== null || hasActiveSub}
+                  className="flex items-center justify-between rounded-lg border border-white/10 bg-white/5 px-4 h-11 text-sm hover:border-violet-500/40 transition disabled:opacity-50"
+                >
+                  <span>{p.label}</span>
+                  <span className="text-muted-foreground text-xs">{p.price}</span>
+                </button>
+              ))}
         </div>
       </div>
 

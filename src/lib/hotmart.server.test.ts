@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import {
-  HOTMART_OFFER_ENV_KEYS,
-  HOTMART_PRODUCT_ID_ENV_KEY,
+  HOTMART_PRODUCT_ID,
+  HOTMART_OFFER_PLAN_MAP,
   HotmartConfigError,
   findMappingByIds,
   resolveOfferId,
@@ -9,76 +9,95 @@ import {
   validateHotmartConfig,
 } from "@/lib/hotmart.server";
 
-const ENV_KEYS = [HOTMART_PRODUCT_ID_ENV_KEY, ...Object.values(HOTMART_OFFER_ENV_KEYS)];
-
-function clearHotmartEnv() {
-  for (const key of ENV_KEYS) delete process.env[key];
-}
+const OVERRIDE_KEYS = [
+  "HOTMART_HOTTOK",
+  "HOTMART_PRODUCT_ID_OVERRIDE",
+  "HOTMART_OFFER_PRO_MONTHLY_OVERRIDE",
+  "HOTMART_OFFER_PRO_ANNUAL_OVERRIDE",
+  "HOTMART_OFFER_BUSINESS_MONTHLY_OVERRIDE",
+  "HOTMART_OFFER_BUSINESS_ANNUAL_OVERRIDE",
+];
 
 describe("hotmart.server config", () => {
   const originalEnv: Record<string, string | undefined> = {};
 
   beforeEach(() => {
-    for (const key of ENV_KEYS) originalEnv[key] = process.env[key];
-    clearHotmartEnv();
+    for (const key of OVERRIDE_KEYS) originalEnv[key] = process.env[key];
+    for (const key of OVERRIDE_KEYS) delete process.env[key];
   });
 
   afterEach(() => {
-    for (const key of ENV_KEYS) {
+    for (const key of OVERRIDE_KEYS) {
       if (originalEnv[key] === undefined) delete process.env[key];
       else process.env[key] = originalEnv[key];
     }
   });
 
-  it("validateHotmartConfig reports every missing var when unconfigured", () => {
+  it("resolves the real hardcoded product id by default (no override needed)", () => {
+    expect(resolveProductId()).toBe("8148076");
+    expect(resolveProductId()).toBe(HOTMART_PRODUCT_ID);
+  });
+
+  it("resolves each real offer id by default", () => {
+    expect(resolveOfferId("pro_monthly")).toBe("w6nw1f3o");
+    expect(resolveOfferId("pro_annual")).toBe("z7l3u209");
+    expect(resolveOfferId("business_monthly")).toBe("zy2exb4h");
+    expect(resolveOfferId("business_annual")).toBe("64lrx4be");
+  });
+
+  it("validateHotmartConfig reports HOTMART_HOTTOK missing when unset", () => {
     const result = validateHotmartConfig();
-    expect(result.ok).toBe(false);
-    expect(result.missing).toEqual(expect.arrayContaining([HOTMART_PRODUCT_ID_ENV_KEY, ...Object.values(HOTMART_OFFER_ENV_KEYS)]));
+    expect(result).toEqual({ ok: false, missing: ["HOTMART_HOTTOK"] });
   });
 
-  it("resolveProductId throws HotmartConfigError with no placeholder/invented value", () => {
-    expect(() => resolveProductId()).toThrow(HotmartConfigError);
-  });
-
-  it("resolveOfferId throws for each plan key when unconfigured", () => {
-    expect(() => resolveOfferId("pro_monthly")).toThrow(HotmartConfigError);
-    expect(() => resolveOfferId("business_annual")).toThrow(HotmartConfigError);
-  });
-
-  it("once configured, validateHotmartConfig reports ok and resolves match by ids only — never by price/name/currency", () => {
-    process.env[HOTMART_PRODUCT_ID_ENV_KEY] = "PRODUCT_TEST_1";
-    process.env[HOTMART_OFFER_ENV_KEYS.pro_monthly] = "OFFER_TEST_PRO_M";
-    process.env[HOTMART_OFFER_ENV_KEYS.pro_annual] = "OFFER_TEST_PRO_A";
-    process.env[HOTMART_OFFER_ENV_KEYS.business_monthly] = "OFFER_TEST_BIZ_M";
-    process.env[HOTMART_OFFER_ENV_KEYS.business_annual] = "OFFER_TEST_BIZ_A";
-
+  it("validateHotmartConfig reports ok once HOTMART_HOTTOK is set", () => {
+    process.env.HOTMART_HOTTOK = "test-value";
     expect(validateHotmartConfig()).toEqual({ ok: true, missing: [] });
-    expect(resolveProductId()).toBe("PRODUCT_TEST_1");
-    expect(resolveOfferId("business_monthly")).toBe("OFFER_TEST_BIZ_M");
-
-    const match = findMappingByIds("PRODUCT_TEST_1", "OFFER_TEST_PRO_A");
-    expect(match).toEqual({ key: "pro_annual", plan: "pro", interval: "year", creditsLimit: 100, expectedCurrency: "USD" });
   });
 
-  it("an unrecognized offer_id never resolves, even with the correct product_id", () => {
-    process.env[HOTMART_PRODUCT_ID_ENV_KEY] = "PRODUCT_TEST_1";
-    process.env[HOTMART_OFFER_ENV_KEYS.pro_monthly] = "OFFER_TEST_PRO_M";
-    expect(findMappingByIds("PRODUCT_TEST_1", "SOME_UNKNOWN_OFFER")).toBeUndefined();
+  it("resolves each real (product_id, offer_id) pair to the correct plan — never by price/name/currency", () => {
+    expect(findMappingByIds("8148076", "w6nw1f3o")).toEqual({
+      key: "pro_monthly",
+      ...HOTMART_OFFER_PLAN_MAP.pro_monthly,
+    });
+    expect(findMappingByIds("8148076", "z7l3u209")?.key).toBe("pro_annual");
+    expect(findMappingByIds("8148076", "zy2exb4h")?.key).toBe("business_monthly");
+    expect(findMappingByIds("8148076", "64lrx4be")?.key).toBe("business_annual");
   });
 
-  it("an unrecognized product_id never resolves, even with a valid-looking offer_id", () => {
-    process.env[HOTMART_PRODUCT_ID_ENV_KEY] = "PRODUCT_TEST_1";
-    process.env[HOTMART_OFFER_ENV_KEYS.pro_monthly] = "OFFER_TEST_PRO_M";
-    expect(findMappingByIds("SOME_OTHER_PRODUCT", "OFFER_TEST_PRO_M")).toBeUndefined();
+  it("an unrecognized offer_id never resolves, even with the correct real product_id", () => {
+    expect(findMappingByIds("8148076", "SOME_UNKNOWN_OFFER")).toBeUndefined();
   });
 
-  it("business plan credits/interval mapping matches the existing Lemon Squeezy enforcement numbers exactly", () => {
-    process.env[HOTMART_PRODUCT_ID_ENV_KEY] = "P";
-    process.env[HOTMART_OFFER_ENV_KEYS.business_annual] = "O";
-    const match = findMappingByIds("P", "O");
-    // pro=100, business=500 — see supabase/migrations/20260712000000_refund_events.sql:192
+  it("an unrecognized product_id never resolves, even with a real offer_id", () => {
+    expect(findMappingByIds("SOME_OTHER_PRODUCT", "w6nw1f3o")).toBeUndefined();
+  });
+
+  it("business_annual matches the real Hotmart price (USD 948) and the existing credits enforcement (500)", () => {
+    const match = findMappingByIds("8148076", "64lrx4be");
+    expect(match?.expectedPrice).toBe(948);
     expect(match?.creditsLimit).toBe(500);
     expect(match?.plan).toBe("business");
     expect(match?.interval).toBe("year");
+  });
+
+  it("pro_monthly matches the real Hotmart price (USD 29) and the existing credits enforcement (100)", () => {
+    const match = findMappingByIds("8148076", "w6nw1f3o");
+    expect(match?.expectedPrice).toBe(29);
+    expect(match?.creditsLimit).toBe(100);
+  });
+
+  it("override env vars let a test/sandbox product supersede the real one without editing hotmart-config.ts", () => {
+    process.env.HOTMART_PRODUCT_ID_OVERRIDE = "SANDBOX_PRODUCT";
+    process.env.HOTMART_OFFER_PRO_MONTHLY_OVERRIDE = "SANDBOX_OFFER";
+    expect(resolveProductId()).toBe("SANDBOX_PRODUCT");
+    expect(resolveOfferId("pro_monthly")).toBe("SANDBOX_OFFER");
+    // The real product id no longer resolves while the override is active.
+    expect(findMappingByIds("8148076", "w6nw1f3o")).toBeUndefined();
+    expect(findMappingByIds("SANDBOX_PRODUCT", "SANDBOX_OFFER")?.key).toBe("pro_monthly");
+  });
+
+  it("HotmartConfigError is exported and is a real Error subclass", () => {
+    expect(new HotmartConfigError("x")).toBeInstanceOf(Error);
   });
 });

@@ -1,9 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { Route } from "@/routes/api/webhooks/hotmart";
-import {
-  HOTMART_PRODUCT_ID_ENV_KEY,
-  HOTMART_OFFER_ENV_KEYS,
-} from "@/lib/hotmart.server";
 
 const handler = (
   Route.options.server as { handlers: { POST: (ctx: { request: Request }) => Promise<Response> } }
@@ -104,13 +100,16 @@ function makeRequest(body: string, opts: { hottok?: string | null; contentType?:
   });
 }
 
+// Real product/offer ids (see src/lib/hotmart-config.ts) — using them
+// directly here, not overrides, is deliberate: these tests exercise the
+// actual production mapping, not a synthetic sandbox one.
 function approvedPurchaseBody(overrides: Record<string, unknown> = {}) {
   return JSON.stringify({
     status: "approved",
     transaction: "TXN-1",
     subscriber_code: "SUB-1",
-    prod: "PRODUCT_TEST",
-    off: "OFFER_PRO_M_TEST",
+    prod: "8148076",
+    off: "w6nw1f3o",
     email: "Buyer@Example.com ",
     ...overrides,
   });
@@ -122,11 +121,6 @@ beforeEach(() => {
   process.env.SUPABASE_PUBLISHABLE_KEY = "anon-key";
   process.env.HOTMART_HOTTOK = HOTTOK;
   process.env.BILLING_RPC_SECRET = RPC_SECRET;
-  process.env[HOTMART_PRODUCT_ID_ENV_KEY] = "PRODUCT_TEST";
-  process.env[HOTMART_OFFER_ENV_KEYS.pro_monthly] = "OFFER_PRO_M_TEST";
-  process.env[HOTMART_OFFER_ENV_KEYS.pro_annual] = "OFFER_PRO_A_TEST";
-  process.env[HOTMART_OFFER_ENV_KEYS.business_monthly] = "OFFER_BIZ_M_TEST";
-  process.env[HOTMART_OFFER_ENV_KEYS.business_annual] = "OFFER_BIZ_A_TEST";
   activeScenario = {};
   calls.length = 0;
 });
@@ -150,10 +144,20 @@ describe("POST /api/webhooks/hotmart", () => {
     expect(res.status).toBe(501);
   });
 
-  it("returns 501 when the product/offer mapping is incomplete", async () => {
-    delete process.env[HOTMART_OFFER_ENV_KEYS.business_annual];
-    const res = await handler({ request: makeRequest(approvedPurchaseBody()) });
-    expect(res.status).toBe(501);
+  it("resolves via HOTMART_PRODUCT_ID_OVERRIDE / HOTMART_OFFER_*_OVERRIDE when a sandbox product is configured instead", async () => {
+    process.env.HOTMART_PRODUCT_ID_OVERRIDE = "SANDBOX_PRODUCT";
+    process.env.HOTMART_OFFER_PRO_MONTHLY_OVERRIDE = "SANDBOX_OFFER";
+    activeScenario.usersLookup = { data: { id: "existing-user-1" }, error: null };
+    // The real ids no longer resolve while the override is active.
+    const realIdsRes = await handler({ request: makeRequest(approvedPurchaseBody()) });
+    expect(realIdsRes.status).toBe(200);
+    expect(calls.find((c) => c.rpcName === "process_hotmart_event")).toBeUndefined();
+
+    const sandboxRes = await handler({
+      request: makeRequest(approvedPurchaseBody({ prod: "SANDBOX_PRODUCT", off: "SANDBOX_OFFER" })),
+    });
+    expect(sandboxRes.status).toBe(200);
+    expect(calls.find((c) => c.rpcName === "process_hotmart_event")).toBeTruthy();
   });
 
   it("rejects an unsupported Content-Type", async () => {
