@@ -1382,6 +1382,13 @@ export type Database = {
           slug: string;
         }[];
       };
+      reconcile_hotmart_stale: {
+        Args: { p_batch_limit?: number };
+        Returns: {
+          expired_subscriptions: number;
+          stuck_events_flagged: number;
+        }[];
+      };
       reconcile_stale_reservations: {
         Args: { p_older_than_minutes?: number };
         Returns: {

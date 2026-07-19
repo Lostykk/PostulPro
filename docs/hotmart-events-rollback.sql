@@ -3,6 +3,7 @@
 --   supabase/migrations/20260729010000_process_hotmart_event_rpc.sql
 --   supabase/migrations/20260729020000_webhook_rate_limit.sql
 --   supabase/migrations/20260729030000_admin_resolve_hotmart_pending_link.sql
+--   supabase/migrations/20260729040000_reconcile_hotmart_stale.sql
 --
 -- Safe by construction: both migrations only CREATE new objects (no
 -- ALTER/rename/drop of any pre-existing table, column, or function). This
@@ -42,7 +43,11 @@ DROP TABLE IF EXISTS public.webhook_rate_limit_events;
 --    safe to drop in any order since it has no table of its own).
 DROP FUNCTION IF EXISTS public.admin_resolve_hotmart_pending_link(UUID, UUID, TEXT, TEXT, INT);
 
+-- 6. Commercial reconciliation function (independent, no table of its own).
+DROP FUNCTION IF EXISTS public.reconcile_hotmart_stale(INT);
+
 -- Nothing else to revert: no columns were added to any existing table,
 -- no existing function was replaced (process_lemon_squeezy_event,
--- admin_update_user_plan, and claim_plan_rate_limit are all untouched by
--- these four migrations), no existing RLS policy or grant was changed.
+-- admin_update_user_plan, claim_plan_rate_limit, and
+-- reconcile_stale_reservations_v2 are all untouched by these five
+-- migrations), no existing RLS policy or grant was changed.
