@@ -6,7 +6,11 @@ import { callModel, logModelUsage, type ModelUsage } from "@/lib/ai/call-model.s
 import { checkAiExecutionAllowed } from "@/lib/ai/preview-guard.server";
 import { maybeSendLowCreditsEmail } from "@/lib/notifications/low-credits.server";
 import { isOwner } from "@/lib/auth/is-owner";
-import { confirmConsumedOrLog, getWaitUntil, refundInBackground } from "@/lib/ai/credit-reservation.server";
+import {
+  confirmConsumedOrLog,
+  getWaitUntil,
+  refundInBackground,
+} from "@/lib/ai/credit-reservation.server";
 
 // Streaming proxy to Anthropic / OpenAI. API keys stay server-side.
 // Contract: POST /api/generate-ai with Bearer token + JSON:
@@ -129,11 +133,18 @@ export const Route = createFileRoute("/api/generate-ai")({
         // request to Anthropic/OpenAI actually stops (no wasted provider
         // tokens) and — since the abort surfaces as a rejected promise in
         // callModel — falls through to the same catch/refund path below as
-        // any other failure. Without this, a closed tab mid-stream would
-        // silently keep the reserved credit charged forever.
+        // any other failure. This is best-effort only, not a financial
+        // guarantee: empirically verified against the deployed preview
+        // Worker (see docs/premium-redesign-report.md), on this stack
+        // (Nitro + h3-v2 + TanStack Start on Cloudflare) neither
+        // ReadableStream.cancel() nor request.signal's 'abort' event fired
+        // on a real client disconnect in any test run. Resolution
+        // therefore never depends on either firing — it depends on
+        // runGeneration() actually reaching a terminal outcome.
         const encoder = new TextEncoder();
         const abortController = new AbortController();
         const waitUntil = getWaitUntil(request);
+        request.signal?.addEventListener("abort", () => abortController.abort());
         // Local-only optimization (skip a redundant network call if both
         // the catch block and cancel() fire for the same request) — NOT
         // the idempotency mechanism. That guarantee is entirely
@@ -150,151 +161,164 @@ export const Route = createFileRoute("/api/generate-ai")({
 
         const stream = new ReadableStream({
           async start(controller) {
-            const send = (obj: unknown) => {
-              try {
-                controller.enqueue(encoder.encode(`data: ${JSON.stringify(obj)}\n\n`));
-              } catch {
-                /* controller already closed (client gone) — nothing to send to */
-              }
-            };
-
-            let full = "";
-            let usage: ModelUsage = { inputTokens: null, outputTokens: null, stopReason: null };
-            const startedAt = Date.now();
-            try {
-              await callModel(
-                tool,
-                prompt,
-                (delta) => {
-                  full += delta;
-                  send({ type: "delta", text: delta });
-                },
-                abortController.signal,
-                (u) => (usage = u),
-              );
-              logModelUsage({
-                provider: tool.provider,
-                model: tool.model,
-                operation: "single_tool",
-                toolKey: toolId,
-                usage,
-                durationMs: Date.now() - startedAt,
-                status: "success",
-              });
-
-              // Persist generation
-              const title = (body.title ?? prompt.slice(0, 60)).slice(0, 200);
-              const { data: gen } = await supabase
-                .from("generations")
-                .insert({
-                  user_id: userId,
-                  tool: toolId,
-                  title,
-                  output: full,
-                  prompt_json: { prompt } as never,
-                  tokens_used: usage.outputTokens ?? Math.ceil(full.length / 4),
-                })
-                .select("id")
-                .maybeSingle();
-
-              // The response about to go out claims the reservation is
-              // settled and the credit spent — that claim must be true
-              // before it's sent, not eventually true. Block on it here
-              // (bounded retries inside confirmConsumedOrLog), rather than
-              // firing it in the background the way the refund path does.
-              settled = true;
-              const confirmed = await confirmConsumedOrLog(supabase, reservationId, gen?.id ?? null, {
-                toolId,
-                userId,
-              });
-
-              if (!confirmed) {
-                // Content was generated and persisted, but the ledger
-                // can't confirm the reservation as consumed. Sending
-                // "done" here would assert a billing fact we don't
-                // actually know to be true, so this is reported as an
-                // error instead — the reservation itself is left
-                // 'reserved' (safe, recoverable, already logged by
-                // confirmConsumedOrLog) rather than guessed at.
-                send({
-                  type: "error",
-                  message:
-                    "El contenido se generó pero no se pudo confirmar el estado del crédito. Contactá soporte si el problema persiste.",
-                });
-                try {
-                  controller.close();
-                } catch {
-                  /* already closed */
-                }
-                return;
-              }
-
-              const { data: refreshed } = await supabase
-                .from("users")
-                .select("credits_used,credits_limit")
-                .eq("id", userId)
-                .maybeSingle();
-
-              send({
-                type: "done",
-                generationId: gen?.id ?? null,
-                creditsRemaining: refreshed
-                  ? refreshed.credits_limit - refreshed.credits_used
-                  : null,
-              });
-              try {
-                controller.close();
-              } catch {
-                /* already closed */
-              }
-            } catch (err) {
-              logModelUsage({
-                provider: tool.provider,
-                model: tool.model,
-                operation: "single_tool",
-                toolKey: toolId,
-                usage,
-                durationMs: Date.now() - startedAt,
-                status: "error",
-                errorCode: "provider_error",
-              });
-              // Refund on error — also covers the abort-on-disconnect path
-              // via cancel() below. Fire-and-forget: an error response
-              // makes no claim about billing state the way "done" does, so
-              // there's nothing to protect by blocking on it here.
-              refundOnce("provider_error");
-              send({
-                type: "error",
-                message: err instanceof Error ? err.message : "Model call failed",
-              });
-              try {
-                controller.close();
-              } catch {
-                /* already closed */
-              }
-            }
+            // Registering the WHOLE generation (not just the refund
+            // sub-task, as an earlier version of this fix did) with
+            // waitUntil is what actually keeps the Workers isolate alive
+            // past client disconnect — empirically confirmed: without
+            // this, disconnecting during a real deployed test silently
+            // killed the isolate before even normal, connected-client-path
+            // logs could run. This is bounded by a platform-enforced
+            // ceiling (Cloudflare logs "waitUntil() tasks did not complete
+            // within the allowed time... and have been cancelled" for
+            // slower generations) — it reliably saves short generations,
+            // but cannot be the sole guarantee for slow ones. That's what
+            // the evidence-based reconciler exists for.
+            const work = runGeneration(controller, tool);
+            if (waitUntil) waitUntil(work);
+            await work;
           },
           cancel(reason) {
-            // Client disconnected mid-stream: stop the upstream model call
-            // and refund. The abort makes callModel's fetch reject, which
-            // the start() catch block above also handles — refundOnce()
-            // guards against double-refunding if both paths fire. Logged
-            // (not just silently handled) because this is the one path
-            // whose real-world completion depends on the Workers runtime
-            // actually keeping the isolate alive via waitUntil — worth
-            // being able to see it fire in production logs.
-            console.error(
-              JSON.stringify({
-                scope: "credit_reservation_cancel_triggered",
-                reservationId,
-                hasWaitUntil: waitUntil !== null,
-                reason: reason instanceof Error ? reason.message : String(reason),
-              }),
-            );
+            // Best-effort only — see the note above on abortController.
+            // Deliberately does NOT resolve the reservation here: a
+            // detected disconnect requests cancellation, it does not by
+            // itself justify a refund (that would refund "blindly because
+            // the tab closed," which is exactly what this design avoids).
+            // The actual refund happens through runGeneration()'s own
+            // catch block, which only runs once callModel's abort
+            // surfaces as a confirmed rejection.
             abortController.abort(reason);
-            refundOnce("client_disconnected");
           },
         });
+
+        async function runGeneration(
+          controller: ReadableStreamDefaultController<Uint8Array>,
+          tool: NonNullable<ReturnType<typeof getTool>>,
+        ) {
+          const send = (obj: unknown) => {
+            try {
+              controller.enqueue(encoder.encode(`data: ${JSON.stringify(obj)}\n\n`));
+            } catch {
+              /* controller already closed (client gone) — nothing to send to */
+            }
+          };
+
+          let full = "";
+          let usage: ModelUsage = { inputTokens: null, outputTokens: null, stopReason: null };
+          const startedAt = Date.now();
+          try {
+            await callModel(
+              tool,
+              prompt,
+              (delta) => {
+                full += delta;
+                send({ type: "delta", text: delta });
+              },
+              abortController.signal,
+              (u) => (usage = u),
+            );
+            logModelUsage({
+              provider: tool.provider,
+              model: tool.model,
+              operation: "single_tool",
+              toolKey: toolId,
+              usage,
+              durationMs: Date.now() - startedAt,
+              status: "success",
+            });
+
+            // Persist generation
+            const title = (body.title ?? prompt.slice(0, 60)).slice(0, 200);
+            const { data: gen } = await supabase
+              .from("generations")
+              .insert({
+                user_id: userId,
+                tool: toolId,
+                title,
+                output: full,
+                prompt_json: { prompt } as never,
+                tokens_used: usage.outputTokens ?? Math.ceil(full.length / 4),
+              })
+              .select("id")
+              .maybeSingle();
+
+            // The response about to go out claims the reservation is
+            // settled and the credit spent — that claim must be true
+            // before it's sent, not eventually true. Block on it here
+            // (bounded retries inside confirmConsumedOrLog), rather than
+            // firing it in the background the way the refund path does.
+            settled = true;
+            const confirmed = await confirmConsumedOrLog(supabase, reservationId, gen?.id ?? null, {
+              toolId,
+              userId,
+            });
+
+            if (!confirmed) {
+              // Content was generated and persisted, but the ledger
+              // can't confirm the reservation as consumed. Sending
+              // "done" here would assert a billing fact we don't
+              // actually know to be true, so this is reported as an
+              // error instead — the reservation itself is left
+              // 'reserved' (safe, recoverable, already logged by
+              // confirmConsumedOrLog) rather than guessed at.
+              send({
+                type: "error",
+                message:
+                  "El contenido se generó pero no se pudo confirmar el estado del crédito. Contactá soporte si el problema persiste.",
+              });
+              try {
+                controller.close();
+              } catch {
+                /* already closed */
+              }
+              return;
+            }
+
+            const { data: refreshed } = await supabase
+              .from("users")
+              .select("credits_used,credits_limit")
+              .eq("id", userId)
+              .maybeSingle();
+
+            send({
+              type: "done",
+              generationId: gen?.id ?? null,
+              creditsRemaining: refreshed ? refreshed.credits_limit - refreshed.credits_used : null,
+            });
+            try {
+              controller.close();
+            } catch {
+              /* already closed */
+            }
+          } catch (err) {
+            logModelUsage({
+              provider: tool.provider,
+              model: tool.model,
+              operation: "single_tool",
+              toolKey: toolId,
+              usage,
+              durationMs: Date.now() - startedAt,
+              status: "error",
+              errorCode: "provider_error",
+            });
+            // Refund on error — also covers a confirmed client abort,
+            // since abortController.abort() (from cancel() or
+            // request.signal above) makes callModel's fetch reject and
+            // land here just like any other failure. Fire-and-forget:
+            // an error response makes no claim about billing state the
+            // way "done" does, so there's nothing to protect by
+            // blocking on it here.
+            refundOnce(abortController.signal.aborted ? "client_disconnected" : "provider_error");
+            send({
+              type: "error",
+              message: err instanceof Error ? err.message : "Model call failed",
+            });
+            try {
+              controller.close();
+            } catch {
+              /* already closed */
+            }
+          }
+        }
 
         return new Response(stream, {
           headers: {

@@ -8,7 +8,11 @@ import { buildStepPrompt } from "@/lib/projects/step-prompts.server";
 import { getCapabilityMeta } from "@/lib/projects/capabilities.server";
 import { ProjectBriefSchema } from "@/lib/projects/schema";
 import { isOwner } from "@/lib/auth/is-owner";
-import { confirmConsumedOrLog, getWaitUntil, refundInBackground } from "@/lib/ai/credit-reservation.server";
+import {
+  confirmConsumedOrLog,
+  getWaitUntil,
+  refundInBackground,
+} from "@/lib/ai/credit-reservation.server";
 
 // Runs exactly one project step end to end: claim -> reserve credits ->
 // stream the model -> persist the generation -> mark the step complete
@@ -57,7 +61,11 @@ export async function runProjectStep(
   // whole block is a no-op there, same as before.
   let isAdminForGuard = false;
   if (isPreviewEnvironment()) {
-    const { data: guardProfile } = await supabase.from("users").select("role").eq("id", userId).maybeSingle();
+    const { data: guardProfile } = await supabase
+      .from("users")
+      .select("role")
+      .eq("id", userId)
+      .maybeSingle();
     isAdminForGuard = isOwner(guardProfile);
   }
   const guard = checkAiExecutionAllowed(userId, isAdminForGuard);
@@ -174,6 +182,7 @@ export async function runProjectStep(
 
   const encoder = new TextEncoder();
   const abortController = new AbortController();
+  request.signal?.addEventListener("abort", () => abortController.abort());
   // Guards against the catch block and cancel() both firing for the same
   // request — a local optimization only. The actual idempotency guarantee
   // is resolve_credit_reservation's atomic compare-and-swap on the
@@ -198,163 +207,171 @@ export async function runProjectStep(
 
   const stream = new ReadableStream({
     async start(controller) {
-      const send = (obj: unknown) => {
-        try {
-          controller.enqueue(encoder.encode(`data: ${JSON.stringify(obj)}\n\n`));
-        } catch {
-          /* controller already closed */
-        }
-      };
-
-      let full = "";
-      let usage: ModelUsage = { inputTokens: null, outputTokens: null, stopReason: null };
-      const startedAt = Date.now();
-      try {
-        await callModel(
-          tool,
-          prompt,
-          (delta) => {
-            full += delta;
-            send({ type: "delta", text: delta, stepId });
-          },
-          abortController.signal,
-          (u) => (usage = u),
-        );
-        logModelUsage({
-          provider: tool.provider,
-          model: tool.model,
-          operation: "project_step",
-          toolKey,
-          usage,
-          durationMs: Date.now() - startedAt,
-          status: "success",
-        });
-
-        const { data: gen } = await supabase
-          .from("generations")
-          .insert({
-            user_id: userId,
-            tool: toolKey,
-            title: capability.name,
-            output: full,
-            prompt_json: { prompt } as never,
-            tokens_used: usage.outputTokens ?? Math.ceil(full.length / 4),
-            project_id: projectId,
-            project_step_id: stepId,
-            artifact_type: capability.deliverableType,
-          })
-          .select("id")
-          .maybeSingle();
-
-        if (!gen?.id) throw new Error("No se pudo guardar el resultado.");
-
-        // Same "no success claim before it's true" rule as
-        // generate-ai.ts: block on ledger confirmation before marking the
-        // step complete or sending "done".
-        settled = true;
-        const confirmed = await confirmConsumedOrLog(supabase, reservationId, gen.id, {
-          toolKey,
-          userId,
-          projectId,
-          stepId,
-        });
-
-        if (!confirmed) {
-          // Content was generated and persisted, but the ledger can't
-          // confirm the reservation as consumed — leave the step
-          // unresolved and the reservation 'reserved' (recoverable,
-          // already logged by confirmConsumedOrLog) rather than
-          // completing the step on an unconfirmed credit claim.
-          send({
-            type: "error",
-            message:
-              "El contenido se generó pero no se pudo confirmar el estado del crédito. Contactá soporte si el problema persiste.",
-            stepId,
-          });
-          try {
-            controller.close();
-          } catch {
-            /* already closed */
-          }
-          return;
-        }
-
-        await supabase.rpc("complete_ai_project_step", {
-          p_step_id: stepId,
-          p_generation_id: gen.id,
-        });
-
-        const { data: project } = await supabase
-          .from("ai_projects")
-          .select("status,progress_percent,spent_credits,current_step_id")
-          .eq("id", projectId)
-          .maybeSingle();
-        const { data: refreshed } = await supabase
-          .from("users")
-          .select("credits_used,credits_limit")
-          .eq("id", userId)
-          .maybeSingle();
-
-        send({
-          type: "done",
-          generationId: gen.id,
-          stepId,
-          projectStatus: project?.status ?? null,
-          progressPercent: project?.progress_percent ?? null,
-          currentStepId: project?.current_step_id ?? null,
-          creditsRemaining: refreshed ? refreshed.credits_limit - refreshed.credits_used : null,
-        });
-        try {
-          controller.close();
-        } catch {
-          /* already closed */
-        }
-      } catch (err) {
-        const message =
-          err instanceof Error ? err.message : "El modelo falló al generar este paso.";
-        logModelUsage({
-          provider: tool.provider,
-          model: tool.model,
-          operation: "project_step",
-          toolKey,
-          usage,
-          durationMs: Date.now() - startedAt,
-          status: "error",
-          errorCode: "provider_error",
-        });
-        await settleFailure(
-          "provider_error",
-          "El modelo falló al generar este paso. Podés reintentarlo.",
-        );
-        send({ type: "error", message, stepId });
-        try {
-          controller.close();
-        } catch {
-          /* already closed */
-        }
-      }
+      // Registering the WHOLE step execution with waitUntil (not just the
+      // refund sub-task) is what keeps the Workers isolate alive past
+      // client disconnect — see the identical fix and its empirical
+      // justification in routes/api/generate-ai.ts. Bounded by a
+      // platform-enforced ceiling, not a guarantee for slow steps — the
+      // evidence-based reconciler is the actual safety net for those.
+      const work = runStep(controller, tool, capability);
+      if (waitUntil) waitUntil(work);
+      await work;
     },
     cancel(reason) {
-      // Logged for the same reason as generate-ai.ts's cancel handler:
-      // this path's real-world completion depends on the Workers runtime
-      // keeping the isolate alive (via waitUntil) after the client is
-      // gone — worth being able to see it fire in production logs.
-      console.error(
-        JSON.stringify({
-          scope: "credit_reservation_cancel_triggered",
-          reservationId,
-          stepId,
-          hasWaitUntil: waitUntil !== null,
-          reason: reason instanceof Error ? reason.message : String(reason),
-        }),
-      );
+      // Best-effort only — empirically, neither this nor request.signal's
+      // abort event fired on a real deployed disconnect test (see
+      // generate-ai.ts and docs/premium-redesign-report.md). Deliberately
+      // does NOT resolve the reservation here — only requests cancellation.
+      // The actual refund happens through runStep()'s own catch block,
+      // which only runs once callModel's abort surfaces as a confirmed
+      // rejection.
       abortController.abort(reason);
-      void settleFailure(
-        "client_disconnected",
-        "La conexión se interrumpió mientras se generaba este paso.",
-      );
     },
   });
+
+  async function runStep(
+    controller: ReadableStreamDefaultController<Uint8Array>,
+    tool: NonNullable<ReturnType<typeof getTool>>,
+    capability: NonNullable<ReturnType<typeof getCapabilityMeta>>,
+  ) {
+    const send = (obj: unknown) => {
+      try {
+        controller.enqueue(encoder.encode(`data: ${JSON.stringify(obj)}\n\n`));
+      } catch {
+        /* controller already closed */
+      }
+    };
+
+    let full = "";
+    let usage: ModelUsage = { inputTokens: null, outputTokens: null, stopReason: null };
+    const startedAt = Date.now();
+    try {
+      await callModel(
+        tool,
+        prompt,
+        (delta) => {
+          full += delta;
+          send({ type: "delta", text: delta, stepId });
+        },
+        abortController.signal,
+        (u) => (usage = u),
+      );
+      logModelUsage({
+        provider: tool.provider,
+        model: tool.model,
+        operation: "project_step",
+        toolKey,
+        usage,
+        durationMs: Date.now() - startedAt,
+        status: "success",
+      });
+
+      const { data: gen } = await supabase
+        .from("generations")
+        .insert({
+          user_id: userId,
+          tool: toolKey,
+          title: capability.name,
+          output: full,
+          prompt_json: { prompt } as never,
+          tokens_used: usage.outputTokens ?? Math.ceil(full.length / 4),
+          project_id: projectId,
+          project_step_id: stepId,
+          artifact_type: capability.deliverableType,
+        })
+        .select("id")
+        .maybeSingle();
+
+      if (!gen?.id) throw new Error("No se pudo guardar el resultado.");
+
+      // Same "no success claim before it's true" rule as
+      // generate-ai.ts: block on ledger confirmation before marking the
+      // step complete or sending "done".
+      settled = true;
+      const confirmed = await confirmConsumedOrLog(supabase, reservationId, gen.id, {
+        toolKey,
+        userId,
+        projectId,
+        stepId,
+      });
+
+      if (!confirmed) {
+        // Content was generated and persisted, but the ledger can't
+        // confirm the reservation as consumed — leave the step
+        // unresolved and the reservation 'reserved' (recoverable,
+        // already logged by confirmConsumedOrLog) rather than
+        // completing the step on an unconfirmed credit claim.
+        send({
+          type: "error",
+          message:
+            "El contenido se generó pero no se pudo confirmar el estado del crédito. Contactá soporte si el problema persiste.",
+          stepId,
+        });
+        try {
+          controller.close();
+        } catch {
+          /* already closed */
+        }
+        return;
+      }
+
+      await supabase.rpc("complete_ai_project_step", {
+        p_step_id: stepId,
+        p_generation_id: gen.id,
+      });
+
+      const { data: project } = await supabase
+        .from("ai_projects")
+        .select("status,progress_percent,spent_credits,current_step_id")
+        .eq("id", projectId)
+        .maybeSingle();
+      const { data: refreshed } = await supabase
+        .from("users")
+        .select("credits_used,credits_limit")
+        .eq("id", userId)
+        .maybeSingle();
+
+      send({
+        type: "done",
+        generationId: gen.id,
+        stepId,
+        projectStatus: project?.status ?? null,
+        progressPercent: project?.progress_percent ?? null,
+        currentStepId: project?.current_step_id ?? null,
+        creditsRemaining: refreshed ? refreshed.credits_limit - refreshed.credits_used : null,
+      });
+      try {
+        controller.close();
+      } catch {
+        /* already closed */
+      }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "El modelo falló al generar este paso.";
+      logModelUsage({
+        provider: tool.provider,
+        model: tool.model,
+        operation: "project_step",
+        toolKey,
+        usage,
+        durationMs: Date.now() - startedAt,
+        status: "error",
+        errorCode: "provider_error",
+      });
+      const aborted = abortController.signal.aborted;
+      await settleFailure(
+        aborted ? "client_disconnected" : "provider_error",
+        aborted
+          ? "La conexión se interrumpió mientras se generaba este paso."
+          : "El modelo falló al generar este paso. Podés reintentarlo.",
+      );
+      send({ type: "error", message, stepId });
+      try {
+        controller.close();
+      } catch {
+        /* already closed */
+      }
+    }
+  }
 
   return new Response(stream, {
     headers: {
