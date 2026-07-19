@@ -1178,6 +1178,19 @@ export type Database = {
       [_ in never]: never;
     };
     Functions: {
+      admin_resolve_hotmart_pending_link: {
+        Args: {
+          p_billing_interval: string;
+          p_credits_limit: number;
+          p_pending_link_id: string;
+          p_plan: string;
+          p_target_user_id: string;
+        };
+        Returns: {
+          message: string;
+          ok: boolean;
+        }[];
+      };
       admin_update_user_plan: {
         Args: { p_new_plan: string; p_target_user_id: string };
         Returns: {
