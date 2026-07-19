@@ -207,6 +207,50 @@ describe("POST /api/webhooks/hotmart", () => {
     expect(args.p_event_type).toBe("renewal_approved");
   });
 
+  it("upgrade PRO -> Business: a new approved offer on the same subscriber_code resolves to the NEW plan (via renewal_approved, same RPC branch as plan_change)", async () => {
+    activeScenario.subscriptionLookup = { data: { user_id: "linked-user-1", plan: "pro", billing_interval: "month" }, error: null };
+    const res = await handler({
+      request: makeRequest(approvedPurchaseBody({ off: "zy2exb4h" })), // business_monthly real offer id
+    });
+    expect(res.status).toBe(200);
+    const rpcCall = calls.find((c) => c.rpcName === "process_hotmart_event");
+    const args = rpcCall!.args as Record<string, unknown>;
+    expect(args.p_event_type).toBe("renewal_approved"); // see hotmart-integration-report.md §13 for why this is correct, not "plan_change"
+    expect(args.p_plan).toBe("business");
+    expect(args.p_credits_limit).toBe(500);
+  });
+
+  it("downgrade Business -> PRO: same mechanism, resolves to the lower plan", async () => {
+    activeScenario.subscriptionLookup = { data: { user_id: "linked-user-1", plan: "business", billing_interval: "month" }, error: null };
+    const res = await handler({
+      request: makeRequest(approvedPurchaseBody({ off: "w6nw1f3o" })), // pro_monthly real offer id
+    });
+    expect(res.status).toBe(200);
+    const rpcCall = calls.find((c) => c.rpcName === "process_hotmart_event");
+    const args = rpcCall!.args as Record<string, unknown>;
+    expect(args.p_plan).toBe("pro");
+    expect(args.p_credits_limit).toBe(100);
+  });
+
+  it("compra PRO anual and Business anual resolve their real offers correctly", async () => {
+    activeScenario.usersLookup = { data: { id: "existing-user-1" }, error: null };
+    const proAnnual = await handler({ request: makeRequest(approvedPurchaseBody({ off: "z7l3u209" })) });
+    expect(proAnnual.status).toBe(200);
+    let args = calls.find((c) => c.rpcName === "process_hotmart_event")!.args as Record<string, unknown>;
+    expect(args).toEqual(expect.objectContaining({ p_plan: "pro", p_billing_interval: "year", p_credits_limit: 100 }));
+
+    calls.length = 0;
+    activeScenario.hotmartEventsInsert = undefined;
+    const bizAnnual = await handler({
+      request: makeRequest(
+        JSON.stringify({ status: "approved", transaction: "TXN-BIZ-A", subscriber_code: "SUB-BIZ-A", prod: "8148076", off: "64lrx4be", email: "buyer2@example.com" }),
+      ),
+    });
+    expect(bizAnnual.status).toBe(200);
+    args = calls.find((c) => c.rpcName === "process_hotmart_event")!.args as Record<string, unknown>;
+    expect(args).toEqual(expect.objectContaining({ p_plan: "business", p_billing_interval: "year", p_credits_limit: 500 }));
+  });
+
   it("forwards creation_date (when present) to the RPC as p_provider_updated_at for the out-of-order guard", async () => {
     activeScenario.usersLookup = { data: { id: "existing-user-1" }, error: null };
     const seconds = 1732000000;
