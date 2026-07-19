@@ -1,6 +1,7 @@
 -- Rollback for:
 --   supabase/migrations/20260729000000_hotmart_events.sql
 --   supabase/migrations/20260729010000_process_hotmart_event_rpc.sql
+--   supabase/migrations/20260729020000_webhook_rate_limit.sql
 --
 -- Safe by construction: both migrations only CREATE new objects (no
 -- ALTER/rename/drop of any pre-existing table, column, or function). This
@@ -28,7 +29,13 @@ DROP TABLE IF EXISTS public.hotmart_pending_links;
 -- 3. Parent table last.
 DROP TABLE IF EXISTS public.hotmart_events;
 
+-- 4. Generic webhook rate limiter (independent of the two above — safe to
+--    drop in any order relative to them, listed last only to match
+--    migration file order).
+DROP FUNCTION IF EXISTS public.claim_webhook_rate_limit(TEXT, TEXT, INT, INT);
+DROP TABLE IF EXISTS public.webhook_rate_limit_events;
+
 -- Nothing else to revert: no columns were added to any existing table,
--- no existing function was replaced (process_lemon_squeezy_event and
--- admin_update_user_plan are both untouched by these two migrations), no
--- existing RLS policy or grant was changed.
+-- no existing function was replaced (process_lemon_squeezy_event,
+-- admin_update_user_plan, and claim_plan_rate_limit are all untouched by
+-- these three migrations), no existing RLS policy or grant was changed.
