@@ -47,6 +47,18 @@ export default defineConfig({
   // straight at the file, per Nitro's own documented config-based
   // registration path (nitro/docs/tasks, "Registering tasks via config").
   // eslint-disable-next-line @typescript-eslint/no-explicit-any -- see comment above
+  // scheduledTasks activates the production Cron Trigger: Nitro's
+  // cloudflare-module preset translates this into a `[triggers].crons`
+  // entry in the generated wrangler config at build time, which Cloudflare
+  // reads on deploy to actually register the trigger — see
+  // docs/premium-redesign-report.md §19.4/§19.9 for the build-time proof
+  // (a throwaway build with this same key produced a real
+  // `"triggers":{"crons":[...]}` section) and §19.9 for why 5 minutes:
+  // well under the shortest per-tool evidence threshold (10 minutes, see
+  // supabase/migrations/20260728000000_reservation_job_evidence.sql), and
+  // far above real generation durations, so it won't fire mid-generation
+  // for the case that matters (active/ambiguous reservations, which the
+  // RPC itself leaves untouched regardless).
   nitro: {
     experimental: { tasks: true },
     tasks: {
@@ -54,6 +66,9 @@ export default defineConfig({
         handler: reconcileTaskPath,
         description: "Reconcile stale credit_reservations via reconcile_stale_reservations_v2",
       },
+    },
+    scheduledTasks: {
+      "*/5 * * * *": ["reconcile-credits"],
     },
   } as any,
 });
