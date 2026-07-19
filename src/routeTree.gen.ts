@@ -38,6 +38,7 @@ import { Route as ApiProjectsCapabilitiesRouteImport } from './routes/api/projec
 import { Route as ApiProjectsIdRouteImport } from './routes/api/projects/$id'
 import { Route as ApiNotificationsWelcomeRouteImport } from './routes/api/notifications/welcome'
 import { Route as ApiNotificationsWeeklySummaryQaRouteImport } from './routes/api/notifications/weekly-summary-qa'
+import { Route as ApiInternalReconcileCreditsRouteImport } from './routes/api/internal/reconcile-credits'
 import { Route as ApiBillingWebhookRouteImport } from './routes/api/billing/webhook'
 import { Route as ApiBillingPortalRouteImport } from './routes/api/billing/portal'
 import { Route as ApiBillingCheckoutRouteImport } from './routes/api/billing/checkout'
@@ -210,6 +211,12 @@ const ApiNotificationsWeeklySummaryQaRoute =
     path: '/api/notifications/weekly-summary-qa',
     getParentRoute: () => rootRouteImport,
   } as any)
+const ApiInternalReconcileCreditsRoute =
+  ApiInternalReconcileCreditsRouteImport.update({
+    id: '/api/internal/reconcile-credits',
+    path: '/api/internal/reconcile-credits',
+    getParentRoute: () => rootRouteImport,
+  } as any)
 const ApiBillingWebhookRoute = ApiBillingWebhookRouteImport.update({
   id: '/api/billing/webhook',
   path: '/api/billing/webhook',
@@ -372,6 +379,7 @@ export interface FileRoutesByFullPath {
   '/api/billing/checkout': typeof ApiBillingCheckoutRoute
   '/api/billing/portal': typeof ApiBillingPortalRoute
   '/api/billing/webhook': typeof ApiBillingWebhookRoute
+  '/api/internal/reconcile-credits': typeof ApiInternalReconcileCreditsRoute
   '/api/notifications/weekly-summary-qa': typeof ApiNotificationsWeeklySummaryQaRoute
   '/api/notifications/welcome': typeof ApiNotificationsWelcomeRoute
   '/api/projects/$id': typeof ApiProjectsIdRouteWithChildren
@@ -424,6 +432,7 @@ export interface FileRoutesByTo {
   '/api/billing/checkout': typeof ApiBillingCheckoutRoute
   '/api/billing/portal': typeof ApiBillingPortalRoute
   '/api/billing/webhook': typeof ApiBillingWebhookRoute
+  '/api/internal/reconcile-credits': typeof ApiInternalReconcileCreditsRoute
   '/api/notifications/weekly-summary-qa': typeof ApiNotificationsWeeklySummaryQaRoute
   '/api/notifications/welcome': typeof ApiNotificationsWelcomeRoute
   '/api/projects/$id': typeof ApiProjectsIdRouteWithChildren
@@ -479,6 +488,7 @@ export interface FileRoutesById {
   '/api/billing/checkout': typeof ApiBillingCheckoutRoute
   '/api/billing/portal': typeof ApiBillingPortalRoute
   '/api/billing/webhook': typeof ApiBillingWebhookRoute
+  '/api/internal/reconcile-credits': typeof ApiInternalReconcileCreditsRoute
   '/api/notifications/weekly-summary-qa': typeof ApiNotificationsWeeklySummaryQaRoute
   '/api/notifications/welcome': typeof ApiNotificationsWelcomeRoute
   '/api/projects/$id': typeof ApiProjectsIdRouteWithChildren
@@ -534,6 +544,7 @@ export interface FileRouteTypes {
     | '/api/billing/checkout'
     | '/api/billing/portal'
     | '/api/billing/webhook'
+    | '/api/internal/reconcile-credits'
     | '/api/notifications/weekly-summary-qa'
     | '/api/notifications/welcome'
     | '/api/projects/$id'
@@ -586,6 +597,7 @@ export interface FileRouteTypes {
     | '/api/billing/checkout'
     | '/api/billing/portal'
     | '/api/billing/webhook'
+    | '/api/internal/reconcile-credits'
     | '/api/notifications/weekly-summary-qa'
     | '/api/notifications/welcome'
     | '/api/projects/$id'
@@ -640,6 +652,7 @@ export interface FileRouteTypes {
     | '/api/billing/checkout'
     | '/api/billing/portal'
     | '/api/billing/webhook'
+    | '/api/internal/reconcile-credits'
     | '/api/notifications/weekly-summary-qa'
     | '/api/notifications/welcome'
     | '/api/projects/$id'
@@ -677,6 +690,7 @@ export interface RootRouteChildren {
   ApiBillingCheckoutRoute: typeof ApiBillingCheckoutRoute
   ApiBillingPortalRoute: typeof ApiBillingPortalRoute
   ApiBillingWebhookRoute: typeof ApiBillingWebhookRoute
+  ApiInternalReconcileCreditsRoute: typeof ApiInternalReconcileCreditsRoute
   ApiNotificationsWeeklySummaryQaRoute: typeof ApiNotificationsWeeklySummaryQaRoute
   ApiNotificationsWelcomeRoute: typeof ApiNotificationsWelcomeRoute
   ApiProjectsIdRoute: typeof ApiProjectsIdRouteWithChildren
@@ -887,6 +901,13 @@ declare module '@tanstack/react-router' {
       path: '/api/notifications/weekly-summary-qa'
       fullPath: '/api/notifications/weekly-summary-qa'
       preLoaderRoute: typeof ApiNotificationsWeeklySummaryQaRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/internal/reconcile-credits': {
+      id: '/api/internal/reconcile-credits'
+      path: '/api/internal/reconcile-credits'
+      fullPath: '/api/internal/reconcile-credits'
+      preLoaderRoute: typeof ApiInternalReconcileCreditsRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/billing/webhook': {
@@ -1164,6 +1185,7 @@ const rootRouteChildren: RootRouteChildren = {
   ApiBillingCheckoutRoute: ApiBillingCheckoutRoute,
   ApiBillingPortalRoute: ApiBillingPortalRoute,
   ApiBillingWebhookRoute: ApiBillingWebhookRoute,
+  ApiInternalReconcileCreditsRoute: ApiInternalReconcileCreditsRoute,
   ApiNotificationsWeeklySummaryQaRoute: ApiNotificationsWeeklySummaryQaRoute,
   ApiNotificationsWelcomeRoute: ApiNotificationsWelcomeRoute,
   ApiProjectsIdRoute: ApiProjectsIdRouteWithChildren,
