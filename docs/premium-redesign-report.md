@@ -2348,3 +2348,127 @@ ronda 4, no se usó `--force`, no se borraron ramas ni stashes, no se
 manipularon usuarios ni proyectos reales (la única sesión real
 autenticada usada se usó exclusivamente en modo lectura, sin gastar
 créditos). Se detiene esta tarea aquí.
+
+## 21. Cierre y limpieza segura post-cutover
+
+Sin cambios de código, configuración, DNS, migraciones, secretos ni
+Worker durante esta ronda — solo verificación, inventario y limpieza de
+artefactos de QA, con criterios estrictos de qué se podía borrar.
+
+### 21.1 Verificación final antes de limpiar (sin modificar nada)
+
+| Check | Resultado |
+|---|---|
+| `main` local == `origin/main` | ✅ ambos en `6389dc1e7bbe03333b6e69f065a8e6ccf6e71be9` |
+| Working tree | Limpio (solo `src/routeTree.gen.ts`/`src/server.ts` con diff vacío, ruido CRLF ya documentado) |
+| Commit productivo | `6389dc1` (el del informe anterior) |
+| Worker activo | `lostykk-postulpro`, versión `bba25ecf-f382-43a9-93ce-a6df42fd6766` (sin redeploy desde el cutover — nada lo requería) |
+| Dominios | `postulpro.com` `200`, `www.postulpro.com` `200` |
+| Cron Trigger | `*/5 * * * *` sigue activo — confirmado con una ejecución real en vivo (`10:25:12` local / `13:25:12Z`, `inspected:0` porque no había nada pendiente, sin errores) |
+| Migraciones | 35/35, cero drift |
+| Marketplace | `MARKETPLACE_ENABLED = false` |
+| Hotmart | `grep -ril hotmart src/` → sin coincidencias |
+| Endpoint interno | Sin secreto → `401` |
+| Incidentes críticos/altos | Ninguno — 8 horas de operación real sin `5xx`, sin reservas estancadas (`status=reserved` → 0 filas antes de tocar nada) |
+
+### 21.2 Inventario de artefactos QA (antes de borrar nada)
+
+**Cuentas** (todas `@mailinator.com`, dominio inequívoco de pruebas, creadas
+en esta sesión):
+
+| Cuenta | ID | Plan | Datos asociados | Evidencia QA | Acción propuesta |
+|---|---|---|---|---|---|
+| `qa-pro` | `5ff79139-...` | pro | 0 generaciones, 0 reservas, 0 proyectos | dominio mailinator, creada 2026-07-18 para tests de límites de rol | Eliminar |
+| `qa-biz` | `aca797f8-...` | business | 0 / 0 / 0 | ídem | Eliminar |
+| `qa-free` | `0fb36b6c-...` | free | 0 / 0 / 0 | ídem | Eliminar |
+| `qa-cutover-authcheck` | `36e29db8-...` | free | 0 / 0 / 0 | creada 2026-07-18 para el smoke test de auth del cutover | Eliminar |
+| `qa-admin` (en realidad plan PRO) | `d511afab-...` | pro | 29 generaciones, 108 reservas (33 consumed/75 refunded, 0 reserved), 6 proyectos, 1 imagen huérfana en Storage | dominio mailinator, cuenta de QA principal, **referenciada activamente en `.qa.local.json`** (gitignorado, credencial reutilizada en 9+ rondas de esta sesión, previsiblemente necesaria para futuras rondas — p.ej. QA de la integración de Hotmart, todavía no iniciada) | **Conservar** — no cumple "no es necesaria" en la práctica: es la única credencial QA persistente del proyecto. Ante la duda de romper el flujo de trabajo ya establecido sin beneficio real (no afecta producción, no es dato de un comprador), se prefiere no eliminarla. Solo se limpió su artefacto huérfano de Storage. |
+
+**Registros remotos vinculados** (todos bajo las 4 cuentas eliminadas,
+o huérfanos bajo la cuenta conservada):
+
+| Elemento | Cantidad | Entorno | Referenciado por otro registro | Acción |
+|---|---|---|---|---|
+| `credit_reservations` de las 4 cuentas eliminadas | 0 filas (las 4 cuentas nunca generaron ninguna) | Supabase compartido (`ccpejnklrfvgtwryqfrw`) | N/A | N/A |
+| `generations`/`ai_projects` de las 4 cuentas eliminadas | 0 filas cada una | ídem | N/A | N/A |
+| Imagen huérfana en `storage/landing-images` | 1 archivo (`d511afab-.../1784401466988-nrbwlq.png`) | ídem | Verificado: ningún `generations.output` la referencia | Eliminada |
+| `affiliate_referrals` cruzando cuentas QA/reales | 0 filas totales en la tabla | ídem | N/A | Nada que hacer |
+| `api_keys` de cuentas QA | 0 filas totales en la tabla | ídem | N/A | Nada que hacer |
+| `landing_publications` de cuentas QA | 0 filas (la única fila de la tabla completa pertenece a la cuenta real Founder/Admin) | ídem | N/A | No tocada |
+| Las 108 `credit_reservations`/29 `generations`/6 `ai_projects` de `qa-admin` (conservada) | — | ídem | Vinculadas entre sí (proyectos↔generaciones↔reservas) | Conservadas junto con la cuenta |
+
+**Artefactos locales**:
+
+| Elemento | Cantidad | Acción |
+|---|---|---|
+| Scripts de test ad-hoc en el scratchpad (`reconciler-*.js`, `scheduled-*.js`, `check-*.js`, `verify-*.js`) | 11 archivos | Eliminados |
+| Fixtures/logs de esos scripts (`.json`, `tail*.log`, `age-test-reservation.txt`) | 8 archivos | Eliminados |
+| Imágenes de prueba (`qa-hero-image*.png`) | 2 archivos | Eliminadas |
+| Snapshots viejos de eslint (`eslint2-7.json`, de una ronda anterior no relacionada) | 6 archivos | Eliminados (temporales, sin uso) |
+| Backup de `vite.config.ts` de la ronda 9 (`vite.config.ts.safe-backup`) | 1 archivo | Eliminado (obsoleto — la config ya está commiteada en `main`) |
+| `playwright-report/`, `test-results/` (salida local no trackeada de las corridas de Playwright de esta sesión) | 2 directorios | Eliminados |
+| Playwright storage states | 0 (este proyecto no usa `storageState` — cada test loguea por su cuenta) | N/A |
+| `.qa.local.json` | 1 archivo, gitignorado | **Conservado** — credencial de la cuenta `qa-admin` conservada (ver arriba) |
+| Secretos temporales de preview | Ninguno persistido en disco en ningún momento (rotados en memoria, nunca escritos a archivo) | N/A |
+
+### 21.3 Elementos clasificados "requiere revisión"
+
+Ninguno. Todo lo encontrado se clasificó con certeza en "eliminar" o
+"conservar" — no hubo casos ambiguos que ameritaran dejar sin decidir.
+
+### 21.4 Limpieza ejecutada
+
+- **Cuentas eliminadas** (`DELETE /auth/v1/admin/users/{id}`, una por
+  una, verificando `200` en cada una): `qa-pro`, `qa-biz`, `qa-free`,
+  `qa-cutover-authcheck`. Cascada gestionada íntegramente por las
+  constraints `ON DELETE CASCADE` ya existentes en el esquema
+  (`auth.users` → `public.users` → `credit_reservations`/`generations`/
+  `ai_projects`/`user_roles`, verificado leyendo las migraciones antes
+  de ejecutar cualquier borrado) — no se ejecutó SQL manual ni masivo,
+  solo la llamada de administración de Auth para cada ID previamente
+  identificado, sin filtros ambiguos.
+- **Storage**: 1 imagen huérfana eliminada (`DELETE
+  /storage/v1/object/landing-images/{path}`, `200`).
+- **Local**: 28 archivos + 2 directorios eliminados del scratchpad y del
+  working tree (detalle en §21.2). Nada de esto estaba trackeado en git.
+- **No se tocó**: la cuenta `qa-admin` ni sus datos; ninguna cuenta real;
+  `landing_publications`; migraciones; el tag de rollback; commits;
+  secretos productivos; configuración del cron; `RLS`; ninguna tabla
+  completa con `UPDATE`/`DELETE` sin filtro por `id`.
+
+### 21.5 Verificación posterior a la limpieza
+
+| Check | Resultado |
+|---|---|
+| Dominios | `200`/`200` |
+| Login/Google OAuth | Sin cambios de código — mecanismo intacto (ya validado en vivo en §20.9, nada en la limpieza pudo afectarlo) |
+| Dashboard/Admin para el Founder | ✅ recargado en vivo con la sesión real: `Admin` carga correctamente, `Usuarios totales` bajó de **8 a 4** (reflejando la baja real de las 4 cuentas QA eliminadas), MRR se corrigió de **$256 a $128** — las cuentas QA `pro`/`business` estaban inflando el MRR calculado por `mrrFromPlanCounts`, que cuenta por plan sin distinguir clientes reales de fixtures; efecto colateral positivo no buscado. Plan/créditos propios del Founder (`BUSINESS`, `0/60`) sin cambios. |
+| Acceso no-admin sigue bloqueado | Sin cambios de código/RLS — cubierto por E2E ya corrido en §20.3, nada en la limpieza pudo afectar grants/policies |
+| Cron Trigger | Sigue activo, confirmado con una ejecución real (`13:25:12Z`, `inspected:0`, sin errores) antes de la limpieza; después de la limpieza, `credit_reservations` con `status=reserved` sigue en `0` filas — sin acumulación, consistente con que el reconciliador sigue corriendo sin errores (la limpieza no tocó código/config/secretos del Worker, solo filas de base de datos vía la API de Auth, un camino sin relación con la ejecución programada) |
+| Integridad del ledger | Balances de las 3 cuentas reales (`c13f75b6`, `6b506073`, `0034c6df`) re-consultados: `credits_used`/`credits_limit` **idénticos** a antes de la limpieza |
+| Usuarios/proyectos reales | Ninguno eliminado ni modificado — confirmado por conteo (`8 → 4`, exactamente las 4 cuentas QA) y por re-lectura de las 3 cuentas reales restantes + `qa-admin` conservada |
+| Marketplace | Sigue deshabilitado |
+| Hotmart | Sigue sin conectar |
+| Working tree | Limpio |
+| `main` == `origin/main` | Sí (sin commits nuevos esta ronda — no hubo cambios de código) |
+| Tag de rollback | `rollback-pre-fase7-cutover-20260719` sigue existiendo, sin tocar |
+
+### 21.6 Dictamen final
+
+**LIMPIEZA QA COMPLETADA — PRODUCCIÓN OPERATIVA**
+
+Inventario completo generado antes de borrar nada; 4 cuentas QA
+inequívocas eliminadas junto con su (inexistente) data asociada, vía la
+cascada de foreign keys ya verificada en el esquema, sin SQL masivo ni
+ambiguo; 1 archivo huérfano de Storage eliminado; artefactos locales
+(scripts, logs, imágenes de prueba, reportes de Playwright) eliminados.
+La cuenta QA principal (`qa-admin`) se conservó deliberadamente por ser
+la única credencial QA persistente y previsiblemente necesaria para
+rondas futuras — no cumplía en la práctica el criterio de "ya no
+necesaria". Cero elementos ambiguos. Ninguna cuenta real, proyecto real,
+generación real, reserva real, migración, commit, tag de rollback,
+secreto productivo o configuración del cron fue tocada. Verificación
+posterior confirma producción intacta, Founder con acceso admin, ledger
+íntegro en las cuentas reales, y el reconciliador corriendo sin errores.
+
+Se detiene esta tarea aquí. No se inició la integración de Hotmart.
