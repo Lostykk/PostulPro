@@ -356,3 +356,85 @@ Código completo con los identificadores reales incorporados (§18.1), checkout 
 El único punto pendiente es exactamente el que la consigna pidió identificar y detener: **autorización explícita y separada para aplicar las 6 migraciones al proyecto Supabase compartido** (§19). Una vez autorizado ese paso, el camino queda: aplicar migraciones → confirmar cero impacto en producción → desplegar a preview con `HOTMART_HOTTOK` (a introducir vos mismo, nunca en texto) → obtener la URL real del webhook de preview → configurarlo en el panel de Hotmart (guía pendiente de completar en §22, una vez exista la URL real de preview) → enviar un evento de prueba real → recién ahí "LISTA PARA CONFIGURACIÓN EN HOTMART" sin reservas.
 
 Se detiene esta tarea aquí, a la espera de la autorización de §19.
+
+---
+
+## 21. Migraciones aplicadas — `ccpejnklrfvgtwryqfrw`
+
+**Fecha/hora**: `2026-07-19T19:28Z` (aprox.). **Project ref**: `ccpejnklrfvgtwryqfrw` (confirmado idéntico al vinculado antes de ejecutar nada). **Método**: `npx supabase db push --linked` — CLI oficial, confirmado funcional para este proyecto con un `--dry-run` primero (mostró exactamente las 6 migraciones esperadas, en orden, nada más) antes de la aplicación real. No se usó el SQL Editor ni ningún método alternativo — la CLI funcionó en el primer intento.
+
+### 21.1 Resultado
+
+Las 6 migraciones se aplicaron sin error, en orden:
+
+```
+Applying migration 20260729000000_hotmart_events.sql...
+Applying migration 20260729010000_process_hotmart_event_rpc.sql...
+Applying migration 20260729020000_webhook_rate_limit.sql...
+Applying migration 20260729030000_admin_resolve_hotmart_pending_link.sql...
+Applying migration 20260729040000_reconcile_hotmart_stale.sql...
+Applying migration 20260729050000_hotmart_admin_read_access.sql...
+Finished supabase db push.
+```
+
+### 21.2 Verificación posterior — resultados exactos
+
+| Check | Resultado |
+|---|---|
+| Historial remoto | Las 6 migraciones aparecen; `supabase migration list --linked` → 41/41 local=remoto, **cero drift** |
+| Tablas Hotmart existen | `hotmart_events`, `hotmart_pending_links` — confirmado vía `service_role` SELECT, `200` |
+| RLS activo, `anon` sin acceso de lectura | `anon` SELECT sobre `hotmart_events` → `401` |
+| `authenticated` no-admin sin acceso de lectura | Cuenta QA real (`role: user`) → `200` con **0 filas** (RLS filtra, no error) |
+| RPC admin inaccesible para no-admin | Cuenta QA real llamando `admin_resolve_hotmart_pending_link` → `400 P0001 "Unauthorized: admin role required"` |
+| `process_hotmart_event` callable por `anon` pero gateado por secreto | `anon` con secreto incorrecto → `200 {"ok":false,"message":"unauthorized"}` (nunca `500`, nunca expone detalle) |
+| `service_role` puede procesar | `reconcile_hotmart_stale` vía `service_role` → `200 {"expired_subscriptions":0,"stuck_events_flagged":0}` — no-op seguro, cero datos Hotmart reales todavía |
+| `search_path` seguro | Sin cambios respecto al dry-run ya verificado (`SET search_path = public` en las 4 funciones) |
+| Usuarios/planes/créditos reales sin cambios | Los 5 usuarios reales (incluida la cuenta QA y "Revisor Hotmart") re-consultados: `plan`/`role`/`credits_used`/`credits_limit` idénticos a antes de la migración |
+| Producción | `postulpro.com` `200`, `www.postulpro.com` `200`, `/auth/login` `200` |
+| Marketplace | `MARKETPLACE_ENABLED = false` sin cambios (no se tocó ningún archivo de código en este paso) |
+| Checkout Hotmart | `VITE_HOTMART_CHECKOUT_ENABLED` no configurado en ningún entorno — sigue apagado |
+| Webhook Hotmart | No registrado en ningún lado — sin cambios |
+| `typecheck` | Limpio |
+| Suite unitaria completa | **446/446** |
+| `build` | Exitoso |
+| Secret scan | Limpio |
+
+**Ninguna fila real fue modificada.** Los únicos escritos durante esta verificación fueron los objetos DDL de las propias migraciones (tablas/funciones nuevas) — cero `INSERT`/`UPDATE` ejecutado contra datos existentes.
+
+### 21.3 Commit documental
+
+Este informe es el único cambio versionado de este paso — sin cambios de código (la aplicación de migraciones no toca el repositorio, solo el proyecto Supabase remoto). Push normal a `origin/claude/postulpro-hotmart-integration` únicamente.
+
+## 22. Dictamen — migraciones
+
+**MIGRACIONES HOTMART APLICADAS — SUPABASE OPERATIVO**
+
+Las 6 migraciones están aplicadas, sincronizadas (41/41, cero drift), verificadas en producción real: RLS activo y correcto, grants correctos (`anon` gateado por secreto, `authenticated` no-admin bloqueado, `service_role` operativo), cero impacto en usuarios/planes/créditos reales, producción intacta, suite completa 446/446.
+
+### Siguiente paso exacto — los 3 pasos que pediste, en orden
+
+**1. Cargar el Hottok como secreto de preview sin mostrarlo:**
+
+Cuando tengas el valor copiado desde `app.hotmart.com/tools/webhook/auth` (informe §14.2), decime que estás listo y ejecuto:
+
+```
+npx wrangler secret put HOTMART_HOTTOK --env preview
+```
+
+Este comando te va a pedir el valor de forma **interactiva** (no aparece en pantalla, no queda en el historial de shell, no lo veo yo). Vos lo pegás directamente en esa instancia de terminal cuando te lo pida. Yo después verifico únicamente que el secreto quedó configurado (por nombre, vía `wrangler secret list`), nunca su valor.
+
+**2. Desplegar únicamente `lostykk-postulpro-preview`:**
+
+Después de confirmar el secreto, hago build + `wrangler deploy --env preview` de esta rama exacta (`claude/postulpro-hotmart-integration`, commit `b38204b` + este informe). Nunca toco `lostykk-postulpro` (producción).
+
+**3. Obtener la URL exacta del webhook de prueba:**
+
+Una vez desplegado, la URL real y verificable va a ser:
+
+```
+https://lostykk-postulpro-preview.ignacioo-ch13.workers.dev/api/webhooks/hotmart
+```
+
+La confirmo con pruebas no destructivas (`GET` → `405`, `POST` sin autenticación → `401`) antes de dártela como definitiva para que la cargues en el panel de Hotmart (informe §22 original, sección de guía manual).
+
+**No avanzo a ninguno de estos 3 pasos todavía — quedo a la espera de que me digas que estás listo con el Hottok copiado.** No configuro Hotmart, no hago merge a main, no despliego a producción.
