@@ -207,6 +207,16 @@ describe("POST /api/webhooks/hotmart", () => {
     expect(args.p_event_type).toBe("renewal_approved");
   });
 
+  it("forwards creation_date (when present) to the RPC as p_provider_updated_at for the out-of-order guard", async () => {
+    activeScenario.usersLookup = { data: { id: "existing-user-1" }, error: null };
+    const seconds = 1732000000;
+    const res = await handler({ request: makeRequest(approvedPurchaseBody({ creation_date: seconds })) });
+    expect(res.status).toBe(200);
+    const rpcCall = calls.find((c) => c.rpcName === "process_hotmart_event");
+    const args = rpcCall!.args as Record<string, unknown>;
+    expect(args.p_provider_updated_at).toBe(new Date(seconds * 1000).toISOString());
+  });
+
   it("approved purchase for a brand-new email invites a new user instead of guessing a password", async () => {
     activeScenario.usersLookup = { data: null, error: null };
     activeScenario.inviteUser = { data: { user: { id: "brand-new-user-1" } }, error: null };

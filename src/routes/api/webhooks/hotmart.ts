@@ -327,6 +327,7 @@ async function handlePost({ request }: { request: Request }) {
     p_plan: mapping?.plan ?? "",
     p_billing_interval: mapping?.interval ?? "",
     p_credits_limit: mapping?.creditsLimit ?? 0,
+    p_provider_updated_at: event.providerUpdatedAt ?? undefined,
   });
 
   if (rpcError) {

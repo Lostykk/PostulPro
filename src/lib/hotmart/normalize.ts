@@ -68,6 +68,19 @@ export type HotmartNormalizedEvent = {
   currency: string | null;
   fullPrice: number | null;
   hottok: string | null;
+  // Best-effort out-of-order-event signal, ISO 8601 or null. `creation_date`
+  // is a CONFIRMED top-level field of Hotmart's 2.0.0 payload (a unix
+  // timestamp, per Fase B research) but was never confirmed present in the
+  // flat/1.0.0 format this normalizer otherwise targets — real deliveries
+  // may or may not include it. When present, it's forwarded to
+  // process_hotmart_event's p_provider_updated_at (the same out-of-order
+  // guard already proven for Lemon Squeezy); when absent, that guard is
+  // simply inactive for this event (matches the RPC's own NULL-safe
+  // behavior — never blocks a mutation, never a hard failure). This is
+  // exactly the residual gap documented in
+  // docs/hotmart-integration-report.md §15 (risk: 2.0.0 payload shape not
+  // fully confirmed) — not silently assumed solved.
+  providerUpdatedAt: string | null;
 };
 
 function asString(value: unknown): string | null {
@@ -142,6 +155,7 @@ export function normalizeHotmartPayload(payload: unknown): HotmartNormalizedEven
       currency: null,
       fullPrice: null,
       hottok: null,
+      providerUpdatedAt: null,
     };
   }
   const obj = payload as Record<string, unknown>;
@@ -149,6 +163,20 @@ export function normalizeHotmartPayload(payload: unknown): HotmartNormalizedEven
   const rawStatus = asString(pick(obj, "status"));
   const subscriptionStatus = asString(pick(obj, "subscription_status"));
   const buyerEmailRaw = asString(pick(obj, "email"));
+
+  // `creation_date` (2.0.0, confirmed) is a unix timestamp — accept
+  // either seconds or milliseconds heuristically (values below the
+  // year-2001-in-ms threshold are treated as seconds), since the exact
+  // unit wasn't independently confirmed either. Any parse failure yields
+  // null, never a fabricated "now" (that would defeat the whole point of
+  // an out-of-order guard).
+  const creationDateRaw = asNumber(pick(obj, "creation_date"));
+  let providerUpdatedAt: string | null = null;
+  if (creationDateRaw !== null && creationDateRaw > 0) {
+    const ms = creationDateRaw < 1e12 ? creationDateRaw * 1000 : creationDateRaw;
+    const date = new Date(ms);
+    if (!Number.isNaN(date.getTime())) providerUpdatedAt = date.toISOString();
+  }
 
   return {
     eventType: mapStatusToEventType(rawStatus, subscriptionStatus),
@@ -161,6 +189,7 @@ export function normalizeHotmartPayload(payload: unknown): HotmartNormalizedEven
     currency: asString(pick(obj, "currency")),
     fullPrice: asNumber(pick(obj, "full_price")),
     hottok: asString(pick(obj, "hottok")),
+    providerUpdatedAt,
   };
 }
 
