@@ -16,12 +16,24 @@ export default defineConfig({
     // Several suites spin up a real (WASM) PGlite Postgres instance per
     // test for local migration dry-runs (never the shared remote
     // Supabase project — see src/lib/hotmart/hotmart-events-migration.test.ts
-    // and sibling files). Four such suites now run concurrently across
-    // vitest's worker pool; each individual test is fast once its own
-    // instance is up, but instantiating several WASM engines at once can
-    // exceed the 10s default hook timeout under load — confirmed by every
-    // affected suite passing 100% when run alone. Raising this here (not
-    // per-file) keeps the fix in one place as more such suites are added.
+    // and sibling files). With five such suites now in the tree, running
+    // them all concurrently across vitest's default worker-fork pool
+    // pushed past a 10s hook timeout under load first (raised below), and
+    // then caused an outright V8 OOM crash in a worker process — too many
+    // WASM Postgres engines instantiating at once for the machine running
+    // these tests, not a logic bug in any suite (every affected suite
+    // passes 100% run alone or in a small group). Capping maxForks keeps
+    // total concurrent memory pressure bounded as more such suites are
+    // added, instead of raising timeouts indefinitely.
     hookTimeout: 30_000,
+    // maxForks alone (tried 4, then 2) still hit an intermittent V8 OOM
+    // crash in a worker process — the failure came back non-deterministically
+    // even at maxForks: 2, meaning this isn't purely "too many concurrent
+    // WASM instances" but likely WASM memory not being fully released
+    // back to the OS between PGlite instances within a single long-lived
+    // worker process across many test files. Forcing a single fork trades
+    // parallelism speed for reliability — confirmed stable across repeated
+    // full-suite runs where maxForks: 2 still intermittently crashed.
+    fileParallelism: false,
   },
 });

@@ -4,6 +4,7 @@
 --   supabase/migrations/20260729020000_webhook_rate_limit.sql
 --   supabase/migrations/20260729030000_admin_resolve_hotmart_pending_link.sql
 --   supabase/migrations/20260729040000_reconcile_hotmart_stale.sql
+--   supabase/migrations/20260729050000_hotmart_admin_read_access.sql
 --
 -- Safe by construction: both migrations only CREATE new objects (no
 -- ALTER/rename/drop of any pre-existing table, column, or function). This
@@ -46,8 +47,19 @@ DROP FUNCTION IF EXISTS public.admin_resolve_hotmart_pending_link(UUID, UUID, TE
 -- 6. Commercial reconciliation function (independent, no table of its own).
 DROP FUNCTION IF EXISTS public.reconcile_hotmart_stale(INT);
 
+-- 7. Admin read-access policies + grants (run before dropping the tables
+--    above if executing top-to-bottom against a live database; DROP
+--    TABLE would remove the policies anyway, but revoking explicitly
+--    first keeps this rollback correct even if run standalone against a
+--    database where the tables are being kept for some other reason).
+DROP POLICY IF EXISTS "Admin read hotmart_events" ON public.hotmart_events;
+DROP POLICY IF EXISTS "Admin read hotmart_pending_links" ON public.hotmart_pending_links;
+REVOKE SELECT ON public.hotmart_events FROM authenticated;
+REVOKE SELECT ON public.hotmart_pending_links FROM authenticated;
+
 -- Nothing else to revert: no columns were added to any existing table,
 -- no existing function was replaced (process_lemon_squeezy_event,
 -- admin_update_user_plan, claim_plan_rate_limit, and
--- reconcile_stale_reservations_v2 are all untouched by these five
--- migrations), no existing RLS policy or grant was changed.
+-- reconcile_stale_reservations_v2 are all untouched by these six
+-- migrations), no existing RLS policy or grant on any pre-existing table
+-- was changed.
