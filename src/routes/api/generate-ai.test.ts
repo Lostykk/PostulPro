@@ -45,12 +45,16 @@ function createMockSupabase(opts: {
     }
     if (name === "resolve_credit_reservation") {
       const seq = Array.isArray(opts.resolve) ? opts.resolve : opts.resolve ? [opts.resolve] : [];
-      const result = seq[resolveCallCount] ?? seq[seq.length - 1] ?? {
-        data: [{ resolved: true, final_status: "consumed", refunded_cost: 0 }],
-        error: null,
-      };
+      const result = seq[resolveCallCount] ??
+        seq[seq.length - 1] ?? {
+          data: [{ resolved: true, final_status: "consumed", refunded_cost: 0 }],
+          error: null,
+        };
       resolveCallCount++;
       return Promise.resolve(result);
+    }
+    if (name === "mark_reservation_job_outcome") {
+      return Promise.resolve({ data: true, error: null });
     }
     return Promise.resolve({ data: null, error: null });
   });
@@ -65,7 +69,9 @@ function createMockSupabase(opts: {
           select: () => ({
             maybeSingle: () =>
               Promise.resolve(
-                opts.genInsertFails ? { data: null, error: null } : { data: { id: "gen-1" }, error: null },
+                opts.genInsertFails
+                  ? { data: null, error: null }
+                  : { data: { id: "gen-1" }, error: null },
               ),
           }),
         };
@@ -172,7 +178,10 @@ describe("POST /api/generate-ai — insufficient credits", () => {
   it("reserve_credits_v2.ok=false: 402, never calls the model", async () => {
     const callModelSpy = vi.spyOn(callModelModule, "callModel");
     mockSupabase = createMockSupabase({
-      reserve: { data: [{ ok: false, credits_used: 60, credits_limit: 60, reservation_id: null }], error: null },
+      reserve: {
+        data: [{ ok: false, credits_used: 60, credits_limit: 60, reservation_id: null }],
+        error: null,
+      },
     });
     const res = await handler({ request: makeRequest({ tool: "copywriter", prompt: "hola" }) });
     expect(res.status).toBe(402);
@@ -186,7 +195,10 @@ describe("POST /api/generate-ai — successful generation", () => {
       onDelta("contenido generado");
     });
     mockSupabase = createMockSupabase({
-      resolve: { data: [{ resolved: true, final_status: "consumed", refunded_cost: 0 }], error: null },
+      resolve: {
+        data: [{ resolved: true, final_status: "consumed", refunded_cost: 0 }],
+        error: null,
+      },
     });
     const res = await handler({ request: makeRequest({ tool: "copywriter", prompt: "hola" }) });
     const events = await drainStream(res);
@@ -196,6 +208,37 @@ describe("POST /api/generate-ai — successful generation", () => {
     const resolveCalls = mockSupabase.calls.filter((c) => c.name === "resolve_credit_reservation");
     expect(resolveCalls).toHaveLength(1);
     expect(resolveCalls[0].args).toMatchObject({ p_outcome: "consumed" });
+    // credit_reservation_id must be set in the SAME insert that persists
+    // the result — the reconciler's completion evidence, not wired up
+    // later or held only in memory.
+    const insertCall = mockSupabase.calls.find((c) => c.name === "generations.insert");
+    expect(insertCall?.args).toMatchObject({ credit_reservation_id: "resv-1" });
+  });
+
+  it("generation insert fails after a real model success: treated as a confirmed failure, refunds, never consumed", async () => {
+    vi.spyOn(callModelModule, "callModel").mockImplementation(async (_tool, _prompt, onDelta) => {
+      onDelta("contenido generado");
+    });
+    mockSupabase = createMockSupabase({
+      genInsertFails: true,
+      resolve: {
+        data: [{ resolved: true, final_status: "refunded", refunded_cost: 1 }],
+        error: null,
+      },
+    });
+    const res = await handler({ request: makeRequest({ tool: "copywriter", prompt: "hola" }) });
+    const events = await drainStream(res);
+
+    expect(events.some((e) => e.type === "done")).toBe(false);
+    expect(events.some((e) => e.type === "error")).toBe(true);
+    const consumeCalls = mockSupabase.calls.filter(
+      (c) =>
+        c.name === "resolve_credit_reservation" &&
+        (c.args as { p_outcome?: string })?.p_outcome === "consumed",
+    );
+    expect(consumeCalls).toHaveLength(0);
+    const markCall = mockSupabase.calls.find((c) => c.name === "mark_reservation_job_outcome");
+    expect(markCall?.args).toMatchObject({ p_outcome: "failed" });
   });
 
   it("confirmation fails after retries: sends error (not done), leaves the reservation unresolved, no refund", async () => {
@@ -205,7 +248,10 @@ describe("POST /api/generate-ai — successful generation", () => {
     // Every resolve_credit_reservation attempt fails to confirm consumed —
     // this must never be silently treated as success.
     mockSupabase = createMockSupabase({
-      resolve: { data: [{ resolved: false, final_status: "reserved", refunded_cost: 0 }], error: null },
+      resolve: {
+        data: [{ resolved: false, final_status: "reserved", refunded_cost: 0 }],
+        error: null,
+      },
     });
     const res = await handler({ request: makeRequest({ tool: "copywriter", prompt: "hola" }) });
     const events = await drainStream(res);
@@ -225,7 +271,10 @@ describe("POST /api/generate-ai — provider failure after credits were reserved
   it("refunds exactly once, sends an error event, persists no generation", async () => {
     vi.spyOn(callModelModule, "callModel").mockRejectedValue(new Error("Model call failed"));
     mockSupabase = createMockSupabase({
-      resolve: { data: [{ resolved: true, final_status: "refunded", refunded_cost: 1 }], error: null },
+      resolve: {
+        data: [{ resolved: true, final_status: "refunded", refunded_cost: 1 }],
+        error: null,
+      },
     });
     const res = await handler({ request: makeRequest({ tool: "copywriter", prompt: "hola" }) });
     const events = await drainStream(res);
@@ -238,6 +287,8 @@ describe("POST /api/generate-ai — provider failure after credits were reserved
     );
     expect(resolveCalls).toHaveLength(1);
     expect(mockSupabase.calls.some((c) => c.name === "generations.insert")).toBe(false);
+    const markCall = mockSupabase.calls.find((c) => c.name === "mark_reservation_job_outcome");
+    expect(markCall?.args).toMatchObject({ p_outcome: "failed" });
   });
 
   it("client disconnect (stream cancel) also refunds exactly once, not twice with the catch path", async () => {
@@ -246,11 +297,16 @@ describe("POST /api/generate-ai — provider failure after credits were reserved
       (_tool, _prompt, _onDelta, signal) =>
         new Promise((_resolve, reject) => {
           rejectModel = reject;
-          signal?.addEventListener("abort", () => reject(new DOMException("Aborted", "AbortError")));
+          signal?.addEventListener("abort", () =>
+            reject(new DOMException("Aborted", "AbortError")),
+          );
         }),
     );
     mockSupabase = createMockSupabase({
-      resolve: { data: [{ resolved: true, final_status: "refunded", refunded_cost: 1 }], error: null },
+      resolve: {
+        data: [{ resolved: true, final_status: "refunded", refunded_cost: 1 }],
+        error: null,
+      },
     });
     const res = await handler({ request: makeRequest({ tool: "copywriter", prompt: "hola" }) });
     await res.body?.cancel();
@@ -263,5 +319,40 @@ describe("POST /api/generate-ai — provider failure after credits were reserved
         (c.args as { p_outcome?: string })?.p_outcome === "refunded",
     );
     expect(resolveCalls).toHaveLength(1);
+    // classified as "aborted" (client-driven), not a generic "failed" —
+    // cancel() itself never resolves anything; this evidence and the
+    // refund both come from the catch block, reached via the aborted
+    // callModel promise.
+    const markCall = mockSupabase.calls.find((c) => c.name === "mark_reservation_job_outcome");
+    expect(markCall?.args).toMatchObject({ p_outcome: "aborted" });
+  });
+
+  it("terminal provider timeout: classified as timed_out, refunds exactly once", async () => {
+    vi.useFakeTimers();
+    let capturedSignal: AbortSignal | undefined;
+    vi.spyOn(callModelModule, "callModel").mockImplementation(
+      (_tool, _prompt, _onDelta, signal) =>
+        new Promise((_resolve, reject) => {
+          capturedSignal = signal;
+          signal?.addEventListener("abort", () =>
+            reject(new DOMException("Aborted", "TimeoutError")),
+          );
+        }),
+    );
+    mockSupabase = createMockSupabase({
+      resolve: {
+        data: [{ resolved: true, final_status: "refunded", refunded_cost: 1 }],
+        error: null,
+      },
+    });
+    const res = await handler({ request: makeRequest({ tool: "copywriter", prompt: "hola" }) });
+    await vi.advanceTimersByTimeAsync(240_001);
+    const events = await drainStream(res);
+
+    expect(capturedSignal?.aborted).toBe(true);
+    expect(events.some((e) => e.type === "error")).toBe(true);
+    const markCall = mockSupabase.calls.find((c) => c.name === "mark_reservation_job_outcome");
+    expect(markCall?.args).toMatchObject({ p_outcome: "timed_out" });
+    vi.useRealTimers();
   });
 });

@@ -2,10 +2,14 @@ import { createFileRoute } from "@tanstack/react-router";
 import { timingSafeEqual } from "node:crypto";
 import { createClient } from "@supabase/supabase-js";
 import type { Database } from "@/integrations/supabase/types";
+import { ReconcileRejected, runReconciliation } from "@/lib/ai/reconcile-credits.server";
 
 // Internal endpoint invoking reconcile_stale_reservations_v2 (from
 // supabase/migrations/20260728000000_reservation_job_evidence.sql, applied
-// to ccpejnklrfvgtwryqfrw). Secrets (RECONCILE_SECRET,
+// to ccpejnklrfvgtwryqfrw) via the shared runReconciliation() runner (see
+// lib/ai/reconcile-credits.server.ts — the same function server.ts's
+// scheduled() export calls, so there is exactly one invocation path, not
+// two that could drift). Secrets (RECONCILE_SECRET,
 // SUPABASE_SERVICE_ROLE_KEY) are configured on the preview Worker only —
 // deployed to lostykk-postulpro-preview, deliberately NOT deployed to
 // production.
@@ -19,19 +23,6 @@ import type { Database } from "@/integrations/supabase/types";
 // No client-supplied user_id or filter of any kind — the request body only
 // controls the batch size (clamped), everything else is decided entirely
 // server-side by the RPC itself.
-
-const MAX_BATCH_LIMIT = 500;
-const DEFAULT_BATCH_LIMIT = 200;
-
-function logReconcileRun(fields: {
-  result: "rejected_auth" | "rejected_config" | "ok" | "error";
-  batchLimit?: number;
-  consumed?: number;
-  refunded?: number;
-  errorMessage?: string;
-}) {
-  console.log(JSON.stringify({ scope: "credit_reconcile_run", ...fields }));
-}
 
 function secretMatches(provided: string | null, expected: string): boolean {
   if (!provided) return false;
@@ -50,24 +41,20 @@ async function handlePost({ request }: { request: Request }) {
   const SUPABASE_URL = process.env.SUPABASE_URL;
   const SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (!RECONCILE_SECRET || !SUPABASE_URL || !SERVICE_ROLE_KEY) {
-    logReconcileRun({ result: "rejected_config" });
     return json({ error: "Not configured" }, 501);
   }
 
   const provided = request.headers.get("x-reconcile-secret");
   if (!secretMatches(provided, RECONCILE_SECRET)) {
-    logReconcileRun({ result: "rejected_auth" });
     return json({ error: "Unauthorized" }, 401);
   }
 
-  let batchLimit = DEFAULT_BATCH_LIMIT;
+  let batchLimit: number | undefined;
   try {
     const body = (await request.json()) as { batchLimit?: number } | null;
-    if (typeof body?.batchLimit === "number" && Number.isFinite(body.batchLimit)) {
-      batchLimit = Math.max(1, Math.min(MAX_BATCH_LIMIT, Math.floor(body.batchLimit)));
-    }
+    if (typeof body?.batchLimit === "number") batchLimit = body.batchLimit;
   } catch {
-    /* no body / invalid JSON — use the default batch size */
+    /* no body / invalid JSON — the runner falls back to its own default */
   }
 
   // service_role client — never derived from a caller's session, and this
@@ -79,27 +66,17 @@ async function handlePost({ request }: { request: Request }) {
   });
 
   try {
-    const { data, error } = await supabase.rpc("reconcile_stale_reservations_v2", {
-      p_batch_limit: batchLimit,
-    });
-
-    if (error) {
-      logReconcileRun({ result: "error", batchLimit, errorMessage: error.message });
-      return json({ error: "Reconciliation failed" }, 500);
-    }
-
-    const rows = data ?? [];
-    const consumed = rows.filter((r) => r.outcome === "consumed").length;
-    const refunded = rows.filter((r) => r.outcome === "refunded").length;
-    logReconcileRun({ result: "ok", batchLimit, consumed, refunded });
-
-    return json({ ok: true, batchLimit, touched: rows.length, consumed, refunded });
+    const summary = await runReconciliation(supabase, batchLimit, "http");
+    if (!summary.ok) return json({ error: "Reconciliation failed" }, 500);
+    return json(summary);
   } catch (err) {
-    logReconcileRun({
-      result: "error",
-      batchLimit,
-      errorMessage: err instanceof Error ? err.message : String(err),
-    });
+    if (err instanceof ReconcileRejected) {
+      return json(
+        { error: "Reconciliation already in progress or called too soon", reason: err.reason },
+        429,
+        { "Retry-After": "5" },
+      );
+    }
     return json({ error: "Reconciliation failed" }, 500);
   }
 }

@@ -7,9 +7,12 @@ import { checkAiExecutionAllowed } from "@/lib/ai/preview-guard.server";
 import { maybeSendLowCreditsEmail } from "@/lib/notifications/low-credits.server";
 import { isOwner } from "@/lib/auth/is-owner";
 import {
+  classifyProviderFailure,
   confirmConsumedOrLog,
   getWaitUntil,
+  markJobOutcome,
   refundInBackground,
+  withProviderTimeout,
 } from "@/lib/ai/credit-reservation.server";
 
 // Streaming proxy to Anthropic / OpenAI. API keys stay server-side.
@@ -19,6 +22,23 @@ import {
 //   data: {"type":"delta","text":"..."}
 //   data: {"type":"done","generationId":"...","creditsRemaining":123}
 //   data: {"type":"error","message":"..."}
+//
+// Financial contract (credit_reservations + generations.credit_reservation_id
+// + credit_reservations.job_outcome, from 20260727000000/20260728000000):
+//   - "work started" evidence = the reservation row itself (created at
+//     reserve time, before any provider call).
+//   - "result persisted" and "completed" are the SAME event, by design:
+//     a generations row is only ever inserted once real output exists,
+//     with credit_reservation_id set in that same INSERT — so a linked
+//     generations row is unambiguous completion evidence for the
+//     reconciler. Never insert a placeholder/empty row before that point.
+//   - "failed" / "aborted" / "timed_out" evidence is recorded via
+//     mark_reservation_job_outcome BEFORE attempting the refund, so it
+//     survives even if the refund itself never completes (isolate killed
+//     mid-flight).
+//   - Anything else stays 'reserved' for reconcile_stale_reservations_v2.
+
+const PROVIDER_TIMEOUT_MS = 240_000; // generous relative to every tool's maxTokens — a circuit breaker, not a UX-tuned limit
 
 export const Route = createFileRoute("/api/generate-ai")({
   server: {
@@ -97,7 +117,9 @@ export const Route = createFileRoute("/api/generate-ai")({
         // overspend guard still lives inside the DB function's
         // UPDATE...WHERE clause, so parallel requests can't both pass a
         // stale "remaining credits" check. The old reserve_credits stays
-        // untouched and unused from here on.
+        // untouched and unused from here on. This reservation row, on its
+        // own, IS the persistent "work started" evidence — no separate
+        // job/status table needed for that.
         const { data: reserveRows, error: reserveErr } = await supabase.rpc("reserve_credits_v2", {
           p_cost: tool.credits,
           p_tool: toolId,
@@ -145,6 +167,10 @@ export const Route = createFileRoute("/api/generate-ai")({
         const abortController = new AbortController();
         const waitUntil = getWaitUntil(request);
         request.signal?.addEventListener("abort", () => abortController.abort());
+        // Independent from abortController: a real circuit breaker on the
+        // provider call itself, so "timed_out" can be genuine evidence
+        // instead of a guess — callModel previously had no timeout at all.
+        const providerTimeout = withProviderTimeout(abortController.signal, PROVIDER_TIMEOUT_MS);
         // Local-only optimization (skip a redundant network call if both
         // the catch block and cancel() fire for the same request) — NOT
         // the idempotency mechanism. That guarantee is entirely
@@ -201,6 +227,13 @@ export const Route = createFileRoute("/api/generate-ai")({
               /* controller already closed (client gone) — nothing to send to */
             }
           };
+          const closeController = () => {
+            try {
+              controller.close();
+            } catch {
+              /* already closed */
+            }
+          };
 
           let full = "";
           let usage: ModelUsage = { inputTokens: null, outputTokens: null, stopReason: null };
@@ -213,9 +246,10 @@ export const Route = createFileRoute("/api/generate-ai")({
                 full += delta;
                 send({ type: "delta", text: delta });
               },
-              abortController.signal,
+              providerTimeout.signal,
               (u) => (usage = u),
             );
+            providerTimeout.clear();
             logModelUsage({
               provider: tool.provider,
               model: tool.model,
@@ -226,9 +260,14 @@ export const Route = createFileRoute("/api/generate-ai")({
               status: "success",
             });
 
-            // Persist generation
+            // Persist the result. This INSERT is simultaneously "the
+            // generation exists," "the result was persisted," and "the
+            // generation completed" — credit_reservation_id links it back
+            // to the reservation immediately, durably, not just in a JS
+            // variable, so a crash one line later still leaves the
+            // reconciler with real completion evidence to find.
             const title = (body.title ?? prompt.slice(0, 60)).slice(0, 200);
-            const { data: gen } = await supabase
+            const { data: gen, error: genErr } = await supabase
               .from("generations")
               .insert({
                 user_id: userId,
@@ -237,9 +276,27 @@ export const Route = createFileRoute("/api/generate-ai")({
                 output: full,
                 prompt_json: { prompt } as never,
                 tokens_used: usage.outputTokens ?? Math.ceil(full.length / 4),
+                credit_reservation_id: reservationId,
               })
               .select("id")
               .maybeSingle();
+
+            if (genErr || !gen?.id) {
+              // The model produced real output, but it could not be
+              // durably saved — this is a confirmed failure, not an
+              // ambiguous case: consuming here would charge the user for
+              // a result they can never retrieve. Record evidence before
+              // the (fire-and-forget) refund attempt, so the reconciler
+              // can recover this even if the refund itself never lands.
+              await markJobOutcome(supabase, reservationId, "failed", "generation_persist_failed");
+              refundOnce("generation_persist_failed");
+              send({
+                type: "error",
+                message: "No se pudo guardar el resultado. Tus créditos no fueron cobrados.",
+              });
+              closeController();
+              return;
+            }
 
             // The response about to go out claims the reservation is
             // settled and the credit spent — that claim must be true
@@ -247,7 +304,7 @@ export const Route = createFileRoute("/api/generate-ai")({
             // (bounded retries inside confirmConsumedOrLog), rather than
             // firing it in the background the way the refund path does.
             settled = true;
-            const confirmed = await confirmConsumedOrLog(supabase, reservationId, gen?.id ?? null, {
+            const confirmed = await confirmConsumedOrLog(supabase, reservationId, gen.id, {
               toolId,
               userId,
             });
@@ -259,17 +316,15 @@ export const Route = createFileRoute("/api/generate-ai")({
               // actually know to be true, so this is reported as an
               // error instead — the reservation itself is left
               // 'reserved' (safe, recoverable, already logged by
-              // confirmConsumedOrLog) rather than guessed at.
+              // confirmConsumedOrLog, AND now discoverable by the
+              // reconciler via the generation_id link set above) rather
+              // than guessed at.
               send({
                 type: "error",
                 message:
                   "El contenido se generó pero no se pudo confirmar el estado del crédito. Contactá soporte si el problema persiste.",
               });
-              try {
-                controller.close();
-              } catch {
-                /* already closed */
-              }
+              closeController();
               return;
             }
 
@@ -281,15 +336,15 @@ export const Route = createFileRoute("/api/generate-ai")({
 
             send({
               type: "done",
-              generationId: gen?.id ?? null,
+              generationId: gen.id,
               creditsRemaining: refreshed ? refreshed.credits_limit - refreshed.credits_used : null,
             });
-            try {
-              controller.close();
-            } catch {
-              /* already closed */
-            }
+            closeController();
           } catch (err) {
+            const outcome = classifyProviderFailure(
+              abortController.signal,
+              providerTimeout.timeoutSignal,
+            );
             logModelUsage({
               provider: tool.provider,
               model: tool.model,
@@ -298,25 +353,19 @@ export const Route = createFileRoute("/api/generate-ai")({
               usage,
               durationMs: Date.now() - startedAt,
               status: "error",
-              errorCode: "provider_error",
+              errorCode: outcome,
             });
-            // Refund on error — also covers a confirmed client abort,
-            // since abortController.abort() (from cancel() or
-            // request.signal above) makes callModel's fetch reject and
-            // land here just like any other failure. Fire-and-forget:
-            // an error response makes no claim about billing state the
-            // way "done" does, so there's nothing to protect by
-            // blocking on it here.
-            refundOnce(abortController.signal.aborted ? "client_disconnected" : "provider_error");
+            // Record confirmed-failure evidence BEFORE the (fire-and-
+            // forget) refund attempt — see the module-level contract
+            // comment. Awaited: it's one fast UPDATE, worth landing
+            // durably before any risk of the isolate dying mid-refund.
+            await markJobOutcome(supabase, reservationId, outcome, outcome);
+            refundOnce(outcome);
             send({
               type: "error",
               message: err instanceof Error ? err.message : "Model call failed",
             });
-            try {
-              controller.close();
-            } catch {
-              /* already closed */
-            }
+            closeController();
           }
         }
 

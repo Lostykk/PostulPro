@@ -31,7 +31,13 @@ function createMockSupabase(
         if (table === "generations") return Promise.resolve({ data: { id: "gen-1" }, error: null });
         if (table === "users")
           return Promise.resolve({
-            data: { plan: "free", credits_used: 1, credits_limit: 60, role: "user", ...usersRowOverride },
+            data: {
+              plan: "free",
+              credits_used: 1,
+              credits_limit: 60,
+              role: "user",
+              ...usersRowOverride,
+            },
             error: null,
           });
         if (table === "ai_projects")
@@ -217,7 +223,12 @@ describe("runProjectStep — successful execution", () => {
     expect(resolveCalls).toHaveLength(1);
     expect(resolveCalls[0].args).toMatchObject({ p_outcome: "consumed" });
     expect(supabase.calls.filter((c) => c.name === "complete_ai_project_step")).toHaveLength(1);
-    expect(supabase.calls.some((c) => c.name === "generations.insert")).toBe(true);
+    const insertCall = supabase.calls.find((c) => c.name === "generations.insert");
+    expect(insertCall).toBeTruthy();
+    // credit_reservation_id must be set in the SAME insert that persists
+    // the result — this is the completion evidence the reconciler relies
+    // on, not something wired up later or only in memory.
+    expect(insertCall?.args).toMatchObject({ credit_reservation_id: "resv-1" });
   });
 });
 
@@ -247,6 +258,7 @@ describe("runProjectStep — provider failure after credits were reserved", () =
       },
       mark_step_credits_reserved: { data: null, error: null },
       resolve_credit_reservation: resolvedReservation("refunded", 1),
+      mark_reservation_job_outcome: { data: true, error: null },
       fail_ai_project_step: { data: null, error: null },
     });
     const res = await runProjectStep(supabase, "user-1", "proj-1", "step-1", fakeRequest());
@@ -254,12 +266,142 @@ describe("runProjectStep — provider failure after credits were reserved", () =
 
     expect(events.some((e) => (e as { type: string }).type === "error")).toBe(true);
     const resolveCalls = supabase.calls.filter(
-      (c) => c.name === "resolve_credit_reservation" && (c.args as { p_outcome?: string })?.p_outcome === "refunded",
+      (c) =>
+        c.name === "resolve_credit_reservation" &&
+        (c.args as { p_outcome?: string })?.p_outcome === "refunded",
     );
     expect(resolveCalls).toHaveLength(1);
     expect(supabase.calls.some((c) => c.name === "generations.insert")).toBe(false);
     const failCall = supabase.calls.find((c) => c.name === "fail_ai_project_step");
-    expect(failCall?.args).toMatchObject({ p_error_code: "provider_error" });
+    expect(failCall?.args).toMatchObject({ p_error_code: "failed" });
+    // Confirmed-failure evidence must be recorded before the refund
+    // attempt — so a reconciler run could recover this even if the
+    // refund itself never landed.
+    const markCall = supabase.calls.find((c) => c.name === "mark_reservation_job_outcome");
+    expect(markCall?.args).toMatchObject({ p_reservation_id: "resv-1", p_outcome: "failed" });
+  });
+
+  it("terminal provider timeout: classified as timed_out, refunds exactly once", async () => {
+    vi.useFakeTimers();
+    let capturedSignal: AbortSignal | undefined;
+    vi.spyOn(callModelModule, "callModel").mockImplementation(
+      (_tool, _prompt, _onDelta, signal) =>
+        new Promise((_resolve, reject) => {
+          capturedSignal = signal;
+          signal?.addEventListener("abort", () =>
+            reject(new DOMException("Aborted", "TimeoutError")),
+          );
+        }),
+    );
+    const supabase = createMockSupabase({
+      claim_ai_project_step: {
+        data: [
+          {
+            claimed: true,
+            reason: "ok",
+            tool_key: "copywriter",
+            credits_cost: 1,
+            brief_json: {},
+            input_json: {},
+            attempts: 1,
+          },
+        ],
+        error: null,
+      },
+      reserve_credits_v2: {
+        data: [{ ok: true, credits_limit: 60, credits_used: 1, reservation_id: "resv-1" }],
+        error: null,
+      },
+      mark_step_credits_reserved: { data: null, error: null },
+      resolve_credit_reservation: resolvedReservation("refunded", 1),
+      mark_reservation_job_outcome: { data: true, error: null },
+      fail_ai_project_step: { data: null, error: null },
+    });
+    const res = await runProjectStep(supabase, "user-1", "proj-1", "step-1", fakeRequest());
+    // Advance past the 240s provider circuit breaker without ever aborting
+    // via the client — this must classify as timed_out, not aborted.
+    await vi.advanceTimersByTimeAsync(240_001);
+    const events = await drainStream(res);
+
+    expect(capturedSignal?.aborted).toBe(true);
+    expect(events.some((e) => (e as { type: string }).type === "error")).toBe(true);
+    const markCall = supabase.calls.find((c) => c.name === "mark_reservation_job_outcome");
+    expect(markCall?.args).toMatchObject({ p_outcome: "timed_out" });
+    const failCall = supabase.calls.find((c) => c.name === "fail_ai_project_step");
+    expect(failCall?.args).toMatchObject({ p_error_code: "timed_out" });
+    vi.useRealTimers();
+  });
+
+  it("generation persist failure after a real model success: treated as a confirmed failure, refunds, never marks consumed", async () => {
+    vi.spyOn(callModelModule, "callModel").mockImplementation(async (_tool, _prompt, onDelta) => {
+      onDelta("resultado generado");
+    });
+    const calls: { type: "rpc" | "from"; name: string; args?: unknown }[] = [];
+    const rpc = vi.fn((name: string, args?: unknown) => {
+      calls.push({ type: "rpc", name, args });
+      const rpcResults: Record<string, { data: unknown; error: unknown }> = {
+        claim_ai_project_step: {
+          data: [
+            {
+              claimed: true,
+              reason: "ok",
+              tool_key: "copywriter",
+              credits_cost: 1,
+              brief_json: {},
+              input_json: {},
+              attempts: 1,
+            },
+          ],
+          error: null,
+        },
+        reserve_credits_v2: {
+          data: [{ ok: true, credits_limit: 60, credits_used: 1, reservation_id: "resv-1" }],
+          error: null,
+        },
+        mark_step_credits_reserved: { data: null, error: null },
+        mark_reservation_job_outcome: { data: true, error: null },
+        resolve_credit_reservation: resolvedReservation("refunded", 1),
+        fail_ai_project_step: { data: null, error: null },
+      };
+      return Promise.resolve(rpcResults[name] ?? { data: null, error: null });
+    });
+    function makeQuery(table: string) {
+      calls.push({ type: "from", name: table });
+      const query = {
+        select: () => query,
+        insert: (row: unknown) => {
+          calls.push({ type: "from", name: `${table}.insert`, args: row });
+          return query;
+        },
+        eq: () => query,
+        maybeSingle: () => {
+          // Simulate a persist failure: the insert "succeeds" at the
+          // HTTP level but returns no row (e.g. a constraint violation
+          // PostgREST reports as an error alongside null data).
+          if (table === "generations")
+            return Promise.resolve({ data: null, error: { message: "db error" } });
+          return Promise.resolve({ data: null, error: null });
+        },
+      };
+      return query;
+    }
+    const supabase = { rpc, from: (t: string) => makeQuery(t), calls } as unknown as Parameters<
+      typeof runProjectStep
+    >[0] & { calls: typeof calls };
+
+    const res = await runProjectStep(supabase, "user-1", "proj-1", "step-1", fakeRequest());
+    const events = await drainStream(res);
+
+    expect(events.some((e) => (e as { type: string }).type === "error")).toBe(true);
+    expect(events.some((e) => (e as { type: string }).type === "done")).toBe(false);
+    const resolveCalls = calls.filter(
+      (c) =>
+        c.name === "resolve_credit_reservation" &&
+        (c.args as { p_outcome?: string })?.p_outcome === "consumed",
+    );
+    expect(resolveCalls).toHaveLength(0); // never marked consumed when the result wasn't actually saved
+    const markCall = calls.find((c) => c.name === "mark_reservation_job_outcome");
+    expect(markCall?.args).toMatchObject({ p_outcome: "failed" });
   });
 
   it("client disconnect (stream cancel) also refunds exactly once, not twice with the catch path", async () => {
@@ -294,6 +436,7 @@ describe("runProjectStep — provider failure after credits were reserved", () =
       },
       mark_step_credits_reserved: { data: null, error: null },
       resolve_credit_reservation: resolvedReservation("refunded", 1),
+      mark_reservation_job_outcome: { data: true, error: null },
       fail_ai_project_step: { data: null, error: null },
     });
     const res = await runProjectStep(supabase, "user-1", "proj-1", "step-1", fakeRequest());
@@ -304,9 +447,17 @@ describe("runProjectStep — provider failure after credits were reserved", () =
     await new Promise((r) => setTimeout(r, 10));
 
     const resolveCalls = supabase.calls.filter(
-      (c) => c.name === "resolve_credit_reservation" && (c.args as { p_outcome?: string })?.p_outcome === "refunded",
+      (c) =>
+        c.name === "resolve_credit_reservation" &&
+        (c.args as { p_outcome?: string })?.p_outcome === "refunded",
     );
     expect(resolveCalls).toHaveLength(1);
+    // cancel() itself never resolves anything (see the module comment) —
+    // the actual refund and its evidence both come from runStep's catch
+    // block, reached via the aborted callModel promise. classified as
+    // "aborted" (client-driven), not a generic "failed".
+    const markCall = supabase.calls.find((c) => c.name === "mark_reservation_job_outcome");
+    expect(markCall?.args).toMatchObject({ p_outcome: "aborted" });
   });
 });
 

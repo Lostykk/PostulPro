@@ -64,6 +64,81 @@ export async function confirmConsumedOrLog(
   return false;
 }
 
+// callModel had no timeout of its own — without one, "timed_out" could
+// never be genuine evidence, only a guess. Combines the caller's own
+// (client-driven) abort signal with an independent timeout signal, so the
+// catch block can tell apart three real causes instead of lumping
+// everything into "failed": the client disconnected/aborted, the provider
+// call ran too long, or the provider itself returned an error. Checked in
+// that priority order in classifyProviderFailure below — a client abort
+// is reported as such even if the timeout also happened to fire around
+// the same time, since it's the more specific, intentional signal.
+export function withProviderTimeout(
+  clientSignal: AbortSignal,
+  timeoutMs: number,
+): { signal: AbortSignal; timeoutSignal: AbortSignal; clear: () => void } {
+  const timeoutController = new AbortController();
+  const timeoutId = setTimeout(() => timeoutController.abort(), timeoutMs);
+  return {
+    signal: AbortSignal.any([clientSignal, timeoutController.signal]),
+    timeoutSignal: timeoutController.signal,
+    clear: () => clearTimeout(timeoutId),
+  };
+}
+
+export function classifyProviderFailure(
+  clientSignal: AbortSignal,
+  timeoutSignal: AbortSignal,
+): "aborted" | "timed_out" | "failed" {
+  if (clientSignal.aborted) return "aborted";
+  if (timeoutSignal.aborted) return "timed_out";
+  return "failed";
+}
+
+// Records confirmed-failure evidence (mark_reservation_job_outcome, from
+// 20260728000000_reservation_job_evidence.sql) on a reservation before
+// attempting the actual refund. Awaited and best-effort: it's a single
+// fast UPDATE, worth landing durably before any risk of the isolate dying
+// mid-refund — if the refund itself never completes (Worker killed before
+// waitUntil finishes, response already closed), this evidence is what
+// lets reconcile_stale_reservations_v2 resolve the reservation correctly
+// later instead of falling back to the age threshold. Never throws —
+// failing to record evidence must not block the refund attempt that
+// follows it.
+export async function markJobOutcome(
+  supabase: Db,
+  reservationId: string,
+  outcome: "failed" | "aborted" | "timed_out",
+  reason: string,
+): Promise<void> {
+  try {
+    const { error } = await supabase.rpc("mark_reservation_job_outcome", {
+      p_reservation_id: reservationId,
+      p_outcome: outcome,
+      p_reason: reason,
+    });
+    if (error) {
+      console.error(
+        JSON.stringify({
+          scope: "credit_reservation_mark_job_outcome_failed",
+          reservationId,
+          outcome,
+          error: error.message,
+        }),
+      );
+    }
+  } catch (err) {
+    console.error(
+      JSON.stringify({
+        scope: "credit_reservation_mark_job_outcome_failed",
+        reservationId,
+        outcome,
+        error: err instanceof Error ? err.message : String(err),
+      }),
+    );
+  }
+}
+
 // Marks a reservation 'refunded'. Unlike confirmConsumedOrLog, this
 // never blocks a response — a failure/abort response doesn't claim
 // anything about billing state the way a success response does, so

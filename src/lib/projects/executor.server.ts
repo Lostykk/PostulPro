@@ -9,9 +9,12 @@ import { getCapabilityMeta } from "@/lib/projects/capabilities.server";
 import { ProjectBriefSchema } from "@/lib/projects/schema";
 import { isOwner } from "@/lib/auth/is-owner";
 import {
+  classifyProviderFailure,
   confirmConsumedOrLog,
   getWaitUntil,
+  markJobOutcome,
   refundInBackground,
+  withProviderTimeout,
 } from "@/lib/ai/credit-reservation.server";
 
 // Runs exactly one project step end to end: claim -> reserve credits ->
@@ -21,7 +24,15 @@ import {
 // so there is only one place that can charge credits for a step.
 //
 // Mirrors routes/api/generate-ai.ts's reserve-before-stream /
-// refund-on-failure pattern exactly, just wrapped with step bookkeeping.
+// refund-on-failure pattern exactly, just wrapped with step bookkeeping —
+// including the same financial contract: a linked generations row
+// (credit_reservation_id) is completion evidence, job_outcome is
+// confirmed-failure evidence, and each step gets its OWN reservation_id,
+// so a later step's failure can never touch an earlier, already-consumed
+// step's reservation — there is structurally no shared mutable state
+// between steps beyond the project/step rows themselves.
+
+const PROVIDER_TIMEOUT_MS = 240_000; // same circuit breaker as generate-ai.ts
 
 type Db = SupabaseClient<Database>;
 
@@ -183,6 +194,10 @@ export async function runProjectStep(
   const encoder = new TextEncoder();
   const abortController = new AbortController();
   request.signal?.addEventListener("abort", () => abortController.abort());
+  // Independent from abortController: a real circuit breaker on the
+  // provider call itself, so "timed_out" can be genuine evidence instead
+  // of a guess — same rationale as generate-ai.ts.
+  const providerTimeout = withProviderTimeout(abortController.signal, PROVIDER_TIMEOUT_MS);
   // Guards against the catch block and cancel() both firing for the same
   // request — a local optimization only. The actual idempotency guarantee
   // is resolve_credit_reservation's atomic compare-and-swap on the
@@ -192,6 +207,13 @@ export async function runProjectStep(
   const settleFailure = async (errorCode: string, safeMessage: string) => {
     if (settled) return;
     settled = true;
+    // Record confirmed-failure evidence before the (fire-and-forget)
+    // refund attempt — see generate-ai.ts for the full rationale.
+    // settleFailure is only ever called from runStep's own catch block
+    // with one of these three real outcomes below.
+    if (errorCode === "failed" || errorCode === "aborted" || errorCode === "timed_out") {
+      await markJobOutcome(supabase, reservationId, errorCode, errorCode);
+    }
     refundInBackground(supabase, reservationId, errorCode, waitUntil);
     try {
       await supabase.rpc("fail_ai_project_step", {
@@ -253,9 +275,10 @@ export async function runProjectStep(
           full += delta;
           send({ type: "delta", text: delta, stepId });
         },
-        abortController.signal,
+        providerTimeout.signal,
         (u) => (usage = u),
       );
+      providerTimeout.clear();
       logModelUsage({
         provider: tool.provider,
         model: tool.model,
@@ -266,7 +289,11 @@ export async function runProjectStep(
         status: "success",
       });
 
-      const { data: gen } = await supabase
+      // credit_reservation_id links this row back to the reservation in
+      // the same INSERT that persists the result — see generate-ai.ts's
+      // module comment for the full rationale (result-persisted and
+      // completed are the same event here, by design).
+      const { data: gen, error: genErr } = await supabase
         .from("generations")
         .insert({
           user_id: userId,
@@ -278,11 +305,32 @@ export async function runProjectStep(
           project_id: projectId,
           project_step_id: stepId,
           artifact_type: capability.deliverableType,
+          credit_reservation_id: reservationId,
         })
         .select("id")
         .maybeSingle();
 
-      if (!gen?.id) throw new Error("No se pudo guardar el resultado.");
+      if (genErr || !gen?.id) {
+        // The model produced real output, but it could not be durably
+        // saved — a confirmed failure, not an ambiguous case (see
+        // generate-ai.ts for the identical reasoning). settleFailure
+        // records the job_outcome evidence internally before refunding.
+        await settleFailure(
+          "failed",
+          "No se pudo guardar el resultado de este paso. Podés reintentarlo.",
+        );
+        send({
+          type: "error",
+          message: "No se pudo guardar el resultado de este paso.",
+          stepId,
+        });
+        try {
+          controller.close();
+        } catch {
+          /* already closed */
+        }
+        return;
+      }
 
       // Same "no success claim before it's true" rule as
       // generate-ai.ts: block on ledger confirmation before marking the
@@ -347,6 +395,10 @@ export async function runProjectStep(
       }
     } catch (err) {
       const message = err instanceof Error ? err.message : "El modelo falló al generar este paso.";
+      const outcome = classifyProviderFailure(
+        abortController.signal,
+        providerTimeout.timeoutSignal,
+      );
       logModelUsage({
         provider: tool.provider,
         model: tool.model,
@@ -355,14 +407,15 @@ export async function runProjectStep(
         usage,
         durationMs: Date.now() - startedAt,
         status: "error",
-        errorCode: "provider_error",
+        errorCode: outcome,
       });
-      const aborted = abortController.signal.aborted;
       await settleFailure(
-        aborted ? "client_disconnected" : "provider_error",
-        aborted
+        outcome,
+        outcome === "aborted"
           ? "La conexión se interrumpió mientras se generaba este paso."
-          : "El modelo falló al generar este paso. Podés reintentarlo.",
+          : outcome === "timed_out"
+            ? "El modelo tardó demasiado en responder este paso. Podés reintentarlo."
+            : "El modelo falló al generar este paso. Podés reintentarlo.",
       );
       send({ type: "error", message, stepId });
       try {
