@@ -438,3 +438,78 @@ https://lostykk-postulpro-preview.ignacioo-ch13.workers.dev/api/webhooks/hotmart
 La confirmo con pruebas no destructivas (`GET` → `405`, `POST` sin autenticación → `401`) antes de dártela como definitiva para que la cargues en el panel de Hotmart (informe §22 original, sección de guía manual).
 
 **No avanzo a ninguno de estos 3 pasos todavía — quedo a la espera de que me digas que estás listo con el Hottok copiado.** No configuro Hotmart, no hago merge a main, no despliego a producción.
+
+## 23-26. Fase 8C — incidente real, causa raíz, corrección del normalizador e idempotencia
+
+Tras cargar el Hottok real y reenviar los 12 eventos configurados desde el panel de Hotmart, la mayoría del primer lote dio 401 (Hottok no cargado todavía) y, una vez cargado el Hottok real, los reenvíos empezaron a devolver 200 — pero un chequeo directo de `hotmart_events` mostró **una sola fila** en la tabla pese a múltiples eventos distintos reenviados. Esta sección documenta la causa raíz encontrada, la corrección aplicada y su validación, sin haber pedido ningún reintento nuevo hasta terminar todo lo siguiente.
+
+### 23.1 Causa raíz exacta
+
+`src/lib/hotmart/normalize.ts` estaba construido sobre el formato **plano (1.0.0)** de Hotmart (campos de primer nivel: `status`, `prod`, `off`, `email`, `transaction`, `subscriber_code`...). El payload real que Hotmart efectivamente envía es el formato **anidado (2.0.0)**: nivel superior `{ hottok, id, creation_date, event, version, data }`, con `data.purchase`, `data.subscription`, `data.product`, `data.buyer` como sub-objetos. Como consecuencia, **el 100% de la extracción de campos fallaba** contra un payload real: `transactionId`, `subscriptionId`, `productId`, `offerId`, `buyerEmail` resultaban siempre `null`, y `eventType` siempre `"unrecognized_shape"` — sin importar qué evento real fuera (aprobada, reembolsada, chargeback, etc.).
+
+### 23.2 Por qué los eventos aparecían como 200 aunque la normalización fuera incorrecta
+
+`buildIdempotencyKey()` usaba, a falta de `transactionId`, la combinación `subscriptionId ?? "no-subscription-id"` + `eventType` + `rawStatus ?? "no-status"`. Como los tres primeros siempre eran `null`/`"unrecognized_shape"`/`null` (por el bug de 23.1), **los 12 eventos, siendo estructuralmente distintos entre sí, producían el mismo hash sha256**. La primera entrega creaba la única fila (marcada `ignored`, por ser `unrecognized_shape`); cada reentrega posterior de un evento genuinamente distinto (reembolso, chargeback, cancelación...) chocaba contra la restricción `UNIQUE(idempotency_key)` y el handler respondía `200 { message: "already processed" }` — una apariencia de éxito sin que el evento hubiera sido examinado ni una sola vez.
+
+### 23.3 Estructura real confirmada (evidencia capturada en vivo, nunca inferida de documentación)
+
+Nivel superior: `hottok, id, creation_date, event, version`, más un objeto `data` con `product` (`support_email, has_co_production, name, warranty_date, is_physical_product, id, ucode, product_format_id, content`), `shipping`, `commissions` (array), `purchase` (`original_offer_price, checkout_country, sckPaymentLink, order_bump, variants, approved_date, offer, is_funnel, event_tickets, order_date, price, buyer_ip, payment, full_price, business_model, transaction, status`), `affiliates` (array), `producer` (`legal_nature, document, name`), `subscription` (`subscriber, plan, status`), `buyer` (`checkout_phone_code, address, document, name, last_name, checkout_phone, first_name, email, document_type`).
+
+Captura vía log estructural (solo nombres de clave + `typeof`, nunca valores) — nunca se registró Hottok, email, ni ningún dato real. `data.purchase.offer.code`, `data.subscription.subscriber.code`, sub-campos de `price`/`full_price`/`plan` quedaron solo como marcador `"object"` (profundidad 3) — no confirmados exactamente, soportados de forma defensiva (`offer.code` / `offer.id`; `subscriber.code` / `subscriber.id`) y documentados como tal en `normalize.ts`, nunca asumidos sin verificación.
+
+### 23.4 Cambio aplicado al normalizador (`src/lib/hotmart/normalize.ts`, reescrito completo)
+
+- Navegación anidada segura (`pickPath`), nunca asume que un evento tiene todos los bloques (`data.purchase`, `data.subscription`, `data.buyer` son todos opcionales de forma independiente).
+- Clasificación de `eventType` por prioridad: nombre de webhook dedicado (switch-plan / cancel-subscription / update-charge-date, por substring, no confirmados exactamente) → keyword del `event` de nivel superior → keyword de `data.purchase.status` → keyword de `data.subscription.status`. Vocabulario ampliado: `purchase_approved, renewal_approved, subscription_cancelled, refund, chargeback, chargeback_reversed, payment_failed, reactivation, plan_change, subscription_expired, no_action_required, unsupported, invalid_payload` — **nunca** un default a una acción financiera.
+- `isLikelyTestPayload()`: heurística (dominio `example.com`/`hotmart.com`, o producto/`ucode` conteniendo "test") para aislar los payloads de prueba de Hotmart — confirmada en vivo: el lote de 12 eventos reenviados usó comprador `@example.com` y producto `"test postback2"`, exactamente lo que Fase E identificó como sintético.
+- Fallback al formato plano (1.0.0) preservado (nunca confirmado en vivo, pero mantenido por degradación segura) cuando no hay bloque `data`.
+- `verifyHottok()` ahora acepta **body o header** (`x-hotmart-hottok`) — ambos confirmados presentes en una entrega real; antes solo se leía el campo del body (que funcionaba, pero sin la redundancia).
+
+### 23.5 Nueva estrategia de idempotencia (`src/lib/hotmart/idempotency-key.ts`, reescrito completo)
+
+Prioridad: (1) `id` de sobre de Hotmart (top-level, confirmado presente) + `eventType` como sal; (2) combinación `eventType + transactionId + subscriptionId + offerId + productId + providerUpdatedAt` (nunca un timestamp local); (3) fallback namespaced por separado para payloads de prueba vs. no-prueba, solo alcanzable con payloads sin identidad resoluble alguna. Nunca por email, precio, nombre de producto, ni timestamp de recepción local. Una compra-aprobada y un reembolso de la **misma transacción** quedan con claves distintas (probado). Cambio de plan / cancelación / actualización de fecha de cobro sobre el mismo `subscriber_code` quedan con claves distintas (probado).
+
+### 23.6 Contrato de estados y HTTP (`src/routes/api/webhooks/hotmart.ts`, reescrito completo)
+
+Nuevos `processing_status` en `hotmart_events` (migración `20260731000000_hotmart_events_status_expansion.sql`, aditiva, sin tocar filas existentes): `ignored_test, unsupported, unmapped_offer, no_action_required, invalid_payload, pending_link, failed` (se mantienen `pending, processed, ignored, error` por compatibilidad con filas previas y con `reconcile_hotmart_stale`). Contrato HTTP: Hottok ausente/inválido → 401; JSON inválido → 400; payload autenticado pero estructuralmente inválido → **422** (nunca 200); evento de prueba de Hotmart aislado (`ignored_test`) → 200 con **cero efecto comercial**, verificado antes de cualquier lógica de mapeo/comprador/RPC; duplicado genuino (fila ya en estado terminal) → 200 `result: "duplicate"`; redelivery de una fila en `failed`/`pending_link` → tratada como reintento legítimo, no como duplicado; error interno/DB → 500. Cada respuesta trae un campo `result` explícito — nunca un 200 genérico ambiguo.
+
+### 23.7 Archivos y migraciones modificados
+
+- Reescritos completos: `src/lib/hotmart/normalize.ts`, `src/lib/hotmart/idempotency-key.ts`, `src/routes/api/webhooks/hotmart.ts`, `src/lib/hotmart/normalize.test.ts`, `src/routes/api/webhooks/hotmart.test.ts`.
+- Nuevos: `src/lib/hotmart/__fixtures__/hotmart-events.ts` (fixtures saneados, forma anidada real, para los 12 eventos configurados), `src/lib/hotmart/hotmart-events-status-expansion-migration.test.ts` (dry-run local de la migración nueva vía PGlite), `supabase/migrations/20260731000000_hotmart_events_status_expansion.sql`.
+
+### 23.8 Resultados de todas las pruebas
+
+| Verificación | Resultado |
+|---|---|
+| `tsc --noEmit` | Limpio |
+| Suite unitaria completa (repo entero) | **470/470** |
+| `normalize.test.ts` (clasificación de los 12 eventos, extracción de campos, colisiones de idempotencia, campos faltantes, aislamiento de prueba) | 73/73 (incluye migración de expansión + otros archivos hotmart) |
+| `hotmart.test.ts` (contrato HTTP completo, reintentos, forma anidada real) | 30/30 |
+| `build` | Exitoso |
+| Secret scan del diff | Limpio — sin Hottok, sin `BILLING_RPC_SECRET`, sin `service_role` hardcodeados |
+| Dry-run de migración (`supabase db push --linked --dry-run`) | Exactamente 1 migración pendiente, la esperada, nada más |
+| RLS post-migración | `hotmart_events` y `hotmart_pending_links` con `relrowsecurity = true`, sin cambios |
+| Usuarios reales antes/después de la migración | **Byte-idénticos** (5 usuarios, plan/rol/créditos sin drift) |
+
+Cobertura no alcanzada (documentada, no reclamada como completa): un test de concurrencia real (dos requests simultáneos golpeando la misma `idempotency_key` a la vez) no se implementó — se cubrió en su lugar el caso equivalente de "redelivery sobre una fila en estado no terminal" (`failed`/`pending_link`), que ejercita la misma rama de código de forma determinística. Una concurrencia real de dos llamados a `process_hotmart_event` en pleno vuelo (ninguno todavía `processed`) queda como riesgo de baja severidad documentado en `hotmart.ts` (comentario sobre `RETRYABLE_LEDGER_STATUSES`), no resuelto con locking distribuido — fuera de alcance de este round.
+
+### 23.9 Limpieza de datos sintéticos (Fase E)
+
+Auditoría: exactamente 1 fila en `hotmart_events` (`id f1561480-c1c6-4320-8642-75a5d3c6bae0`), `event_type = 'unrecognized_shape'`, `processing_status = 'ignored'`, **todos** los campos de identidad comercial (`transaction_id`, `subscription_id`, `product_id`, `offer_id`, `buyer_email`) en `NULL` — el artefacto exacto del bug de colisión de 23.2. Cero filas en `hotmart_pending_links`, cero en `subscriptions` con `provider = 'hotmart'` — cero efecto comercial confirmado. Reporte presentado y confirmado explícitamente por el usuario antes de ejecutar. Borrado con `WHERE` exacto (id + los 5 campos NULL) — sin ambigüedad, sin tocar ninguna otra fila. `hotmart_events` queda en 0 filas tras la limpieza.
+
+### 23.10 Versión desplegada a preview
+
+Deploy exclusivo a `lostykk-postulpro-preview` (nunca a `lostykk-postulpro`), vía el workaround ya establecido (edición manual de `wrangler.json` generado: nombre → `-preview`, `workers_dev: true`, sin bloque `env`, sin bloque `triggers.crons`). Version ID: `76d1c416-45af-499c-9ccf-23e240324df2`. URL: `https://lostykk-postulpro-preview.ignacioo-ch13.workers.dev`. Verificado en vivo post-deploy: `GET /` → 200; `GET /api/webhooks/hotmart` → 405; `POST` sin Hottok → 401; `POST` con JSON inválido → 400. La verificación de "payload autenticado pero inválido nunca da 200 falso" y de los 12 fixtures reales se hizo vía la suite de tests (no vía curl en vivo, porque el Hottok real nunca es visible para mí).
+
+### 23.11 Estado de producción
+
+Sin cambios. Último deploy de `lostykk-postulpro` (producción): `2026-07-19T05:11:25Z` (parte del incidente de secreto ya cerrado, previo a este round). Ningún deploy nuevo a producción durante Fase 8C — confirmado con `wrangler deployments list --name lostykk-postulpro`, sin entradas posteriores. Sin merge a `main`.
+
+### 23.12 Único próximo paso manual en Hotmart
+
+**Reenviar los 12 eventos configurados desde el panel de Hotmart, uno por uno o todos juntos — la corrección ya está desplegada en preview y no requiere ningún cambio de tu lado.** Con el normalizador y la idempotencia corregidos, cada evento distinto va a generar su propia fila en `hotmart_events` con un `result` explícito (`processed`, `ignored_test`, `unsupported`, `unmapped_offer`, `no_action_required`, etc.) — nunca una colisión falsa contra un evento anterior.
+
+## 27. Dictamen (Fase 8C)
+
+**NORMALIZADOR HOTMART CORREGIDO — LISTO PARA NUEVA PRUEBA COMPLETA**

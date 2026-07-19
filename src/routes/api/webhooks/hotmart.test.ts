@@ -11,7 +11,10 @@ const RPC_SECRET = "rpc-secret";
 
 type Scenario = {
   hotmartEventsInsert?: { data: { id: string } | null; error: { code?: string; message: string } | null };
-  subscriptionLookup?: { data: { user_id: string; plan: string; billing_interval: string } | null; error: null | { message: string } };
+  // Only consulted after a 23505 conflict on the insert above — the
+  // route's own lookup of the pre-existing row's processing_status.
+  hotmartEventsConflictLookup?: { data: { id: string; processing_status: string } | null; error: { message: string } | null };
+  subscriptionLookup?: { data: { user_id: string } | null; error: null | { message: string } };
   usersLookup?: { data: { id: string } | null; error: null | { message: string } };
   inviteUser?: { data: { user: { id: string } } | null; error: null | { message: string } };
   rateLimit?: { data: Array<{ allowed: boolean; remaining: number; reset_at: string }> | null; error: null | { message: string } };
@@ -27,8 +30,13 @@ function makeFakeSupabase(scenario: Scenario) {
         return {
           insert: () => ({
             select: () => ({
+              single: async () => scenario.hotmartEventsInsert ?? { data: { id: "event-row-1" }, error: null },
+            }),
+          }),
+          select: () => ({
+            eq: () => ({
               single: async () =>
-                scenario.hotmartEventsInsert ?? { data: { id: "event-row-1" }, error: null },
+                scenario.hotmartEventsConflictLookup ?? { data: { id: "event-row-1", processing_status: "processed" }, error: null },
             }),
           }),
           update: () => ({
@@ -90,19 +98,28 @@ vi.mock("@supabase/supabase-js", () => ({
   createClient: () => makeFakeSupabase(activeScenario),
 }));
 
-function makeRequest(body: string, opts: { hottok?: string | null; contentType?: string; method?: string } = {}): Request {
+function makeRequest(body: string, opts: { hottok?: string | null; contentType?: string; method?: string; header?: string | null } = {}): Request {
   const bodyObj = JSON.parse(body);
   const withHottok = opts.hottok === undefined ? { ...bodyObj, hottok: HOTTOK } : opts.hottok === null ? bodyObj : { ...bodyObj, hottok: opts.hottok };
+  const headers: Record<string, string> = { "content-type": opts.contentType ?? "application/json" };
+  if (opts.header) headers["x-hotmart-hottok"] = opts.header;
   return new Request("https://preview.example/api/webhooks/hotmart", {
     method: opts.method ?? "POST",
-    headers: { "content-type": opts.contentType ?? "application/json" },
+    headers,
     body: JSON.stringify(withHottok),
   });
 }
 
-// Real product/offer ids (see src/lib/hotmart-config.ts) — using them
-// directly here, not overrides, is deliberate: these tests exercise the
-// actual production mapping, not a synthetic sandbox one.
+// Flat-shaped bodies — normalize.ts's confirmed graceful-degradation
+// fallback path (no top-level `data` object) — deliberately used for most
+// of these tests because it is the simplest way to express "a purchase
+// for offer X". The buyer domain here (@realcustomer.test) is
+// DELIBERATELY NOT one that trips normalize.ts's isLikelyTestPayload
+// heuristic (example.com / *.hotmart.com / a "test" product name/ucode)
+// — these tests exercise the genuine commercial-processing path, not
+// Hotmart's own sandbox "Send test event" isolation (see
+// hotmart.nested.test.ts for coverage of the real nested 2.0.0 shape and
+// the test-payload isolation behavior itself).
 function approvedPurchaseBody(overrides: Record<string, unknown> = {}) {
   return JSON.stringify({
     status: "approved",
@@ -110,7 +127,7 @@ function approvedPurchaseBody(overrides: Record<string, unknown> = {}) {
     subscriber_code: "SUB-1",
     prod: "8148076",
     off: "w6nw1f3o",
-    email: "Buyer@Example.com ",
+    email: "buyer@realcustomer.test",
     ...overrides,
   });
 }
@@ -165,7 +182,7 @@ describe("POST /api/webhooks/hotmart", () => {
     expect(res.status).toBe(400);
   });
 
-  it("rejects a missing hottok", async () => {
+  it("rejects a missing hottok (neither body nor header)", async () => {
     const res = await handler({ request: makeRequest(approvedPurchaseBody(), { hottok: null }) });
     expect(res.status).toBe(401);
   });
@@ -173,6 +190,12 @@ describe("POST /api/webhooks/hotmart", () => {
   it("rejects a wrong hottok", async () => {
     const res = await handler({ request: makeRequest(approvedPurchaseBody(), { hottok: "wrong-value" }) });
     expect(res.status).toBe(401);
+  });
+
+  it("accepts the hottok via the x-hotmart-hottok header when the body field is absent", async () => {
+    activeScenario.usersLookup = { data: { id: "existing-user-1" }, error: null };
+    const res = await handler({ request: makeRequest(approvedPurchaseBody(), { hottok: null, header: HOTTOK }) });
+    expect(res.status).toBe(200);
   });
 
   it("rejects when the rate limiter denies the request", async () => {
@@ -185,8 +208,9 @@ describe("POST /api/webhooks/hotmart", () => {
     activeScenario.usersLookup = { data: { id: "existing-user-1" }, error: null };
     const res = await handler({ request: makeRequest(approvedPurchaseBody()) });
     expect(res.status).toBe(200);
-    const body = (await res.json()) as { ok: boolean };
+    const body = (await res.json()) as { ok: boolean; result: string };
     expect(body.ok).toBe(true);
+    expect(body.result).toBe("processed");
 
     const rpcCall = calls.find((c) => c.rpcName === "process_hotmart_event");
     expect(rpcCall).toBeTruthy();
@@ -197,7 +221,7 @@ describe("POST /api/webhooks/hotmart", () => {
   });
 
   it("an approved-status delivery for an already-linked subscription is sent as renewal_approved, not purchase_approved (no duplicate welcome email)", async () => {
-    activeScenario.subscriptionLookup = { data: { user_id: "linked-user-1", plan: "pro", billing_interval: "month" }, error: null };
+    activeScenario.subscriptionLookup = { data: { user_id: "linked-user-1" }, error: null };
     const res = await handler({ request: makeRequest(approvedPurchaseBody()) });
     expect(res.status).toBe(200);
 
@@ -208,20 +232,20 @@ describe("POST /api/webhooks/hotmart", () => {
   });
 
   it("upgrade PRO -> Business: a new approved offer on the same subscriber_code resolves to the NEW plan (via renewal_approved, same RPC branch as plan_change)", async () => {
-    activeScenario.subscriptionLookup = { data: { user_id: "linked-user-1", plan: "pro", billing_interval: "month" }, error: null };
+    activeScenario.subscriptionLookup = { data: { user_id: "linked-user-1" }, error: null };
     const res = await handler({
       request: makeRequest(approvedPurchaseBody({ off: "zy2exb4h" })), // business_monthly real offer id
     });
     expect(res.status).toBe(200);
     const rpcCall = calls.find((c) => c.rpcName === "process_hotmart_event");
     const args = rpcCall!.args as Record<string, unknown>;
-    expect(args.p_event_type).toBe("renewal_approved"); // see hotmart-integration-report.md §13 for why this is correct, not "plan_change"
+    expect(args.p_event_type).toBe("renewal_approved");
     expect(args.p_plan).toBe("business");
     expect(args.p_credits_limit).toBe(500);
   });
 
   it("downgrade Business -> PRO: same mechanism, resolves to the lower plan", async () => {
-    activeScenario.subscriptionLookup = { data: { user_id: "linked-user-1", plan: "business", billing_interval: "month" }, error: null };
+    activeScenario.subscriptionLookup = { data: { user_id: "linked-user-1" }, error: null };
     const res = await handler({
       request: makeRequest(approvedPurchaseBody({ off: "w6nw1f3o" })), // pro_monthly real offer id
     });
@@ -243,7 +267,7 @@ describe("POST /api/webhooks/hotmart", () => {
     activeScenario.hotmartEventsInsert = undefined;
     const bizAnnual = await handler({
       request: makeRequest(
-        JSON.stringify({ status: "approved", transaction: "TXN-BIZ-A", subscriber_code: "SUB-BIZ-A", prod: "8148076", off: "64lrx4be", email: "buyer2@example.com" }),
+        JSON.stringify({ status: "approved", transaction: "TXN-BIZ-A", subscriber_code: "SUB-BIZ-A", prod: "8148076", off: "64lrx4be", email: "buyer2@realcustomer.test" }),
       ),
     });
     expect(bizAnnual.status).toBe(200);
@@ -272,26 +296,41 @@ describe("POST /api/webhooks/hotmart", () => {
     expect(args.p_user_id).toBe("brand-new-user-1");
   });
 
-  it("a duplicate delivery (unique_violation on the ledger insert) responds already-processed without calling the RPC", async () => {
+  it("a genuine duplicate delivery (ledger row already in a terminal state) responds 'duplicate' without calling the RPC again", async () => {
     activeScenario.hotmartEventsInsert = { data: null, error: { code: "23505", message: "duplicate" } };
+    activeScenario.hotmartEventsConflictLookup = { data: { id: "event-row-1", processing_status: "processed" }, error: null };
     const res = await handler({ request: makeRequest(approvedPurchaseBody()) });
     expect(res.status).toBe(200);
-    const body = (await res.json()) as { message: string };
-    expect(body.message).toBe("already processed");
+    const body = (await res.json()) as { ok: boolean; result: string; message: string };
+    expect(body.ok).toBe(true);
+    expect(body.result).toBe("duplicate");
     expect(calls.find((c) => c.rpcName === "process_hotmart_event")).toBeUndefined();
   });
 
-  it("an unmapped offer_id is ignored (200) and never calls process_hotmart_event", async () => {
+  it("a redelivery whose prior attempt is stuck in 'failed' is treated as a legitimate retry, not a duplicate", async () => {
+    activeScenario.hotmartEventsInsert = { data: null, error: { code: "23505", message: "duplicate" } };
+    activeScenario.hotmartEventsConflictLookup = { data: { id: "event-row-1", processing_status: "failed" }, error: null };
+    activeScenario.usersLookup = { data: { id: "existing-user-1" }, error: null };
+    const res = await handler({ request: makeRequest(approvedPurchaseBody()) });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { result: string };
+    expect(body.result).toBe("processed");
+    expect(calls.find((c) => c.rpcName === "process_hotmart_event")).toBeTruthy();
+  });
+
+  it("an unmapped offer_id is held for review (200, result=unmapped_offer) and never calls process_hotmart_event", async () => {
     const res = await handler({ request: makeRequest(approvedPurchaseBody({ off: "SOME_UNKNOWN_OFFER" })) });
     expect(res.status).toBe(200);
+    const body = (await res.json()) as { result: string };
+    expect(body.result).toBe("unmapped_offer");
     expect(calls.find((c) => c.rpcName === "process_hotmart_event")).toBeUndefined();
   });
 
   it("a cancellation event for an already-linked subscription resolves user_id from the subscription row, never from email", async () => {
-    activeScenario.subscriptionLookup = { data: { user_id: "linked-user-1", plan: "pro", billing_interval: "month" }, error: null };
+    activeScenario.subscriptionLookup = { data: { user_id: "linked-user-1" }, error: null };
     const res = await handler({
       request: makeRequest(
-        JSON.stringify({ status: "canceled", subscriber_code: "SUB-1", email: "someone-else@example.com" }),
+        JSON.stringify({ status: "canceled", subscriber_code: "SUB-1", email: "someone-else@realcustomer.test" }),
       ),
     });
     expect(res.status).toBe(200);
@@ -300,25 +339,41 @@ describe("POST /api/webhooks/hotmart", () => {
     expect((rpcCall!.args as Record<string, unknown>).p_event_type).toBe("subscription_cancelled");
   });
 
-  it("a lifecycle event referencing an unknown subscription is ignored, not treated as an error", async () => {
+  it("a lifecycle event referencing an unknown subscription is result=no_action_required, not treated as an error", async () => {
     const res = await handler({
       request: makeRequest(JSON.stringify({ status: "canceled", subscriber_code: "SUB-NEVER-SEEN" })),
     });
     expect(res.status).toBe(200);
+    const body = (await res.json()) as { result: string };
+    expect(body.result).toBe("no_action_required");
     expect(calls.find((c) => c.rpcName === "process_hotmart_event")).toBeUndefined();
   });
 
-  it("an ambiguous/in-flight status is ledgered but never triggers a financial action", async () => {
+  it("an ambiguous/in-flight status is ledgered as no_action_required, never triggers a financial action", async () => {
     const res = await handler({
       request: makeRequest(approvedPurchaseBody({ status: "processing_transaction" })),
     });
     expect(res.status).toBe(200);
+    const body = (await res.json()) as { result: string };
+    expect(body.result).toBe("no_action_required");
     expect(calls.find((c) => c.rpcName === "process_hotmart_event")).toBeUndefined();
   });
 
-  it("rejects an unexpected currency on an otherwise-mapped offer", async () => {
+  it("a genuinely unrecognized event/status is result=unsupported, never a guessed financial action", async () => {
+    const res = await handler({
+      request: makeRequest(approvedPurchaseBody({ status: "some_made_up_status" })),
+    });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { result: string };
+    expect(body.result).toBe("unsupported");
+    expect(calls.find((c) => c.rpcName === "process_hotmart_event")).toBeUndefined();
+  });
+
+  it("rejects an unexpected currency on an otherwise-mapped offer with result=failed, 400", async () => {
     const res = await handler({ request: makeRequest(approvedPurchaseBody({ currency: "BRL" })) });
     expect(res.status).toBe(400);
+    const body = (await res.json()) as { result: string };
+    expect(body.result).toBe("failed");
     expect(calls.find((c) => c.rpcName === "process_hotmart_event")).toBeUndefined();
   });
 
@@ -335,6 +390,26 @@ describe("POST /api/webhooks/hotmart", () => {
     expect(res.status).toBe(413);
   });
 
+  it("an authenticated but structurally invalid payload is 422, never a false 200", async () => {
+    const res = await handler({ request: makeRequest(JSON.stringify({})) });
+    expect(res.status).toBe(422);
+    const body = (await res.json()) as { ok: boolean; result: string };
+    expect(body.ok).toBe(false);
+    expect(body.result).toBe("invalid_payload");
+    expect(calls.find((c) => c.rpcName === "process_hotmart_event")).toBeUndefined();
+  });
+
+  it("invalid JSON is rejected with 400", async () => {
+    const res = await handler({
+      request: new Request("https://preview.example/api/webhooks/hotmart", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: "{not valid json",
+      }),
+    });
+    expect(res.status).toBe(400);
+  });
+
   it("never leaks the configured secret or a raw error in any response body", async () => {
     activeScenario.processHotmartEvent = { data: null, error: { message: "some internal db detail that should not leak" } };
     const res = await handler({ request: makeRequest(approvedPurchaseBody()) });
@@ -342,5 +417,45 @@ describe("POST /api/webhooks/hotmart", () => {
     expect(text).not.toContain(RPC_SECRET);
     expect(text).not.toContain(HOTTOK);
     expect(text).not.toContain("some internal db detail");
+  });
+});
+
+describe("POST /api/webhooks/hotmart — real nested (2.0.0) payload shape and test isolation", () => {
+  it("a nested payload shaped like a real Hotmart delivery, with a Hotmart-sandbox-style buyer, has zero commercial effect", async () => {
+    activeScenario.usersLookup = { data: { id: "existing-user-1" }, error: null };
+    const nestedTestPayload = {
+      event: "PURCHASE_APPROVED",
+      id: "envelope-1",
+      creation_date: 1732000000,
+      data: {
+        product: { id: 8148076, ucode: "test postback2", name: "test postback2" },
+        purchase: { transaction: "HP-TEST-1", status: "approved", offer: { code: "w6nw1f3o" }, full_price: { value: 29, currency_value: "USD" } },
+        buyer: { email: "buyer@example.com" },
+      },
+    };
+    const res = await handler({ request: makeRequest(JSON.stringify(nestedTestPayload)) });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { result: string };
+    expect(body.result).toBe("ignored_test");
+    expect(calls.find((c) => c.rpcName === "process_hotmart_event")).toBeUndefined();
+  });
+
+  it("the same nested shape with a real-looking buyer domain is processed normally", async () => {
+    activeScenario.usersLookup = { data: { id: "existing-user-1" }, error: null };
+    const nestedRealPayload = {
+      event: "PURCHASE_APPROVED",
+      id: "envelope-2",
+      creation_date: 1732000000,
+      data: {
+        product: { id: 8148076, ucode: "postulpro-pro", name: "PostulPro Pro" },
+        purchase: { transaction: "HP-REAL-1", status: "approved", offer: { code: "w6nw1f3o" }, full_price: { value: 29, currency_value: "USD" } },
+        buyer: { email: "buyer@realcustomer.test" },
+      },
+    };
+    const res = await handler({ request: makeRequest(JSON.stringify(nestedRealPayload)) });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { result: string };
+    expect(body.result).toBe("processed");
+    expect(calls.find((c) => c.rpcName === "process_hotmart_event")).toBeTruthy();
   });
 });
