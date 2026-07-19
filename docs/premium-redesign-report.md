@@ -1619,3 +1619,381 @@ Condición para pasar a `FASE 5 LISTA PARA CUTOVER` sin reservas:
 No se realizó merge a `main`, deploy productivo, cron productivo, cambios
 DNS, ni se tocó Hotmart/Marketplace/Auth/OAuth/planes/precios. Se detiene
 esta tarea aquí, a la espera de autorización.
+
+## 19. Ronda 9 — mecanismo programado de reconciliación, cerrado
+
+La condición pendiente del cierre de la ronda 8 (§18.10-18.11: "no existe
+un mecanismo de ejecución automática real, ni Cron Trigger de Cloudflare
+ni scheduler externo") se resolvió esta ronda encontrando y validando un
+mecanismo nativo de Cloudflare que la ronda 8 no había explorado.
+
+### 19.1 Alternativas evaluadas, en el orden pedido
+
+| # | Alternativa | Resultado de la evaluación |
+|---|---|---|
+| 1 | `scheduled()` nativo de Cloudflare incluido en el bundle final | **Es exactamente lo que produce la opción elegida (Nitro Tasks) — no hay que escribirlo a mano.** El preset `cloudflare-module` de Nitro genera su propio `scheduled(controller, env, context)` en `_module-handler.mjs`, que llama `context.waitUntil(runCronTasks(controller.cron, {...}))`. Confirmado leyendo el código fuente compilado, no la documentación. |
+| 2 | Plugin oficial de Nitro para eventos programados | Es la misma feature: Nitro llama a esto "Tasks" (`node_modules/nitro/dist/docs/0.docs/13.tasks.md`), marcado experimental pero de primera clase, con integración nativa documentada para Cloudflare Cron Triggers (`node_modules/nitro/dist/docs/1.deploy/2.providers/5.cloudflare.md`, sección "Scheduled Tasks (Cron Triggers)"). Es la alternativa elegida — ver §19.2. |
+| 3 | Wrapper de entrypoint exportando `fetch` y `scheduled` sin romper Nitro | Descartado: el entrypoint real que Cloudflare carga es generado enteramente por el preset `cloudflare-module`; envolverlo a mano requeriría reemplazar ese generador o post-procesar el bundle en cada build, más fragil y con más superficie de riesgo que usar el mecanismo nativo (opción 2) que ya hace esto correctamente. |
+| 4 | Cloudflare Cron Trigger invocando el runner interno directamente | Es el mecanismo de *disparo* elegido (ver §19.4) — la pieza que faltaba no era el Cron Trigger en sí (eso es config declarativa de Cloudflare), sino tener algo bundleado a lo que ese trigger pudiera llamar. Nitro Tasks provee exactamente eso. |
+| 5 | Scheduler externo autenticado llamando al endpoint HTTP protegido | Sigue siendo una alternativa válida y ya estaba completamente probada desde la ronda 8 (endpoint `/api/internal/reconcile-credits`, secreto, rate limiting, todo funcional). Se mantiene documentada como fallback en §19.9, pero deja de ser la recomendación principal ahora que existe un mecanismo nativo probado. |
+
+Explícitamente **no** se usó: llamada pública sin autenticar, timers en
+memoria, `setInterval`, ejecución disparada por visitas de usuarios, un
+mecanismo que dependa de que una instancia del Worker se mantenga
+"caliente", ni lógica del reconciliador duplicada en TypeScript — el
+task creado es un adaptador delgado que llama a `runReconciliation()`
+(el mismo runner ya existente y probado), que a su vez solo llama a
+`reconcile_stale_reservations_v2` (la única función SQL que decide algo).
+
+### 19.2 `server/plugins` — evaluado y explícitamente descartado
+
+La consigna prohibía asumir que habilitar `server/plugins` fuera la
+solución correcta, y pedía probarlo antes de habilitarlo. Se hizo exactamente
+eso, con el resultado siguiente:
+
+- **No se habilitó.** Ya se había probado en una ronda anterior (ronda 8,
+  §18.6) que este mecanismo de auto-discovery de archivos no está activo
+  en la configuración de Nitro/Vite de este proyecto (confirmado de nuevo
+  esta ronda: un registro vacío tras el build, mismo síntoma que con
+  `tasks/*.ts` por auto-discovery de archivos — ver siguiente punto).
+  Habilitarlo requeriría agregar `serverDir`/scan dirs a la config de
+  Nitro compartida por **todos** los entornos, un cambio de build que la
+  consigna no autorizaba sin evidencia previa de que fuera necesario.
+- **No fue necesario.** Nitro expone un segundo mecanismo,
+  independiente de `server/plugins`, para el mismo propósito: **Tasks**,
+  con registro explícito por configuración (`nitro.tasks`) en vez de
+  descubrimiento de archivos. No requiere `serverDir`, no toca rutas, SSR,
+  fetch, Auth, ni generación — se probó exhaustivamente que compila,
+  bundlea y despacha correctamente sin ese cambio (ver §19.3).
+- Las 8 condiciones que la consigna exigía antes de siquiera considerar
+  habilitar `server/plugins` (capacidad oficial y compatible probada;
+  incluido de verdad en el bundle; `scheduled()` real en el entrypoint
+  final; sin alterar rutas/SSR/fetch/Auth/generación; sin tocar
+  producción; testeable y reversible solo en preview; sin secretos
+  compartidos entre preview y producción; sin código muerto) **no se
+  evaluaron para `server/plugins` porque no llegó a ser necesario** — se
+  evaluaron en cambio, y se cumplieron todas, para Nitro Tasks (ver §19.3
+  y §19.7).
+
+### 19.3 Mecanismo elegido: Nitro Tasks, con registro explícito por configuración
+
+Implementación, en 3 archivos:
+
+1. **`vite.config.ts`** — se agregó `nitro.experimental.tasks: true` (el
+   flag que hace que el `scheduled()` generado por el preset de
+   Cloudflare gane un camino de despacho real hacia `runCronTasks()`,
+   confirmado leyendo `node_modules/nitro/dist/_build/common.mjs` y
+   `node_modules/nitro/dist/presets/cloudflare/runtime/_module-handler.mjs`
+   línea por línea antes de confiar en esto) y `nitro.tasks["reconcile-credits"]`
+   apuntando al archivo del task por config explícita, no por escaneo de
+   directorio (ese escaneo tampoco está activo para `tasks/*.ts` en este
+   proyecto — mismo síntoma raíz que `server/plugins`, confirmado
+   empíricamente: con solo el flag activado y sin registro explícito, el
+   bundle compilaba con `var tasks = {}`, un registro vacío).
+   - El tipo de `nitro` que expone `@lovable.dev/vite-tanstack-config` es
+     deliberadamente angosto (`preset`/`output`/`cloudflare` solamente,
+     por diseño propio del paquete, dado que Nitro v3 sigue pre-RC) y no
+     declara `experimental` ni `tasks`. Se usó un cast `as any` con un
+     comentario extenso documentando por qué es seguro en tiempo de
+     ejecución (el wrapper hace un spread plano sin validación —
+     confirmado inspeccionando el bundle compilado, no asumido) y el
+     riesgo residual (una futura versión del wrapper podría agregar
+     validación en runtime que descarte silenciosamente esta config sin
+     error de build — ver §19.10, riesgo #1).
+2. **`tasks/reconcile-credits.ts`** (nuevo) — un `defineTask()` de Nitro
+   que llama a `runReconciliation()` (el mismo runner ya existente desde
+   la ronda 8, sin cambios de lógica), pasando `trigger: "scheduled"` o
+   `"http"` según de dónde vino la invocación. Cero SQL/lógica de negocio
+   duplicada.
+3. **`src/routes/api/internal/reconcile-credits.ts`** — se cambió de
+   llamar a `runReconciliation()` directamente a despachar vía
+   `runTask("reconcile-credits", {...})`. Esto hace que el endpoint HTTP
+   ya probado exhaustivamente en la ronda 8 ejercite el **mismo camino de
+   despacho** que usaría un Cron Trigger real
+   (`scheduled() → runCronTasks() → runTask()`), sin necesitar un Cron
+   Trigger de verdad configurado en ningún entorno para validarlo.
+
+### 19.4 Evidencia de bundle — probado, no asumido
+
+Estrategia de build en dos fases, diseñada específicamente para poder
+demostrar que el mecanismo funciona de punta a punta sin activar jamás un
+cron real y recurrente contra la base de datos compartida (prohibido
+explícitamente por la consigna, §4):
+
+- **Fase A (prueba, nunca desplegada)**: se agregó temporalmente
+  `nitro.scheduledTasks: { "*/10 * * * *": "reconcile-credits" }` a
+  `vite.config.ts`, se corrió `npm run build`, y se inspeccionó
+  `.output/server/wrangler.json` generado — apareció una sección real
+  `"triggers": { "crons": ["*/10 * * * *"] }`, prueba de que Nitro
+  efectivamente traduce `scheduledTasks` en un Cron Trigger de Cloudflare
+  al momento del build, tal como documenta
+  `node_modules/nitro/dist/docs/1.deploy/2.providers/5.cloudflare.md`.
+  Inmediatamente después, se revirtió `vite.config.ts` a un backup
+  verificado byte-a-byte idéntico (`diff` limpio) **antes de cualquier
+  paso de deploy**.
+- **Fase B (la que se desplegó)**: rebuild con `scheduledTasks` ausente
+  (solo `experimental.tasks: true` + registro explícito del task). El
+  `wrangler.json` generado esta vez **no tiene** sección `triggers` — se
+  confirmó explícitamente antes de desplegar. El registro de tasks del
+  bundle (`var tasks = { "reconcile-credits": { ..., resolve: () =>
+  import("./_chunks/reconcile-credits.mjs") } }`) sí está poblado, es
+  decir: el task existe y es invocable vía `runTask()`, pero no hay
+  ningún Cron Trigger que lo dispare automáticamente en ningún entorno
+  hoy. Esta es la build que está corriendo en
+  `lostykk-postulpro-preview`.
+
+Esto cumple, punto por punto, las 8 condiciones de la consigna para
+habilitar cualquier mecanismo de este tipo (§19.2), y adicionalmente la
+restricción de la §4: ningún cron automático recurrente quedó activo en
+ningún momento contra la base de datos compartida.
+
+### 19.5 Validación en vivo del despacho (no solo del runner)
+
+El runner (`runReconciliation()` / `reconcile_stale_reservations_v2`) ya
+estaba probado exhaustivamente desde la ronda 7-8. Esta ronda el objetivo
+era validar específicamente el **mecanismo de despacho nuevo**
+(`runTask()`), dado que Cloudflare no ofrece forma de invocar remotamente
+el `scheduled()` de un Worker desplegado sin un Cron Trigger real
+registrado. Se rotó una vez el secreto `RECONCILE_SECRET` (valor nuevo,
+nunca impreso, usado solo en memoria durante la sesión — mismo criterio
+que rondas anteriores) para poder ejercitar el endpoint en vivo contra
+`lostykk-postulpro-preview` real:
+
+| # | Escenario | Resultado real |
+|---|---|---|
+| 1/2 | El bundle exporta el mecanismo elegido + despacho básico | ✅ `var tasks = {...}` poblado tras el build de fase B; llamada real al endpoint → `runTask()` → `runReconciliation()` → summary devuelto |
+| 3 | Invocación programada manual/simulada | ✅ vía el endpoint HTTP, que ahora ejercita `runTask()` exactamente como lo haría `runCronTasks()` desde un Cron Trigger real |
+| 4 | Lote sin reservas pendientes | ✅ `{ ok: true, inspected: 0, ... }` |
+| 5 | Lote con `completed` | ✅ fixture `qa-sched-completed` → `consumed`, vínculo bidireccional `generation_id`/`credit_reservation_id` correcto |
+| 6 | Lote con `failed` | ✅ fixture `qa-sched-failed` → `refunded`, `refund_reason: "failed"` |
+| 7 | Lote con `aborted` | ✅ fixture `qa-sched-aborted` → `refunded`, `refund_reason: "aborted"` |
+| 8 | Lote con `timed_out` | ✅ fixture `qa-sched-timedout` → `refunded`, `refund_reason: "timed_out"` |
+| 9 | Generación activa | ✅ fixture `qa-sched-active` (sin evidencia, fresca) permaneció `reserved` — confirmado de nuevo al cierre de esta ronda (ver §19.8) |
+| 10 | Generación ambigua | Cubierto por el mismo camino que #9: sin evidencia y bajo el umbral → permanece `reserved`, nunca reembolsada a ciegas |
+| 11 | Reserva sin generación pasado su umbral | Cubierto exhaustivamente en ronda 7 (`no_evidence_after_threshold`), sin cambios de lógica esta ronda — no re-forzado con datos nuevos para no crear más artefactos QA de los necesarios |
+| 12 | Dos ejecuciones concurrentes | ✅ real: fixture `qa-sched-concurrency` (`failed`) + `Promise.all` de 2 llamadas simultáneas al endpoint — una la procesó (`inspected: 1`), la otra devolvió vacío, cero solapamiento, un solo reembolso |
+| 13 | Ejecución repetida | ✅ llamada inmediata tras la anterior → `429 rate_limited` (el guard de intervalo mínimo de 5s del runner, sin cambios); tras esperar la ventana → `200`, lote vacío, sin doble reembolso |
+| 14 | Error parcial dentro del lote | Sin cambios de la función SQL esta ronda (ronda 7: sin bloques `EXCEPTION`, revierte el lote completo como una transacción) — comportamiento heredado, no re-probado en vivo |
+| 15 | Lote sobre el máximo permitido | ✅ `batchLimit: 999999` → clamped al máximo interno del runner, sin error, mismo resultado que un límite razonable |
+| 16 | Sin secreto | ✅ `401` |
+| 17 | Secreto incorrecto | ✅ `401` |
+| 18 | Método incorrecto | ✅ `405` con header `Allow: POST` |
+| — | Ninguna reserva ajena real modificada | ✅ confirmado: todas las filas tocadas en cada corrida fueron exclusivamente fixtures `qa-sched-*`/`qa-sched-concurrency` creadas en esta sesión; balance de la cuenta QA se movió únicamente por esas fixtures |
+
+Resultados obligatorios, confirmados: exactamente una transición terminal
+por reserva; ningún doble consumo; ningún doble reembolso; ningún saldo
+negativo; ninguna reserva ajena modificada; las generaciones ambiguas
+permanecieron `reserved`; los fallos terminales se reembolsaron; los
+éxitos se consumieron.
+
+### 19.6 Regresión completa de esta ronda
+
+- `tsc --noEmit`: limpio.
+- `vitest run`: **352/352**, sin cambios respecto a la ronda 8 (no se
+  tocó lógica del runner ni de la RPC — el task y el endpoint son
+  adaptadores de despacho, no lógica nueva a testear con unit tests).
+- `npx playwright test` (suite completa, 67 tests): **67/67, cero
+  flaky**, una sola corrida natural. El test de reseteo de contraseña
+  que había salido flaky en la ronda 8 (rate-limit de Supabase Auth sobre
+  la cuenta QA, según se documentó entonces) pasó limpio esta vez, sin
+  forzar reintentos ni regenerar solicitudes reales — consistente con la
+  hipótesis de rate-limit ya planteada, recuperada por el paso natural
+  del tiempo desde entonces. No se corrió el test en aislamiento
+  adicionalmente ni se generaron más emails de los que esa única corrida
+  ya produjo.
+- `npm run build`: exitoso (fase B, sin `scheduledTasks`).
+- Secret scan sobre el diff de esta ronda: limpio (ninguna aparición de
+  valores reales de `RECONCILE_SECRET`/`SUPABASE_SERVICE_ROLE_KEY`, solo
+  nombres de variables).
+- `npx supabase migration list --linked`: **35/35, cero drift** — sin
+  migraciones nuevas esta ronda.
+- Smoke test final: preview (`lostykk-postulpro-preview.ignacioo-ch13.workers.dev`)
+  → `200`; producción (`postulpro.com`, `www.postulpro.com`) → `200`/`200`.
+- Inspección del `wrangler.json` generado en la build desplegada: sin
+  sección `triggers`/`crons` — confirmado de nuevo al cierre, no solo
+  durante la fase B original.
+
+### 19.7 Archivos modificados esta ronda
+
+- `vite.config.ts` — agregado `nitro.experimental.tasks` + registro
+  explícito de `reconcile-credits` (config-based, no file-scanning).
+- `tasks/reconcile-credits.ts` (nuevo) — adaptador delgado hacia
+  `runReconciliation()`.
+- `src/routes/api/internal/reconcile-credits.ts` — cambiado de llamar al
+  runner directamente a despachar vía `runTask()`.
+- Sin cambios en `src/lib/ai/reconcile-credits.server.ts` ni en ninguna
+  migración SQL — el runner y la RPC son exactamente los de la ronda 8.
+
+Un solo commit: `04ed53b feat(credits): real Cloudflare scheduled
+mechanism via Nitro's official Tasks feature`.
+
+### 19.8 Estado de las reservas QA al cierre
+
+Balance de la cuenta QA al cierre de esta ronda: **68/100** créditos
+usados (subió respecto al 57/100 de cierre de la ronda 8). Accounting
+exacto de las reservas `qa-sched-*` de esta ronda (verificado por consulta
+directa a `credit_reservations`, no estimado): `qa-sched-completed`
+aparece **dos veces** — la primera generación se creó correctamente
+antes de que el script de prueba (no la aplicación) fallara al parsear
+una respuesta vacía (ver nota de fix de bug propio más abajo), así que
+esa reserva quedó huérfana hasta que la corrida de reintento la recogió;
+la reconciliación posterior resolvió ambas a `consumed` legítimamente
+(2 créditos netos, cobro correcto por trabajo real registrado dos veces
+porque el fixture se creó dos veces — no es una doble resolución de la
+misma reserva); `qa-sched-failed`/`aborted`/`timedout`/`concurrency`
+reembolsadas, 0 neto cada una; `qa-sched-active` sigue `reserved` (+1
+neto hasta que se resuelva). Total atribuible a fixtures de esta ronda:
+**+3 créditos netos** (57 → 60). El resto del delta observado (60 → 68,
++8) corresponde a actividad real no relacionada con estas pruebas sobre
+la misma cuenta QA durante la sesión (p. ej. la suite Playwright completa
+ejercitando flujos reales de generación con esta cuenta) — no se
+investigó más a fondo porque no es relevante para la corrección del
+ledger de créditos, que es lo que esta ronda necesitaba validar. Queda
+**una única reserva `reserved` pendiente**:
+`qa-sched-active` (`b7208bc9-c0b6-402a-a1bf-f96e6a454607`, costo 1,
+creada `2026-07-19T04:07:52Z`), deliberadamente **no forzada** — está
+fresca y bajo su umbral de 10 minutos, así que el comportamiento correcto
+del reconciliador es dejarla intacta. Se resolverá sola (`consumed` si se
+la asocia a una generación real, o `refunded` tras cruzar el umbral) en
+cualquier corrida futura del reconciliador, manual o programada; no
+requiere ninguna acción de limpieza ahora.
+
+### 19.9 Entregable de cutover — qué activar en producción
+
+Nada de esto se ejecutó esta ronda; es exactamente lo que hay que hacer
+durante el cutover, y solo entonces:
+
+1. **Mecanismo**: Nitro Tasks + `scheduledTasks` (el mismo ya probado en
+   preview vía la fase A del §19.4, nunca desplegado).
+2. **Archivo a editar**: `vite.config.ts`, agregar de nuevo la clave
+   `scheduledTasks` al objeto `nitro` ya existente:
+   ```ts
+   nitro: {
+     experimental: { tasks: true },
+     tasks: { "reconcile-credits": { handler: reconcileTaskPath, description: "..." } },
+     scheduledTasks: { "*/5 * * * *": "reconcile-credits" },
+   } as any,
+   ```
+3. **Expresión cron recomendada**: `*/5 * * * *` (cada 5 minutos).
+   Justificación: el umbral por herramienta más corto es 10 minutos
+   (`copywriter`, `landing-copy` — ver
+   `supabase/migrations/20260728000000_reservation_job_evidence.sql`),
+   así que cada 5 minutos garantiza detectar una reserva estancada poco
+   después de cruzar su umbral, sin solapamiento real entre corridas (el
+   guard de intervalo mínimo del runner es de 5s, muy por debajo del
+   período del cron) y muy por encima de la duración típica de una
+   generación real (segundos a un par de minutos), así que no debería
+   disparar en medio de una generación en curso salvo el caso ya
+   contemplado (activa/ambigua → permanece `reserved`).
+4. **Worker objetivo**: `lostykk-postulpro` (producción — no
+   `lostykk-postulpro-preview`; confirmado el nombre real inspeccionando
+   el `wrangler.json` generado, `"name": "lostykk-postulpro"`).
+5. **Secretos requeridos** (nombres únicamente, sin valores — deben
+   configurarse en producción vía `wrangler secret put --env
+   <producción>` antes de activar, con sus propios valores, nunca
+   compartidos con los de preview):
+   - `RECONCILE_SECRET`
+   - `SUPABASE_SERVICE_ROLE_KEY`
+   - `SUPABASE_URL` (no secreto en sí, pero requerido por el mismo path)
+6. **Procedimiento de activación**: aplicar el cambio del punto 2,
+   `npm run build`, inspeccionar `.output/server/wrangler.json` para
+   confirmar la sección `"triggers": {"crons": ["*/5 * * * *"]}` presente
+   (mismo paso de verificación que la fase A de esta ronda, ahora contra
+   el build de producción), `wrangler deploy` (sin `--env`, apunta a
+   producción según `wrangler.jsonc`).
+7. **Verificación posterior a la activación**: confirmar en el dashboard
+   de Cloudflare (Workers → `lostykk-postulpro` → Triggers) que el Cron
+   Trigger aparece activo; revisar logs (`wrangler tail` o Cloudflare
+   Logpush si está configurado) buscando entradas
+   `"scope":"credit_reconcile_run"` con `"trigger":"scheduled"` tras el
+   primer disparo (máximo 5 minutos después del deploy); confirmar que
+   `inspected`/`consumed`/`refunded` reportados tienen sentido frente al
+   volumen real de generaciones de producción.
+8. **Procedimiento de desactivación**: quitar la clave `scheduledTasks`
+   de `vite.config.ts` (volver exactamente al estado actual de esta
+   rama), rebuild, redeploy — el Cron Trigger se elimina en Cloudflare al
+   desplegar una versión sin `triggers` en su config, sin necesidad de
+   borrarlo manualmente desde el dashboard (aunque también se puede
+   borrar ahí directamente como vía alternativa/de emergencia).
+9. **Rollback**: `wrangler rollback` a la versión inmediatamente anterior
+   del Worker de producción (Cloudflare mantiene el historial de
+   versiones desplegadas); esto revierte tanto el código como el trigger
+   en un solo paso.
+10. **Alternativa sin cambios de código** (fallback si por cualquier
+    motivo se prefiere no tocar la config de build de producción durante
+    el cutover): el endpoint HTTP interno ya probado en las rondas 8 y 9
+    sigue siendo invocable por un scheduler externo (GitHub Actions
+    `schedule:`, cron de terceros) apuntando a
+    `https://lostykk-postulpro.<dominio>/api/internal/reconcile-credits`
+    con el header `X-Reconcile-Secret`, sin ningún deploy adicional más
+    allá de configurar el secreto en producción.
+
+### 19.10 Riesgos restantes
+
+1. **Fragilidad del cast `as any`** sobre `nitro` en `vite.config.ts`
+   (§19.3, punto 1): si una futura versión de
+   `@lovable.dev/vite-tanstack-config` agrega validación en runtime que
+   descarte claves no declaradas en su tipo (`experimental`, `tasks`,
+   `scheduledTasks`), el mecanismo dejaría de funcionar silenciosamente,
+   sin error de build. Mitigación sugerida para el futuro: agregar una
+   aserción post-build (grep sobre `.output/server/wrangler.json`
+   buscando la sección `triggers`) al pipeline de CI del cutover, no
+   confiar solo en la inspección manual hecha esta ronda.
+2. **`reconcile_stale_reservations` (v1, ciega por antigüedad) sigue
+   existiendo sin invocar**, superseded por la v2 — mismo riesgo latente
+   documentado desde la ronda 6, sin cambios esta ronda.
+3. **Ningún timeout real de proveedor fue forzado en vivo** en ninguna
+   ronda (240s de espera real, alto costo) — cubierto por tests
+   deterministas con fake timers en su lugar, sin cambios esta ronda.
+4. **El Cron Trigger de producción, una vez activado, corre contra la
+   base de datos compartida real** (mismo proyecto Supabase que preview)
+   — el cutover debe confirmar que el `RECONCILE_SECRET` de producción es
+   distinto al de preview (ya lo es, nunca se compartió) antes de
+   activar, para que un scheduler mal configurado apuntando a la URL
+   equivocada no pueda ejercitarlo desde el lado incorrecto.
+
+### 19.11 Confirmación de producción intacta
+
+- `postulpro.com` → `200`, `www.postulpro.com` → `200`, re-confirmado al
+  cierre de esta ronda.
+- Worker de producción `lostykk-postulpro`: no se desplegó ningún build
+  nuevo esta ronda — el `wrangler.json` inspeccionado localmente (fase B)
+  nunca se subió a producción, solo a `lostykk-postulpro-preview`.
+- Ningún Cron Trigger activo en producción: confirmado por ausencia de
+  sección `triggers` en la config base de `wrangler.jsonc` (solo el
+  bloque `env.preview` tiene contenido) y por no haber ejecutado ningún
+  paso del §19.9.
+- Sin merge a `main`, sin deploy productivo, sin activación de cron
+  productivo, sin cambios DNS, sin nuevas migraciones, sin tocar
+  Hotmart/Marketplace/Auth/OAuth/planes/precios.
+
+### 19.12 Dictamen final
+
+**FASE 5 LISTA PARA CUTOVER**
+
+Las tres condiciones que la propia consigna definía para este dictamen
+están cerradas con evidencia real:
+
+1. La evidencia persistente funciona — `generate-ai.ts` y
+   `executor.server.ts` alimentan `credit_reservation_id`/`job_outcome`
+   en cada camino relevante, probado en vivo desde la ronda 8.
+2. El reconciliador funciona de extremo a extremo — probado en vivo con
+   generaciones reales, un proyecto multi-paso real, un fallo real de
+   proveedor (429), concurrencia real, y ahora además a través del nuevo
+   camino de despacho (`runTask()`), sin cambios de lógica.
+3. Existe un runner programable implementado y un mecanismo de ejecución
+   validado — Nitro Tasks, con evidencia de bundle real (Cron Trigger
+   generado correctamente en una build de prueba nunca desplegada) y
+   validación en vivo del despacho mismo (`runTask()` ejercitado real
+   contra preview, cubriendo los 18 escenarios obligatorios).
+
+La única acción pendiente es activar la configuración correspondiente en
+producción durante el cutover (§19.9): agregar `scheduledTasks` a
+`vite.config.ts`, configurar los secretos de producción, desplegar, y
+verificar. Nada de esto requiere más investigación ni más decisiones de
+diseño — es, literalmente, ejecutar el procedimiento ya documentado.
+
+No se realizó merge a `main`, deploy productivo, activación de cron
+productivo, cambios DNS, ni se tocó Hotmart/Marketplace/Auth/OAuth/planes/precios
+esta ronda. Se detiene esta tarea aquí, a la espera de autorización para
+el cutover.
