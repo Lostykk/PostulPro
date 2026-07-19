@@ -119,7 +119,7 @@ function DemoPage() {
           <p className="mt-2 text-sm text-muted-foreground">Sin tarjeta. Empezás gratis y ves el plan antes de gastar un crédito.</p>
           <a
             href="/auth/register"
-            className="mt-5 inline-flex items-center gap-2 h-11 px-6 rounded-xl bg-gradient-to-r from-violet-500 to-fuchsia-500 text-white font-semibold text-sm hover:opacity-95 transition"
+            className="mt-5 inline-flex items-center gap-2 h-11 px-6 rounded-xl bg-gradient-brand text-white font-semibold text-sm hover:opacity-95 transition"
           >
             Crear mi propio proyecto <ArrowRight className="w-4 h-4" />
           </a>

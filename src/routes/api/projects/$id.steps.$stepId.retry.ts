@@ -13,13 +13,7 @@ export const Route = createFileRoute("/api/projects/$id/steps/$stepId/retry")({
       POST: async ({ request, params }) => {
         const ctx = await authenticate(request);
         if (!isAuthedCtx(ctx)) return ctx;
-        return runProjectStep(
-          ctx.supabase,
-          ctx.userId,
-          params.id,
-          params.stepId,
-          new URL(request.url).origin,
-        );
+        return runProjectStep(ctx.supabase, ctx.userId, params.id, params.stepId, request);
       },
     },
   },

@@ -8,6 +8,7 @@ import { useProjectStepContext, type StepGeneration } from "@/hooks/use-project-
 import { saveEditedOutput, restoreGeneratedOutput } from "@/lib/deliverables/generation-actions";
 import { DeliverableRenderer } from "@/components/deliverables/DeliverableRenderer";
 import { ProjectContextBanner } from "@/components/deliverables/ProjectContextBanner";
+import { RichContentRenderer } from "@/components/deliverables/RichContentRenderer";
 import { SimpleSelect } from "@/components/ui/simple-select";
 
 export const Route = createFileRoute("/_authenticated/tools/business-plan")({
@@ -249,9 +250,13 @@ function BusinessPlanPage() {
               <Loader2 className="w-4 h-4 animate-spin" /> Generando tu plan de negocios…
             </div>
           )}
-          <pre className="whitespace-pre-wrap font-sans text-sm leading-relaxed">{output}</pre>
-          {streaming && (
-            <span className="inline-block w-2 h-4 ml-0.5 bg-violet-400 animate-pulse align-middle" />
+          {streaming ? (
+            <>
+              <pre className="whitespace-pre-wrap font-sans text-sm leading-relaxed">{output}</pre>
+              <span className="inline-block w-2 h-4 ml-0.5 bg-violet-400 animate-pulse align-middle" />
+            </>
+          ) : (
+            <RichContentRenderer content={output} size="lg" />
           )}
         </div>
       </div>
@@ -515,7 +520,7 @@ function BusinessPlanPage() {
             onClick={() =>
               canNext ? setStep((s) => s + 1) : toast.error("Completa los campos requeridos")
             }
-            className="inline-flex items-center gap-2 h-11 px-6 rounded-lg bg-gradient-to-r from-violet-500 to-fuchsia-500 text-white font-semibold text-sm hover:opacity-95 transition"
+            className="inline-flex items-center gap-2 h-11 px-6 rounded-lg bg-gradient-brand text-white font-semibold text-sm hover:opacity-95 transition"
           >
             Siguiente <ArrowRight className="w-4 h-4" />
           </button>
@@ -524,7 +529,7 @@ function BusinessPlanPage() {
             type="button"
             onClick={handleGenerate}
             disabled={streaming}
-            className="inline-flex items-center gap-2 h-11 px-6 rounded-lg bg-gradient-to-r from-violet-500 to-fuchsia-500 text-white font-semibold text-sm hover:opacity-95 transition disabled:opacity-60"
+            className="inline-flex items-center gap-2 h-11 px-6 rounded-lg bg-gradient-brand text-white font-semibold text-sm hover:opacity-95 transition disabled:opacity-60"
           >
             {streaming ? (
               <>
@@ -553,7 +558,7 @@ function ProgressBar({ step, total }: { step: number; total: number }) {
       </div>
       <div className="h-1.5 rounded-full bg-white/5 overflow-hidden">
         <div
-          className="h-full bg-gradient-to-r from-violet-500 to-fuchsia-500 transition-all"
+          className="h-full bg-gradient-brand transition-all"
           style={{ width: `${(step / total) * 100}%` }}
         />
       </div>

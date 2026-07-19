@@ -35,6 +35,43 @@ import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
 
 type NavItem = { to: string; label: string; shortLabel: string; icon: typeof Home };
 
+// Human-readable breadcrumb labels for known route segments — the topbar
+// must never show raw technical slugs ("build", "tools") or ids to the
+// user (see redesign brief §13.2). Unknown segments fall back to a
+// capitalized/de-hyphenated guess rather than the raw slug; ids are
+// dropped entirely since the page's own <h1> already shows the real
+// entity name (e.g. project title).
+const BREADCRUMB_LABELS: Record<string, string> = {
+  dashboard: "Dashboard",
+  build: "Construir con IA",
+  projects: "Mis proyectos",
+  tools: "Herramientas",
+  marketplace: "Marketplace",
+  library: "Biblioteca",
+  affiliates: "Afiliados",
+  settings: "Configuración",
+  admin: "Administración",
+  onboarding: "Bienvenida",
+  "business-plan": "Plan de negocio",
+  copywriter: "Copywriter",
+  "email-sequences": "Secuencias de email",
+  "landing-copy": "Landing copy",
+  "social-pack": "Social pack",
+  "sales-email": "Email de ventas",
+  consultant: "Consultor IA",
+  sell: "Vender",
+};
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+function breadcrumbLabel(segment: string): string {
+  if (BREADCRUMB_LABELS[segment]) return BREADCRUMB_LABELS[segment];
+  return segment
+    .split("-")
+    .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+    .join(" ");
+}
+
 // "Construir" is the flagship entry point for this phase — it leads, both
 // in the desktop sidebar and as the 2nd mobile tab. The full list is too
 // long for a 6-column bottom bar without shrinking text into
@@ -90,7 +127,7 @@ function Sidebar() {
   return (
     <aside className="hidden md:flex fixed inset-y-0 left-0 w-[240px] flex-col border-r border-white/5 bg-[color:var(--surface-1)]/60 backdrop-blur">
       <div className="h-16 flex items-center gap-2 px-5 border-b border-white/5">
-        <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-violet-500 to-fuchsia-500 grid place-items-center">
+        <div className="w-8 h-8 rounded-lg bg-gradient-brand grid place-items-center">
           <Sparkles className="w-4 h-4 text-white" />
         </div>
         <span className="font-display font-bold">PostulPro</span>
@@ -146,7 +183,7 @@ function Sidebar() {
               profile.plan !== "business" && (
                 <Link
                   to="/settings"
-                  className="w-full inline-flex items-center justify-center gap-1 h-8 rounded-lg text-xs font-semibold bg-gradient-to-r from-violet-500 to-fuchsia-500 text-white hover:opacity-90 transition"
+                  className="w-full inline-flex items-center justify-center gap-1 h-8 rounded-lg text-xs font-semibold bg-gradient-brand text-white hover:opacity-90 transition"
                 >
                   Upgrade <ArrowUpRight className="w-3 h-3" />
                 </Link>
@@ -176,7 +213,11 @@ function TopBar() {
   const { signOut } = useAuth();
   const { profile } = useProfile();
   const pathname = useRouterState({ select: (s) => s.location.pathname });
-  const crumbs = pathname.split("/").filter(Boolean);
+  const crumbs = pathname
+    .split("/")
+    .filter(Boolean)
+    .filter((c) => !UUID_RE.test(c))
+    .map(breadcrumbLabel);
   const [query, setQuery] = useState("");
 
   async function handleSignOut() {
@@ -244,7 +285,7 @@ function TopBar() {
             <button
               type="button"
               aria-label="Menú de cuenta"
-              className="w-9 h-9 rounded-full bg-gradient-to-br from-violet-500 to-fuchsia-500 grid place-items-center text-xs font-semibold text-white"
+              className="w-9 h-9 rounded-full bg-gradient-brand grid place-items-center text-xs font-semibold text-white"
             >
               {initials}
             </button>

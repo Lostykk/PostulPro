@@ -12,16 +12,13 @@ import {
   Download,
   Star,
   ExternalLink,
-  CheckCircle2,
-  XCircle,
-  Circle,
   Sparkles,
   ArrowRight,
   X,
-  GripVertical,
   Plus,
   AlertTriangle,
 } from "lucide-react";
+import { StatusBadge, StatusIcon } from "@/components/ui/status-badge";
 import { supabase } from "@/integrations/supabase/client";
 import { useProfile } from "@/hooks/use-profile";
 import { useProjectStepStream } from "@/hooks/use-project-step-stream";
@@ -82,18 +79,6 @@ const TOOL_ROUTE: Record<string, string> = {
   "sales-email": "/tools/sales-email",
   "landing-copy": "/tools/landing-copy",
   "email-sequences": "/tools/email-sequences",
-};
-
-const STATUS_LABEL: Record<string, string> = {
-  draft: "Borrador",
-  planning: "Planificando",
-  awaiting_confirmation: "Por confirmar",
-  ready: "Listo",
-  running: "En progreso",
-  paused: "Pausado",
-  completed: "Completado",
-  failed: "Con error",
-  archived: "Archivado",
 };
 
 function WorkspacePage() {
@@ -377,14 +362,12 @@ function WorkspacePage() {
             </h1>
             <p className="mt-1 text-sm text-muted-foreground max-w-xl">{project.original_idea}</p>
           </div>
-          <span className="text-xs font-semibold px-3 py-1.5 rounded-lg bg-white/10 whitespace-nowrap">
-            {STATUS_LABEL[project.status] ?? project.status}
-          </span>
+          <StatusBadge status={project.status} className="rounded-lg px-3 py-1.5 text-xs" />
         </div>
         <div>
           <div className="h-2 rounded-full bg-white/10 overflow-hidden">
             <div
-              className="h-full bg-gradient-to-r from-violet-500 to-fuchsia-500 transition-all"
+              className="h-full bg-gradient-brand transition-all"
               style={{ width: `${project.progress_percent}%` }}
             />
           </div>
@@ -404,7 +387,7 @@ function WorkspacePage() {
                 type="button"
                 onClick={() => (autoRunning ? togglePause() : void runAutomatic())}
                 disabled={streaming && !autoRunning}
-                className="inline-flex items-center gap-1.5 h-9 px-3 rounded-lg text-xs font-semibold bg-gradient-to-r from-violet-500 to-fuchsia-500 text-white disabled:opacity-50"
+                className="inline-flex items-center gap-1.5 h-9 px-3 rounded-lg text-xs font-semibold bg-gradient-brand text-white disabled:opacity-50"
               >
                 {autoRunning ? (
                   <>
@@ -455,11 +438,11 @@ function WorkspacePage() {
               }`}
             >
               <div className="flex items-center gap-2">
-                <StepStatusIcon status={s.status} />
+                <StatusIcon status={s.status} />
                 <span className="text-sm font-medium truncate">{s.title}</span>
               </div>
               <p className="mt-1 text-[11px] text-muted-foreground">
-                {s.credits_cost} créditos · {STATUS_LABEL[s.status] ?? s.status}
+                {s.credits_cost} créditos · <StatusBadge status={s.status} className="bg-transparent p-0 text-[11px] font-normal" />
               </p>
             </button>
           ))}
@@ -492,16 +475,6 @@ function WorkspacePage() {
       </div>
     </div>
   );
-}
-
-function StepStatusIcon({ status }: { status: string }) {
-  if (status === "completed") return <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />;
-  if (status === "failed") return <XCircle className="w-4 h-4 text-red-400 shrink-0" />;
-  if (status === "running")
-    return <Loader2 className="w-4 h-4 text-violet-400 animate-spin shrink-0" />;
-  if (status === "skipped")
-    return <SkipForward className="w-4 h-4 text-muted-foreground shrink-0" />;
-  return <Circle className="w-4 h-4 text-muted-foreground shrink-0" />;
 }
 
 function StepDetail({
@@ -568,7 +541,7 @@ function StepDetail({
           <button
             type="button"
             onClick={onRun}
-            className="inline-flex items-center gap-2 h-10 px-4 rounded-lg text-sm font-semibold bg-gradient-to-r from-violet-500 to-fuchsia-500 text-white hover:opacity-95 transition"
+            className="inline-flex items-center gap-2 h-10 px-4 rounded-lg text-sm font-semibold bg-gradient-brand text-white hover:opacity-95 transition"
           >
             <Play className="w-4 h-4" /> Ejecutar ({step.credits_cost} créditos)
           </button>
@@ -675,7 +648,7 @@ function CompletionBanner({ stepsCount }: { stepsCount: number }) {
       </div>
       <Link
         to="/build"
-        className="inline-flex items-center gap-1.5 h-9 px-4 rounded-lg text-xs font-semibold bg-gradient-to-r from-violet-500 to-fuchsia-500 text-white"
+        className="inline-flex items-center gap-1.5 h-9 px-4 rounded-lg text-xs font-semibold bg-gradient-brand text-white"
       >
         Crear otro proyecto <ArrowRight className="w-3.5 h-3.5" />
       </Link>
@@ -717,7 +690,7 @@ function PlanningFailed({
           type="button"
           onClick={onRetry}
           disabled={retrying}
-          className="mt-6 inline-flex items-center justify-center gap-2 h-11 px-6 rounded-lg bg-gradient-to-r from-violet-500 to-fuchsia-500 text-white font-semibold text-sm hover:opacity-95 transition disabled:opacity-60"
+          className="mt-6 inline-flex items-center justify-center gap-2 h-11 px-6 rounded-lg bg-gradient-brand text-white font-semibold text-sm hover:opacity-95 transition disabled:opacity-60"
         >
           {retrying ? (
             <Loader2 className="w-4 h-4 animate-spin" />
@@ -835,7 +808,6 @@ function PlanConfirmation({
               key={`${d.toolKey}-${i}`}
               className="rounded-xl border border-white/10 bg-white/5 p-4 flex items-start gap-3"
             >
-              <GripVertical className="w-4 h-4 text-muted-foreground mt-1 shrink-0" />
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2">
                   <span className="text-xs font-semibold px-2 py-0.5 rounded-md bg-violet-500/15 text-violet-300">
@@ -907,7 +879,7 @@ function PlanConfirmation({
         type="button"
         onClick={handleConfirm}
         disabled={confirming}
-        className="w-full inline-flex items-center justify-center gap-2 h-12 rounded-xl bg-gradient-to-r from-violet-500 to-fuchsia-500 text-white font-semibold text-sm hover:opacity-95 transition disabled:opacity-60"
+        className="w-full inline-flex items-center justify-center gap-2 h-12 rounded-xl bg-gradient-brand text-white font-semibold text-sm hover:opacity-95 transition disabled:opacity-60"
       >
         {confirming ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
         Construir proyecto

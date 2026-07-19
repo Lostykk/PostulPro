@@ -8,6 +8,14 @@ import { buildStepPrompt } from "@/lib/projects/step-prompts.server";
 import { getCapabilityMeta } from "@/lib/projects/capabilities.server";
 import { ProjectBriefSchema } from "@/lib/projects/schema";
 import { isOwner } from "@/lib/auth/is-owner";
+import {
+  classifyProviderFailure,
+  confirmConsumedOrLog,
+  getWaitUntil,
+  markJobOutcome,
+  refundInBackground,
+  withProviderTimeout,
+} from "@/lib/ai/credit-reservation.server";
 
 // Runs exactly one project step end to end: claim -> reserve credits ->
 // stream the model -> persist the generation -> mark the step complete
@@ -16,7 +24,15 @@ import { isOwner } from "@/lib/auth/is-owner";
 // so there is only one place that can charge credits for a step.
 //
 // Mirrors routes/api/generate-ai.ts's reserve-before-stream /
-// refund-on-failure pattern exactly, just wrapped with step bookkeeping.
+// refund-on-failure pattern exactly, just wrapped with step bookkeeping —
+// including the same financial contract: a linked generations row
+// (credit_reservation_id) is completion evidence, job_outcome is
+// confirmed-failure evidence, and each step gets its OWN reservation_id,
+// so a later step's failure can never touch an earlier, already-consumed
+// step's reservation — there is structurally no shared mutable state
+// between steps beyond the project/step rows themselves.
+
+const PROVIDER_TIMEOUT_MS = 240_000; // same circuit breaker as generate-ai.ts
 
 type Db = SupabaseClient<Database>;
 
@@ -45,8 +61,10 @@ export async function runProjectStep(
   userId: string,
   projectId: string,
   stepId: string,
-  appOrigin?: string,
+  request: Request,
 ): Promise<Response> {
+  const appOrigin = new URL(request.url).origin;
+  const waitUntil = getWaitUntil(request);
   // Preview-only allowlist gate — checked before the atomic claim so a
   // disallowed caller never puts a step into "claimed" state. Admins bypass
   // the single-QA-user restriction without replacing it. The extra role
@@ -54,7 +72,11 @@ export async function runProjectStep(
   // whole block is a no-op there, same as before.
   let isAdminForGuard = false;
   if (isPreviewEnvironment()) {
-    const { data: guardProfile } = await supabase.from("users").select("role").eq("id", userId).maybeSingle();
+    const { data: guardProfile } = await supabase
+      .from("users")
+      .select("role")
+      .eq("id", userId)
+      .maybeSingle();
     isAdminForGuard = isOwner(guardProfile);
   }
   const guard = checkAiExecutionAllowed(userId, isAdminForGuard);
@@ -129,8 +151,13 @@ export async function runProjectStep(
   }
 
   const cost = claim.credits_cost ?? tool.credits;
-  const { data: reserveRows, error: reserveErr } = await supabase.rpc("reserve_credits", {
+  // reserve_credits_v2 (20260727000000_credit_reservations_idempotent_refund.sql)
+  // records a persistent reservation row instead of just decrementing
+  // credits_used — see generate-ai.ts for the same migration applied to
+  // the single-tool flow. The old reserve_credits stays untouched.
+  const { data: reserveRows, error: reserveErr } = await supabase.rpc("reserve_credits_v2", {
     p_cost: cost,
+    p_tool: toolKey,
   });
   const reserve = reserveRows?.[0];
   if (reserveErr || !reserve || !reserve.ok) {
@@ -149,6 +176,7 @@ export async function runProjectStep(
       402,
     );
   }
+  const reservationId = reserve.reservation_id as string;
   await supabase.rpc("mark_step_credits_reserved", { p_step_id: stepId });
   await maybeSendLowCreditsEmail(
     supabase,
@@ -165,16 +193,28 @@ export async function runProjectStep(
 
   const encoder = new TextEncoder();
   const abortController = new AbortController();
+  request.signal?.addEventListener("abort", () => abortController.abort());
+  // Independent from abortController: a real circuit breaker on the
+  // provider call itself, so "timed_out" can be genuine evidence instead
+  // of a guess — same rationale as generate-ai.ts.
+  const providerTimeout = withProviderTimeout(abortController.signal, PROVIDER_TIMEOUT_MS);
+  // Guards against the catch block and cancel() both firing for the same
+  // request — a local optimization only. The actual idempotency guarantee
+  // is resolve_credit_reservation's atomic compare-and-swap on the
+  // persisted reservation row (see credit-reservation.server.ts).
   let settled = false;
 
   const settleFailure = async (errorCode: string, safeMessage: string) => {
     if (settled) return;
     settled = true;
-    try {
-      await supabase.rpc("refund_credits", { p_cost: cost });
-    } catch {
-      /* best-effort */
+    // Record confirmed-failure evidence before the (fire-and-forget)
+    // refund attempt — see generate-ai.ts for the full rationale.
+    // settleFailure is only ever called from runStep's own catch block
+    // with one of these three real outcomes below.
+    if (errorCode === "failed" || errorCode === "aborted" || errorCode === "timed_out") {
+      await markJobOutcome(supabase, reservationId, errorCode, errorCode);
     }
+    refundInBackground(supabase, reservationId, errorCode, waitUntil);
     try {
       await supabase.rpc("fail_ai_project_step", {
         p_step_id: stepId,
@@ -189,120 +229,202 @@ export async function runProjectStep(
 
   const stream = new ReadableStream({
     async start(controller) {
-      const send = (obj: unknown) => {
-        try {
-          controller.enqueue(encoder.encode(`data: ${JSON.stringify(obj)}\n\n`));
-        } catch {
-          /* controller already closed */
-        }
-      };
-
-      let full = "";
-      let usage: ModelUsage = { inputTokens: null, outputTokens: null, stopReason: null };
-      const startedAt = Date.now();
-      try {
-        await callModel(
-          tool,
-          prompt,
-          (delta) => {
-            full += delta;
-            send({ type: "delta", text: delta, stepId });
-          },
-          abortController.signal,
-          (u) => (usage = u),
-        );
-        logModelUsage({
-          provider: tool.provider,
-          model: tool.model,
-          operation: "project_step",
-          toolKey,
-          usage,
-          durationMs: Date.now() - startedAt,
-          status: "success",
-        });
-
-        const { data: gen } = await supabase
-          .from("generations")
-          .insert({
-            user_id: userId,
-            tool: toolKey,
-            title: capability.name,
-            output: full,
-            prompt_json: { prompt } as never,
-            tokens_used: usage.outputTokens ?? Math.ceil(full.length / 4),
-            project_id: projectId,
-            project_step_id: stepId,
-            artifact_type: capability.deliverableType,
-          })
-          .select("id")
-          .maybeSingle();
-
-        if (!gen?.id) throw new Error("No se pudo guardar el resultado.");
-
-        settled = true;
-        await supabase.rpc("complete_ai_project_step", {
-          p_step_id: stepId,
-          p_generation_id: gen.id,
-        });
-
-        const { data: project } = await supabase
-          .from("ai_projects")
-          .select("status,progress_percent,spent_credits,current_step_id")
-          .eq("id", projectId)
-          .maybeSingle();
-        const { data: refreshed } = await supabase
-          .from("users")
-          .select("credits_used,credits_limit")
-          .eq("id", userId)
-          .maybeSingle();
-
-        send({
-          type: "done",
-          generationId: gen.id,
-          stepId,
-          projectStatus: project?.status ?? null,
-          progressPercent: project?.progress_percent ?? null,
-          currentStepId: project?.current_step_id ?? null,
-          creditsRemaining: refreshed ? refreshed.credits_limit - refreshed.credits_used : null,
-        });
-        try {
-          controller.close();
-        } catch {
-          /* already closed */
-        }
-      } catch (err) {
-        const message =
-          err instanceof Error ? err.message : "El modelo falló al generar este paso.";
-        logModelUsage({
-          provider: tool.provider,
-          model: tool.model,
-          operation: "project_step",
-          toolKey,
-          usage,
-          durationMs: Date.now() - startedAt,
-          status: "error",
-          errorCode: "provider_error",
-        });
-        await settleFailure(
-          "provider_error",
-          "El modelo falló al generar este paso. Podés reintentarlo.",
-        );
-        send({ type: "error", message, stepId });
-        try {
-          controller.close();
-        } catch {
-          /* already closed */
-        }
-      }
+      // Registering the WHOLE step execution with waitUntil (not just the
+      // refund sub-task) is what keeps the Workers isolate alive past
+      // client disconnect — see the identical fix and its empirical
+      // justification in routes/api/generate-ai.ts. Bounded by a
+      // platform-enforced ceiling, not a guarantee for slow steps — the
+      // evidence-based reconciler is the actual safety net for those.
+      const work = runStep(controller, tool, capability);
+      if (waitUntil) waitUntil(work);
+      await work;
     },
     cancel(reason) {
+      // Best-effort only — empirically, neither this nor request.signal's
+      // abort event fired on a real deployed disconnect test (see
+      // generate-ai.ts and docs/premium-redesign-report.md). Deliberately
+      // does NOT resolve the reservation here — only requests cancellation.
+      // The actual refund happens through runStep()'s own catch block,
+      // which only runs once callModel's abort surfaces as a confirmed
+      // rejection.
       abortController.abort(reason);
-      void settleFailure(
-        "client_disconnected",
-        "La conexión se interrumpió mientras se generaba este paso.",
-      );
     },
   });
+
+  async function runStep(
+    controller: ReadableStreamDefaultController<Uint8Array>,
+    tool: NonNullable<ReturnType<typeof getTool>>,
+    capability: NonNullable<ReturnType<typeof getCapabilityMeta>>,
+  ) {
+    const send = (obj: unknown) => {
+      try {
+        controller.enqueue(encoder.encode(`data: ${JSON.stringify(obj)}\n\n`));
+      } catch {
+        /* controller already closed */
+      }
+    };
+
+    let full = "";
+    let usage: ModelUsage = { inputTokens: null, outputTokens: null, stopReason: null };
+    const startedAt = Date.now();
+    try {
+      await callModel(
+        tool,
+        prompt,
+        (delta) => {
+          full += delta;
+          send({ type: "delta", text: delta, stepId });
+        },
+        providerTimeout.signal,
+        (u) => (usage = u),
+      );
+      providerTimeout.clear();
+      logModelUsage({
+        provider: tool.provider,
+        model: tool.model,
+        operation: "project_step",
+        toolKey,
+        usage,
+        durationMs: Date.now() - startedAt,
+        status: "success",
+      });
+
+      // credit_reservation_id links this row back to the reservation in
+      // the same INSERT that persists the result — see generate-ai.ts's
+      // module comment for the full rationale (result-persisted and
+      // completed are the same event here, by design).
+      const { data: gen, error: genErr } = await supabase
+        .from("generations")
+        .insert({
+          user_id: userId,
+          tool: toolKey,
+          title: capability.name,
+          output: full,
+          prompt_json: { prompt } as never,
+          tokens_used: usage.outputTokens ?? Math.ceil(full.length / 4),
+          project_id: projectId,
+          project_step_id: stepId,
+          artifact_type: capability.deliverableType,
+          credit_reservation_id: reservationId,
+        })
+        .select("id")
+        .maybeSingle();
+
+      if (genErr || !gen?.id) {
+        // The model produced real output, but it could not be durably
+        // saved — a confirmed failure, not an ambiguous case (see
+        // generate-ai.ts for the identical reasoning). settleFailure
+        // records the job_outcome evidence internally before refunding.
+        await settleFailure(
+          "failed",
+          "No se pudo guardar el resultado de este paso. Podés reintentarlo.",
+        );
+        send({
+          type: "error",
+          message: "No se pudo guardar el resultado de este paso.",
+          stepId,
+        });
+        try {
+          controller.close();
+        } catch {
+          /* already closed */
+        }
+        return;
+      }
+
+      // Same "no success claim before it's true" rule as
+      // generate-ai.ts: block on ledger confirmation before marking the
+      // step complete or sending "done".
+      settled = true;
+      const confirmed = await confirmConsumedOrLog(supabase, reservationId, gen.id, {
+        toolKey,
+        userId,
+        projectId,
+        stepId,
+      });
+
+      if (!confirmed) {
+        // Content was generated and persisted, but the ledger can't
+        // confirm the reservation as consumed — leave the step
+        // unresolved and the reservation 'reserved' (recoverable,
+        // already logged by confirmConsumedOrLog) rather than
+        // completing the step on an unconfirmed credit claim.
+        send({
+          type: "error",
+          message:
+            "El contenido se generó pero no se pudo confirmar el estado del crédito. Contactá soporte si el problema persiste.",
+          stepId,
+        });
+        try {
+          controller.close();
+        } catch {
+          /* already closed */
+        }
+        return;
+      }
+
+      await supabase.rpc("complete_ai_project_step", {
+        p_step_id: stepId,
+        p_generation_id: gen.id,
+      });
+
+      const { data: project } = await supabase
+        .from("ai_projects")
+        .select("status,progress_percent,spent_credits,current_step_id")
+        .eq("id", projectId)
+        .maybeSingle();
+      const { data: refreshed } = await supabase
+        .from("users")
+        .select("credits_used,credits_limit")
+        .eq("id", userId)
+        .maybeSingle();
+
+      send({
+        type: "done",
+        generationId: gen.id,
+        stepId,
+        projectStatus: project?.status ?? null,
+        progressPercent: project?.progress_percent ?? null,
+        currentStepId: project?.current_step_id ?? null,
+        creditsRemaining: refreshed ? refreshed.credits_limit - refreshed.credits_used : null,
+      });
+      try {
+        controller.close();
+      } catch {
+        /* already closed */
+      }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "El modelo falló al generar este paso.";
+      const outcome = classifyProviderFailure(
+        abortController.signal,
+        providerTimeout.timeoutSignal,
+      );
+      logModelUsage({
+        provider: tool.provider,
+        model: tool.model,
+        operation: "project_step",
+        toolKey,
+        usage,
+        durationMs: Date.now() - startedAt,
+        status: "error",
+        errorCode: outcome,
+      });
+      await settleFailure(
+        outcome,
+        outcome === "aborted"
+          ? "La conexión se interrumpió mientras se generaba este paso."
+          : outcome === "timed_out"
+            ? "El modelo tardó demasiado en responder este paso. Podés reintentarlo."
+            : "El modelo falló al generar este paso. Podés reintentarlo.",
+      );
+      send({ type: "error", message, stepId });
+      try {
+        controller.close();
+      } catch {
+        /* already closed */
+      }
+    }
+  }
 
   return new Response(stream, {
     headers: {

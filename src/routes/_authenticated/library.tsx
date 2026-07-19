@@ -424,7 +424,7 @@ function LibraryPage() {
                   <span className="text-muted-foreground">Todavía no generaste nada.</span>
                   <Link
                     to="/tools"
-                    className="inline-flex items-center gap-1 h-9 px-4 rounded-lg text-xs font-semibold bg-gradient-to-r from-violet-500 to-fuchsia-500 text-white hover:opacity-90 transition"
+                    className="inline-flex items-center gap-1 h-9 px-4 rounded-lg text-xs font-semibold bg-gradient-brand text-white hover:opacity-90 transition"
                   >
                     Crear la primera
                   </Link>

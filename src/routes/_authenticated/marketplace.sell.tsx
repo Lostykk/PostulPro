@@ -27,7 +27,7 @@ function SellPage() {
           <Lock className="w-10 h-10 mx-auto mb-4 text-violet-300" />
           <h1 className="font-display text-2xl font-bold">Vender es exclusivo de plan BUSINESS</h1>
           <p className="mt-3 text-sm text-muted-foreground">Actualizá tu plan para publicar productos en el marketplace.</p>
-          <Link to="/settings" className="mt-6 inline-flex items-center justify-center h-11 px-6 rounded-lg bg-gradient-to-r from-violet-500 to-fuchsia-500 text-white font-semibold text-sm hover:opacity-95 transition">
+          <Link to="/settings" className="mt-6 inline-flex items-center justify-center h-11 px-6 rounded-lg bg-gradient-brand text-white font-semibold text-sm hover:opacity-95 transition">
             Ver planes
           </Link>
         </div>
@@ -183,7 +183,7 @@ function SellForm() {
             type="button"
             onClick={handlePublish}
             disabled={publishing}
-            className="w-full inline-flex items-center justify-center gap-2 h-11 rounded-xl text-sm font-semibold bg-gradient-to-r from-violet-500 to-fuchsia-500 text-white hover:opacity-90 transition disabled:opacity-60"
+            className="w-full inline-flex items-center justify-center gap-2 h-11 rounded-xl text-sm font-semibold bg-gradient-brand text-white hover:opacity-90 transition disabled:opacity-60"
           >
             {publishing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4" />}
             Publicar producto

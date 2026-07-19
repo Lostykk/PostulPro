@@ -4,6 +4,7 @@ import { Zap, Copy, RefreshCw, Download, Save, Loader2 } from "lucide-react";
 import { useAiStream, downloadTxt } from "@/hooks/use-ai-stream";
 import { toast } from "sonner";
 import { SimpleSelect } from "@/components/ui/simple-select";
+import { RichContentRenderer } from "@/components/deliverables/RichContentRenderer";
 
 export const Route = createFileRoute("/_authenticated/tools/copywriter")({
   head: () => ({ meta: [{ title: "Copywriter IA — PostulPro" }] }),
@@ -114,7 +115,7 @@ Devuelve solo el copy final, sin comentarios ni explicaciones.`;
             type="button"
             onClick={handleGenerate}
             disabled={streaming}
-            className="w-full inline-flex items-center justify-center gap-2 h-11 rounded-xl text-sm font-semibold bg-gradient-to-r from-violet-500 to-fuchsia-500 text-white hover:opacity-90 transition disabled:opacity-60"
+            className="w-full inline-flex items-center justify-center gap-2 h-11 rounded-xl text-sm font-semibold bg-gradient-brand text-white hover:opacity-90 transition disabled:opacity-60"
           >
             {streaming ? (
               <>
@@ -142,10 +143,14 @@ Devuelve solo el copy final, sin comentarios ni explicaciones.`;
           </div>
           <div className="flex-1 p-6 overflow-auto">
             {output ? (
-              <pre className="whitespace-pre-wrap font-sans text-sm leading-relaxed">
-                {output}
-                {streaming && <span className="inline-block w-2 h-4 ml-0.5 bg-violet-400 animate-pulse align-middle" />}
-              </pre>
+              streaming ? (
+                <pre className="whitespace-pre-wrap font-sans text-sm leading-relaxed">
+                  {output}
+                  <span className="inline-block w-2 h-4 ml-0.5 bg-violet-400 animate-pulse align-middle" />
+                </pre>
+              ) : (
+                <RichContentRenderer content={output} />
+              )
             ) : (
               <div className="h-full grid place-items-center text-center text-muted-foreground">
                 <div>

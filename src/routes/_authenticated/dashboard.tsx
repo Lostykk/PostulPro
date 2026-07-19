@@ -17,6 +17,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { toast } from "sonner";
 import { TOOL_META } from "@/lib/tool-meta";
+import { RichContentRenderer } from "@/components/deliverables/RichContentRenderer";
 import { projectsApiFetch } from "@/lib/projects/api-client";
 
 export const Route = createFileRoute("/_authenticated/dashboard")({
@@ -143,7 +144,7 @@ function DashboardPage() {
           <h2 className="mt-1 font-display text-xl font-bold">Describí una idea. PostulPro arma el plan y los entregables.</h2>
           <p className="mt-1 text-sm text-muted-foreground">Sin elegir herramientas una por una — contá el objetivo y PostulPro coordina el resto.</p>
         </div>
-        <span className="shrink-0 inline-flex items-center gap-2 h-10 px-4 rounded-lg text-sm font-semibold bg-gradient-to-r from-violet-500 to-fuchsia-500 text-white group-hover:opacity-95 transition">
+        <span className="shrink-0 inline-flex items-center gap-2 h-10 px-4 rounded-lg text-sm font-semibold bg-gradient-brand text-white group-hover:opacity-95 transition">
           Construir una idea <ArrowRight className="w-4 h-4" />
         </span>
       </Link>
@@ -258,14 +259,14 @@ function DashboardPage() {
             </div>
             <div className="h-2 rounded-full bg-white/10 overflow-hidden">
               <div
-                className="h-full bg-gradient-to-r from-violet-500 to-fuchsia-500"
+                className="h-full bg-gradient-brand"
                 style={{ width: `${100 - usagePercent}%` }}
               />
             </div>
           </div>
           <Link
             to="/settings"
-            className="w-full inline-flex items-center justify-center gap-2 h-10 rounded-lg text-sm font-semibold bg-gradient-to-r from-violet-500 to-fuchsia-500 text-white hover:opacity-90 transition"
+            className="w-full inline-flex items-center justify-center gap-2 h-10 rounded-lg text-sm font-semibold bg-gradient-brand text-white hover:opacity-90 transition"
           >
             Conseguir más créditos <ArrowRight className="w-4 h-4" />
           </Link>
@@ -360,7 +361,7 @@ function EmptyState() {
       <p className="text-sm text-muted-foreground mb-4">Aún no tienes generaciones.</p>
       <Link
         to="/tools/copywriter"
-        className="inline-flex items-center gap-2 h-9 px-4 rounded-lg text-sm font-semibold bg-gradient-to-r from-violet-500 to-fuchsia-500 text-white"
+        className="inline-flex items-center gap-2 h-9 px-4 rounded-lg text-sm font-semibold bg-gradient-brand text-white"
       >
         Crear la primera <ArrowRight className="w-4 h-4" />
       </Link>
@@ -411,9 +412,11 @@ function ActivityRow({ gen, onDelete }: { gen: Generation; onDelete: () => void 
               {meta.icon} {title}
             </DialogTitle>
           </DialogHeader>
-          <pre className="whitespace-pre-wrap font-sans text-sm leading-relaxed text-foreground/90">
-            {gen.output ?? "Sin contenido"}
-          </pre>
+          {gen.output ? (
+            <RichContentRenderer content={gen.output} size="lg" />
+          ) : (
+            <p className="text-sm text-muted-foreground">Sin contenido</p>
+          )}
         </DialogContent>
       </Dialog>
     </li>
@@ -464,7 +467,7 @@ function RecentProjects() {
           >
             <p className="text-sm font-medium truncate">{p.title || p.original_idea.slice(0, 50)}</p>
             <div className="mt-2 h-1.5 rounded-full bg-white/10 overflow-hidden">
-              <div className="h-full bg-gradient-to-r from-violet-500 to-fuchsia-500" style={{ width: `${p.progress_percent}%` }} />
+              <div className="h-full bg-gradient-brand" style={{ width: `${p.progress_percent}%` }} />
             </div>
             <p className="mt-1.5 text-[11px] text-muted-foreground">{p.progress_percent}% completo</p>
           </Link>

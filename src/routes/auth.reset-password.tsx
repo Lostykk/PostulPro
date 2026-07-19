@@ -4,6 +4,7 @@ import { toast } from "sonner";
 import { Loader2, ArrowLeft } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { resetPasswordRedirectTo } from "@/lib/auth/reset-password";
+import { friendlyAuthError } from "@/lib/auth/friendly-error";
 import { AuthSplitLayout } from "@/components/auth/AuthSplitLayout";
 
 export const Route = createFileRoute("/auth/reset-password")({
@@ -46,7 +47,7 @@ function ResetPage() {
     });
     setLoading(false);
     if (error) {
-      toast.error(error.message);
+      toast.error(friendlyAuthError(error.message));
       return;
     }
     setSent(true);
@@ -61,7 +62,7 @@ function ResetPage() {
     const { error } = await supabase.auth.updateUser({ password: newPassword });
     setSavingPassword(false);
     if (error) {
-      toast.error(error.message);
+      toast.error(friendlyAuthError(error.message));
       return;
     }
     toast.success("Contraseña actualizada. ¡Ya podés seguir usando tu cuenta!");
@@ -107,7 +108,7 @@ function ResetPage() {
             <button
               type="submit"
               disabled={savingPassword}
-              className="w-full inline-flex items-center justify-center gap-2 h-11 rounded-lg bg-gradient-to-r from-violet-500 to-fuchsia-500 text-white font-semibold text-sm hover:opacity-95 transition disabled:opacity-50"
+              className="w-full inline-flex items-center justify-center gap-2 h-11 rounded-lg bg-gradient-brand text-white font-semibold text-sm hover:opacity-95 transition disabled:opacity-50"
             >
               {savingPassword && <Loader2 className="w-4 h-4 animate-spin" />}
               Guardar contraseña
@@ -154,7 +155,7 @@ function ResetPage() {
             <button
               type="submit"
               disabled={loading}
-              className="w-full inline-flex items-center justify-center gap-2 h-11 rounded-lg bg-gradient-to-r from-violet-500 to-fuchsia-500 text-white font-semibold text-sm hover:opacity-95 transition disabled:opacity-50"
+              className="w-full inline-flex items-center justify-center gap-2 h-11 rounded-lg bg-gradient-brand text-white font-semibold text-sm hover:opacity-95 transition disabled:opacity-50"
             >
               {loading && <Loader2 className="w-4 h-4 animate-spin" />}
               Enviar link

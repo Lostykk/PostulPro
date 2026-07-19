@@ -26,6 +26,7 @@ import {
 } from "@/components/ui/accordion";
 import { captureReferral } from "@/lib/referral";
 import { MARKETPLACE_ENABLED } from "@/lib/features";
+import { PLANS } from "@/lib/plans";
 
 export const Route = createFileRoute("/")({
   component: Landing,
@@ -40,12 +41,12 @@ function Landing() {
       <Header />
       <main>
         <Hero />
-        <SocialProof />
         <ObjectiveSection />
         <Features />
         <HowItWorks />
         <Pricing />
         <UseCases />
+        <TechStrip />
         <AffiliateTeaser />
         <FAQ />
       </main>
@@ -340,20 +341,24 @@ function ParticleField() {
   );
 }
 
-/* ---------- Social Proof ---------- */
-function SocialProof() {
-  const stack = ["Claude", "OpenAI", "Lemon Squeezy", "Supabase", "Vercel"];
+/* ---------- Tech strip ----------
+   Sober, low-prominence, placed near the bottom of the page (not the first
+   viewport) — only real, verified, buyer-relevant integrations. Lemon
+   Squeezy is deliberately excluded here: it's the payment processor, not a
+   provider the public site should present as an active commercial partner. */
+function TechStrip() {
+  const stack = ["Claude", "OpenAI", "Supabase"];
   return (
     <section className="border-y border-white/5 bg-surface-1/50">
-      <div className="mx-auto max-w-7xl px-4 py-10 sm:px-6 lg:px-8">
+      <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
         <p className="text-center text-xs uppercase tracking-[0.2em] text-text-muted">
-          Construido sobre →
+          Tecnología e integraciones
         </p>
-        <div className="mt-6 flex flex-wrap items-center justify-center gap-x-10 gap-y-4 opacity-60">
+        <div className="mt-5 flex flex-wrap items-center justify-center gap-x-10 gap-y-3">
           {stack.map((s) => (
             <span
               key={s}
-              className="font-display text-xl font-semibold tracking-tight text-text-secondary"
+              className="font-display text-base font-semibold tracking-tight text-text-muted"
             >
               {s}
             </span>
@@ -595,61 +600,6 @@ function DoneDemo() {
 }
 
 /* ---------- Pricing ---------- */
-type Plan = {
-  name: string;
-  monthly: number;
-  yearly: number;
-  popular?: boolean;
-  cta: string;
-  features: string[];
-};
-
-const PLANS: Plan[] = [
-  {
-    name: "Free",
-    monthly: 0,
-    yearly: 0,
-    cta: "Empezar gratis",
-    features: [
-      "10 generaciones / mes",
-      "3 herramientas básicas",
-      ...(MARKETPLACE_ENABLED ? ["Sin acceso al marketplace"] : []),
-      "Soporte de la comunidad",
-    ],
-  },
-  {
-    name: "Pro",
-    monthly: 29,
-    yearly: 23,
-    popular: true,
-    cta: "Comenzar Pro →",
-    features: [
-      "500 generaciones / mes",
-      "8 herramientas premium",
-      ...(MARKETPLACE_ENABLED ? ["Marketplace completo"] : []),
-      "Export PDF / DOCX",
-      "AI Consultor · 100 msgs/mes",
-      "Comisión de afiliado 30% recurrente",
-      "Soporte por email en 24h",
-    ],
-  },
-  {
-    name: "Business",
-    monthly: 99,
-    yearly: 79,
-    cta: "Ir a Business →",
-    features: [
-      "Generaciones ilimitadas",
-      "Todo lo de Pro",
-      "AI Consultor ilimitado",
-      "API personal",
-      "Comisión de afiliado 40% recurrente",
-      "White-label exports",
-      "Soporte prioritario + onboarding",
-    ],
-  },
-];
-
 function Pricing() {
   const [annual, setAnnual] = useState(true);
   const [openCompare, setOpenCompare] = useState(false);
@@ -671,6 +621,7 @@ function Pricing() {
             type="button"
             role="switch"
             aria-checked={annual}
+            aria-label="Facturación anual"
             onClick={() => setAnnual((v) => !v)}
             className={`relative h-7 w-14 rounded-full border border-white/10 transition-colors ${
               annual ? "bg-gradient-brand" : "bg-surface-3"
@@ -692,7 +643,7 @@ function Pricing() {
 
         <div className="mt-12 grid gap-6 md:grid-cols-3">
           {PLANS.map((p) => {
-            const price = annual ? p.yearly : p.monthly;
+            const price = annual ? p.yearlyMonthlyPrice : p.monthlyPrice;
             return (
               <div
                 key={p.name}
@@ -725,9 +676,9 @@ function Pricing() {
                       {price === 0 ? "" : "/mes"}
                     </span>
                   </div>
-                  {annual && p.monthly > 0 && (
+                  {annual && p.monthlyPrice > 0 && (
                     <p className="mt-1 text-xs text-text-muted">
-                      Facturado anual · ahorrás ${(p.monthly - p.yearly) * 12}/año
+                      Facturado anual · ahorrás ${(p.monthlyPrice - p.yearlyMonthlyPrice) * 12}/año
                     </p>
                   )}
 
@@ -995,7 +946,7 @@ function AffiliateTeaser() {
                   <Check className="h-4 w-4 text-success" /> Cookies de 60 días
                 </li>
                 <li className="flex items-center gap-2">
-                  <Check className="h-4 w-4 text-success" /> Pagos mensuales por Lemon Squeezy
+                  <Check className="h-4 w-4 text-success" /> Pagos mensuales automáticos
                 </li>
                 <li className="flex items-center gap-2">
                   <Check className="h-4 w-4 text-success" /> Dashboard con métricas en vivo

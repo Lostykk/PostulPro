@@ -6,6 +6,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/use-auth";
 import { useProfile } from "@/hooks/use-profile";
 import { isOwner } from "@/lib/auth/is-owner";
+import { PLAN_BILLING_OPTIONS } from "@/lib/plans";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { SimpleSelect } from "@/components/ui/simple-select";
 import {
@@ -155,7 +156,7 @@ function ProfileTab() {
   return (
     <Card>
       <div className="flex items-center gap-4">
-        <div className="w-16 h-16 rounded-full bg-gradient-to-br from-violet-500 to-fuchsia-500 grid place-items-center text-white font-semibold overflow-hidden">
+        <div className="w-16 h-16 rounded-full bg-gradient-brand grid place-items-center text-white font-semibold overflow-hidden">
           {profile?.avatar_url ? <img src={profile.avatar_url} alt="" className="w-full h-full object-cover" /> : (profile?.name?.[0] ?? "?")}
         </div>
         <label className="text-xs text-violet-300 hover:text-violet-200 cursor-pointer">
@@ -204,7 +205,7 @@ function ProfileTab() {
         type="button"
         onClick={handleSave}
         disabled={saving}
-        className="inline-flex items-center gap-2 h-10 px-5 rounded-lg text-sm font-semibold bg-gradient-to-r from-violet-500 to-fuchsia-500 text-white hover:opacity-90 transition disabled:opacity-60"
+        className="inline-flex items-center gap-2 h-10 px-5 rounded-lg text-sm font-semibold bg-gradient-brand text-white hover:opacity-90 transition disabled:opacity-60"
       >
         {saving && <Loader2 className="w-4 h-4 animate-spin" />} Guardar cambios
       </button>
@@ -227,13 +228,6 @@ function ProfileTab() {
 }
 
 /* ---------- Plan y billing ---------- */
-
-const PLAN_OPTIONS = [
-  { key: "pro_monthly", label: "PRO mensual", price: "$29/mes" },
-  { key: "pro_annual", label: "PRO anual", price: "$276/año" },
-  { key: "business_monthly", label: "BUSINESS mensual", price: "$99/mes" },
-  { key: "business_annual", label: "BUSINESS anual", price: "$948/año" },
-] as const;
 
 type SubscriptionRow = {
   status: string;
@@ -364,7 +358,7 @@ function BillingTab() {
           </p>
         )}
         <div className="grid sm:grid-cols-2 gap-2">
-          {PLAN_OPTIONS.map((p) => (
+          {PLAN_BILLING_OPTIONS.map((p) => (
             <button
               key={p.key}
               type="button"
@@ -384,7 +378,7 @@ function BillingTab() {
           type="button"
           onClick={() => callCheckout("credits", "credits_100")}
           disabled={loading !== null}
-          className="inline-flex items-center gap-2 h-10 px-5 rounded-lg text-sm font-semibold bg-gradient-to-r from-violet-500 to-fuchsia-500 text-white hover:opacity-90 transition disabled:opacity-60"
+          className="inline-flex items-center gap-2 h-10 px-5 rounded-lg text-sm font-semibold bg-gradient-brand text-white hover:opacity-90 transition disabled:opacity-60"
         >
           {loading === "credits_100" && <Loader2 className="w-4 h-4 animate-spin" />} Comprar 100 créditos — $9
         </button>
@@ -461,7 +455,7 @@ function NotificationsTab() {
         type="button"
         onClick={handleSave}
         disabled={saving}
-        className="inline-flex items-center gap-2 h-10 px-5 rounded-lg text-sm font-semibold bg-gradient-to-r from-violet-500 to-fuchsia-500 text-white hover:opacity-90 transition disabled:opacity-60"
+        className="inline-flex items-center gap-2 h-10 px-5 rounded-lg text-sm font-semibold bg-gradient-brand text-white hover:opacity-90 transition disabled:opacity-60"
       >
         {saving && <Loader2 className="w-4 h-4 animate-spin" />} Guardar
       </button>
@@ -560,7 +554,7 @@ function ApiKeysManager() {
           type="button"
           onClick={handleCreate}
           disabled={creating}
-          className="inline-flex items-center gap-2 h-10 px-4 rounded-lg text-sm font-semibold bg-gradient-to-r from-violet-500 to-fuchsia-500 text-white hover:opacity-90 transition disabled:opacity-60 shrink-0"
+          className="inline-flex items-center gap-2 h-10 px-4 rounded-lg text-sm font-semibold bg-gradient-brand text-white hover:opacity-90 transition disabled:opacity-60 shrink-0"
         >
           {creating ? <Loader2 className="w-4 h-4 animate-spin" /> : <KeyRound className="w-4 h-4" />} Crear
         </button>

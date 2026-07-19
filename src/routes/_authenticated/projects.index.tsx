@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { Sparkles, ArrowRight, Archive, Clock } from "lucide-react";
 import { projectsApiFetch, ApiError } from "@/lib/projects/api-client";
+import { StatusBadge } from "@/components/ui/status-badge";
 
 export const Route = createFileRoute("/_authenticated/projects/")({
   head: () => ({ meta: [{ title: "Mis proyectos — PostulPro" }] }),
@@ -30,18 +31,6 @@ const FILTERS = [
   { key: "draft", label: "Borradores" },
   { key: "archived", label: "Archivados" },
 ] as const;
-
-const STATUS_LABEL: Record<string, string> = {
-  draft: "Borrador",
-  planning: "Planificando",
-  awaiting_confirmation: "Por confirmar",
-  ready: "Listo para empezar",
-  running: "En progreso",
-  paused: "Pausado",
-  completed: "Completado",
-  failed: "Con error",
-  archived: "Archivado",
-};
 
 function ProjectsPage() {
   const [filter, setFilter] = useState<(typeof FILTERS)[number]["key"]>("active");
@@ -76,7 +65,7 @@ function ProjectsPage() {
         </div>
         <Link
           to="/build"
-          className="inline-flex items-center gap-2 h-10 px-4 rounded-lg text-sm font-semibold bg-gradient-to-r from-violet-500 to-fuchsia-500 text-white hover:opacity-90 transition"
+          className="inline-flex items-center gap-2 h-10 px-4 rounded-lg text-sm font-semibold bg-gradient-brand text-white hover:opacity-90 transition"
         >
           <Sparkles className="w-4 h-4" /> Construir una idea
         </Link>
@@ -109,7 +98,7 @@ function ProjectsPage() {
           </p>
           <Link
             to="/build"
-            className="inline-flex items-center gap-2 h-9 px-4 rounded-lg text-sm font-semibold bg-gradient-to-r from-violet-500 to-fuchsia-500 text-white"
+            className="inline-flex items-center gap-2 h-9 px-4 rounded-lg text-sm font-semibold bg-gradient-brand text-white"
           >
             Construir mi primera idea <ArrowRight className="w-4 h-4" />
           </Link>
@@ -123,14 +112,12 @@ function ProjectsPage() {
                   <p className="font-semibold text-sm truncate">{p.title || p.original_idea.slice(0, 60)}</p>
                   <p className="text-xs text-muted-foreground mt-0.5 line-clamp-2">{p.original_idea}</p>
                 </div>
-                <span className="shrink-0 text-[10px] font-semibold px-2 py-1 rounded-md bg-white/10 text-muted-foreground whitespace-nowrap">
-                  {STATUS_LABEL[p.status] ?? p.status}
-                </span>
+                <StatusBadge status={p.status} className="shrink-0" />
               </div>
 
               <div>
                 <div className="h-1.5 rounded-full bg-white/10 overflow-hidden">
-                  <div className="h-full bg-gradient-to-r from-violet-500 to-fuchsia-500" style={{ width: `${p.progress_percent}%` }} />
+                  <div className="h-full bg-gradient-brand" style={{ width: `${p.progress_percent}%` }} />
                 </div>
                 <div className="flex items-center justify-between text-[11px] text-muted-foreground mt-1">
                   <span>{p.progress_percent}% completo</span>

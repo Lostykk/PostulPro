@@ -12,6 +12,7 @@ import {
 } from "@/lib/deliverables/generation-actions";
 import { DeliverableRenderer } from "@/components/deliverables/DeliverableRenderer";
 import { ProjectContextBanner } from "@/components/deliverables/ProjectContextBanner";
+import { RichContentRenderer } from "@/components/deliverables/RichContentRenderer";
 
 export const Route = createFileRoute("/_authenticated/tools/sales-email")({
   head: () => ({ meta: [{ title: "Sales Email — PostulPro" }] }),
@@ -178,7 +179,7 @@ CTA: ...
             type="button"
             onClick={handleGenerate}
             disabled={streaming}
-            className="w-full inline-flex items-center justify-center gap-2 h-11 rounded-xl text-sm font-semibold bg-gradient-to-r from-violet-500 to-fuchsia-500 text-white hover:opacity-90 transition disabled:opacity-60"
+            className="w-full inline-flex items-center justify-center gap-2 h-11 rounded-xl text-sm font-semibold bg-gradient-brand text-white hover:opacity-90 transition disabled:opacity-60"
           >
             {streaming ? (
               <>
@@ -246,9 +247,7 @@ CTA: ...
                     )}
                     <div>
                       <div className="text-xs text-muted-foreground mb-1">Cuerpo</div>
-                      <pre className="whitespace-pre-wrap font-sans text-sm leading-relaxed">
-                        {sections[activeTab].body}
-                      </pre>
+                      <RichContentRenderer content={sections[activeTab].body} />
                     </div>
                     {sections[activeTab].fields.cta && (
                       <div>

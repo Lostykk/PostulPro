@@ -192,7 +192,7 @@ Devuelve ÚNICAMENTE un objeto JSON válido (sin markdown, sin texto fuera del J
             type="button"
             onClick={handleGenerate}
             disabled={streaming}
-            className="w-full inline-flex items-center justify-center gap-2 h-11 rounded-xl text-sm font-semibold bg-gradient-to-r from-violet-500 to-fuchsia-500 text-white hover:opacity-90 transition disabled:opacity-60"
+            className="w-full inline-flex items-center justify-center gap-2 h-11 rounded-xl text-sm font-semibold bg-gradient-brand text-white hover:opacity-90 transition disabled:opacity-60"
           >
             {streaming ? (
               <>

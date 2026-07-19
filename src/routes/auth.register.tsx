@@ -6,6 +6,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { googleOAuthOptions } from "@/lib/auth/google-oauth";
 import { AuthSplitLayout, GoogleButton } from "@/components/auth/AuthSplitLayout";
 import { getStoredReferral } from "@/lib/referral";
+import { friendlyAuthError } from "@/lib/auth/friendly-error";
 
 export const Route = createFileRoute("/auth/register")({
   head: () => ({
@@ -44,7 +45,7 @@ function RegisterPage() {
     });
     setLoading(false);
     if (error) {
-      toast.error(error.message);
+      toast.error(friendlyAuthError(error.message));
       return;
     }
     toast.success("¡Cuenta creada! Vamos a personalizarla.");
@@ -152,7 +153,7 @@ function RegisterPage() {
           <button
             type="submit"
             disabled={loading}
-            className="w-full inline-flex items-center justify-center gap-2 h-11 rounded-lg bg-gradient-to-r from-violet-500 to-fuchsia-500 text-white font-semibold text-sm hover:opacity-95 transition disabled:opacity-50"
+            className="w-full inline-flex items-center justify-center gap-2 h-11 rounded-lg bg-gradient-brand text-white font-semibold text-sm hover:opacity-95 transition disabled:opacity-50"
           >
             {loading && <Loader2 className="w-4 h-4 animate-spin" />}
             Crear cuenta gratis

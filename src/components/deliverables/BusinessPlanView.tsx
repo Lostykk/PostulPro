@@ -203,7 +203,7 @@ export function BusinessPlanView({
                 type="button"
                 onClick={handleSave}
                 disabled={!dirty || saveState === "saving"}
-                className="inline-flex items-center gap-1.5 h-9 px-4 rounded-lg text-xs font-semibold bg-gradient-to-r from-violet-500 to-fuchsia-500 text-white disabled:opacity-40 transition"
+                className="inline-flex items-center gap-1.5 h-9 px-4 rounded-lg text-xs font-semibold bg-gradient-brand text-white disabled:opacity-40 transition"
               >
                 <Save className="w-3.5 h-3.5" /> Guardar cambios
               </button>

@@ -146,7 +146,7 @@ function BuildPage() {
           type="button"
           onClick={handleDesign}
           disabled={creating || idea.trim().length < 8}
-          className="mt-6 w-full inline-flex items-center justify-center gap-2 h-12 rounded-xl bg-gradient-to-r from-violet-500 to-fuchsia-500 text-white font-semibold text-sm hover:opacity-95 transition disabled:opacity-50"
+          className="mt-6 w-full inline-flex items-center justify-center gap-2 h-12 rounded-xl bg-gradient-brand text-white font-semibold text-sm hover:opacity-95 transition disabled:opacity-50"
         >
           {creating ? (
             <>

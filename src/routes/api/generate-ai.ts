@@ -6,6 +6,14 @@ import { callModel, logModelUsage, type ModelUsage } from "@/lib/ai/call-model.s
 import { checkAiExecutionAllowed } from "@/lib/ai/preview-guard.server";
 import { maybeSendLowCreditsEmail } from "@/lib/notifications/low-credits.server";
 import { isOwner } from "@/lib/auth/is-owner";
+import {
+  classifyProviderFailure,
+  confirmConsumedOrLog,
+  getWaitUntil,
+  markJobOutcome,
+  refundInBackground,
+  withProviderTimeout,
+} from "@/lib/ai/credit-reservation.server";
 
 // Streaming proxy to Anthropic / OpenAI. API keys stay server-side.
 // Contract: POST /api/generate-ai with Bearer token + JSON:
@@ -14,6 +22,23 @@ import { isOwner } from "@/lib/auth/is-owner";
 //   data: {"type":"delta","text":"..."}
 //   data: {"type":"done","generationId":"...","creditsRemaining":123}
 //   data: {"type":"error","message":"..."}
+//
+// Financial contract (credit_reservations + generations.credit_reservation_id
+// + credit_reservations.job_outcome, from 20260727000000/20260728000000):
+//   - "work started" evidence = the reservation row itself (created at
+//     reserve time, before any provider call).
+//   - "result persisted" and "completed" are the SAME event, by design:
+//     a generations row is only ever inserted once real output exists,
+//     with credit_reservation_id set in that same INSERT — so a linked
+//     generations row is unambiguous completion evidence for the
+//     reconciler. Never insert a placeholder/empty row before that point.
+//   - "failed" / "aborted" / "timed_out" evidence is recorded via
+//     mark_reservation_job_outcome BEFORE attempting the refund, so it
+//     survives even if the refund itself never completes (isolate killed
+//     mid-flight).
+//   - Anything else stays 'reserved' for reconcile_stale_reservations_v2.
+
+const PROVIDER_TIMEOUT_MS = 240_000; // generous relative to every tool's maxTokens — a circuit breaker, not a UX-tuned limit
 
 export const Route = createFileRoute("/api/generate-ai")({
   server: {
@@ -86,11 +111,18 @@ export const Route = createFileRoute("/api/generate-ai")({
           }
         }
 
-        // Reserve credits atomically BEFORE streaming. The overspend guard
-        // lives inside the DB function's UPDATE...WHERE clause, so parallel
-        // requests can't both pass a stale "remaining credits" check.
-        const { data: reserveRows, error: reserveErr } = await supabase.rpc("reserve_credits", {
+        // Reserve credits atomically BEFORE streaming, AND record the
+        // reservation itself (reserve_credits_v2, from
+        // 20260727000000_credit_reservations_idempotent_refund.sql) — the
+        // overspend guard still lives inside the DB function's
+        // UPDATE...WHERE clause, so parallel requests can't both pass a
+        // stale "remaining credits" check. The old reserve_credits stays
+        // untouched and unused from here on. This reservation row, on its
+        // own, IS the persistent "work started" evidence — no separate
+        // job/status table needed for that.
+        const { data: reserveRows, error: reserveErr } = await supabase.rpc("reserve_credits_v2", {
           p_cost: tool.credits,
+          p_tool: toolId,
         });
         if (reserveErr) return json({ error: "Failed to reserve credits" }, 500);
         const reserve = reserveRows?.[0];
@@ -107,6 +139,7 @@ export const Route = createFileRoute("/api/generate-ai")({
             402,
           );
         }
+        const reservationId = reserve.reservation_id as string;
 
         await maybeSendLowCreditsEmail(
           supabase,
@@ -122,122 +155,219 @@ export const Route = createFileRoute("/api/generate-ai")({
         // request to Anthropic/OpenAI actually stops (no wasted provider
         // tokens) and — since the abort surfaces as a rejected promise in
         // callModel — falls through to the same catch/refund path below as
-        // any other failure. Without this, a closed tab mid-stream would
-        // silently keep the reserved credit charged forever.
+        // any other failure. This is best-effort only, not a financial
+        // guarantee: empirically verified against the deployed preview
+        // Worker (see docs/premium-redesign-report.md), on this stack
+        // (Nitro + h3-v2 + TanStack Start on Cloudflare) neither
+        // ReadableStream.cancel() nor request.signal's 'abort' event fired
+        // on a real client disconnect in any test run. Resolution
+        // therefore never depends on either firing — it depends on
+        // runGeneration() actually reaching a terminal outcome.
         const encoder = new TextEncoder();
         const abortController = new AbortController();
-        let refunded = false;
-        const refundOnce = async () => {
-          if (refunded) return;
-          refunded = true;
-          try {
-            await supabase.rpc("refund_credits", { p_cost: tool.credits });
-          } catch {
-            /* best-effort — nothing else to do if the refund call itself fails */
-          }
+        const waitUntil = getWaitUntil(request);
+        request.signal?.addEventListener("abort", () => abortController.abort());
+        // Independent from abortController: a real circuit breaker on the
+        // provider call itself, so "timed_out" can be genuine evidence
+        // instead of a guess — callModel previously had no timeout at all.
+        const providerTimeout = withProviderTimeout(abortController.signal, PROVIDER_TIMEOUT_MS);
+        // Local-only optimization (skip a redundant network call if both
+        // the catch block and cancel() fire for the same request) — NOT
+        // the idempotency mechanism. That guarantee is entirely
+        // resolve_credit_reservation's atomic compare-and-swap on the
+        // persisted credit_reservations row, which holds even if this
+        // in-memory flag is never set at all (e.g. the isolate is killed
+        // before either path runs).
+        let settled = false;
+        const refundOnce = (reason: string) => {
+          if (settled) return;
+          settled = true;
+          refundInBackground(supabase, reservationId, reason, waitUntil);
         };
 
         const stream = new ReadableStream({
           async start(controller) {
-            const send = (obj: unknown) => {
-              try {
-                controller.enqueue(encoder.encode(`data: ${JSON.stringify(obj)}\n\n`));
-              } catch {
-                /* controller already closed (client gone) — nothing to send to */
-              }
-            };
-
-            let full = "";
-            let usage: ModelUsage = { inputTokens: null, outputTokens: null, stopReason: null };
-            const startedAt = Date.now();
-            try {
-              await callModel(
-                tool,
-                prompt,
-                (delta) => {
-                  full += delta;
-                  send({ type: "delta", text: delta });
-                },
-                abortController.signal,
-                (u) => (usage = u),
-              );
-              logModelUsage({
-                provider: tool.provider,
-                model: tool.model,
-                operation: "single_tool",
-                toolKey: toolId,
-                usage,
-                durationMs: Date.now() - startedAt,
-                status: "success",
-              });
-
-              // Persist generation
-              const title = (body.title ?? prompt.slice(0, 60)).slice(0, 200);
-              const { data: gen } = await supabase
-                .from("generations")
-                .insert({
-                  user_id: userId,
-                  tool: toolId,
-                  title,
-                  output: full,
-                  prompt_json: { prompt } as never,
-                  tokens_used: usage.outputTokens ?? Math.ceil(full.length / 4),
-                })
-                .select("id")
-                .maybeSingle();
-
-              const { data: refreshed } = await supabase
-                .from("users")
-                .select("credits_used,credits_limit")
-                .eq("id", userId)
-                .maybeSingle();
-
-              send({
-                type: "done",
-                generationId: gen?.id ?? null,
-                creditsRemaining: refreshed
-                  ? refreshed.credits_limit - refreshed.credits_used
-                  : null,
-              });
-              try {
-                controller.close();
-              } catch {
-                /* already closed */
-              }
-            } catch (err) {
-              logModelUsage({
-                provider: tool.provider,
-                model: tool.model,
-                operation: "single_tool",
-                toolKey: toolId,
-                usage,
-                durationMs: Date.now() - startedAt,
-                status: "error",
-                errorCode: "provider_error",
-              });
-              // Refund on error (atomic decrement, floored at 0) — also
-              // covers the abort-on-disconnect path via cancel() below.
-              await refundOnce();
-              send({
-                type: "error",
-                message: err instanceof Error ? err.message : "Model call failed",
-              });
-              try {
-                controller.close();
-              } catch {
-                /* already closed */
-              }
-            }
+            // Registering the WHOLE generation (not just the refund
+            // sub-task, as an earlier version of this fix did) with
+            // waitUntil is what actually keeps the Workers isolate alive
+            // past client disconnect — empirically confirmed: without
+            // this, disconnecting during a real deployed test silently
+            // killed the isolate before even normal, connected-client-path
+            // logs could run. This is bounded by a platform-enforced
+            // ceiling (Cloudflare logs "waitUntil() tasks did not complete
+            // within the allowed time... and have been cancelled" for
+            // slower generations) — it reliably saves short generations,
+            // but cannot be the sole guarantee for slow ones. That's what
+            // the evidence-based reconciler exists for.
+            const work = runGeneration(controller, tool);
+            if (waitUntil) waitUntil(work);
+            await work;
           },
           cancel(reason) {
-            // Client disconnected mid-stream: stop the upstream model call
-            // and refund. The abort makes callModel's fetch reject, which
-            // the start() catch block above also handles — refundOnce()
-            // guards against double-refunding if both paths fire.
+            // Best-effort only — see the note above on abortController.
+            // Deliberately does NOT resolve the reservation here: a
+            // detected disconnect requests cancellation, it does not by
+            // itself justify a refund (that would refund "blindly because
+            // the tab closed," which is exactly what this design avoids).
+            // The actual refund happens through runGeneration()'s own
+            // catch block, which only runs once callModel's abort
+            // surfaces as a confirmed rejection.
             abortController.abort(reason);
-            void refundOnce();
           },
         });
+
+        async function runGeneration(
+          controller: ReadableStreamDefaultController<Uint8Array>,
+          tool: NonNullable<ReturnType<typeof getTool>>,
+        ) {
+          const send = (obj: unknown) => {
+            try {
+              controller.enqueue(encoder.encode(`data: ${JSON.stringify(obj)}\n\n`));
+            } catch {
+              /* controller already closed (client gone) — nothing to send to */
+            }
+          };
+          const closeController = () => {
+            try {
+              controller.close();
+            } catch {
+              /* already closed */
+            }
+          };
+
+          let full = "";
+          let usage: ModelUsage = { inputTokens: null, outputTokens: null, stopReason: null };
+          const startedAt = Date.now();
+          try {
+            await callModel(
+              tool,
+              prompt,
+              (delta) => {
+                full += delta;
+                send({ type: "delta", text: delta });
+              },
+              providerTimeout.signal,
+              (u) => (usage = u),
+            );
+            providerTimeout.clear();
+            logModelUsage({
+              provider: tool.provider,
+              model: tool.model,
+              operation: "single_tool",
+              toolKey: toolId,
+              usage,
+              durationMs: Date.now() - startedAt,
+              status: "success",
+            });
+
+            // Persist the result. This INSERT is simultaneously "the
+            // generation exists," "the result was persisted," and "the
+            // generation completed" — credit_reservation_id links it back
+            // to the reservation immediately, durably, not just in a JS
+            // variable, so a crash one line later still leaves the
+            // reconciler with real completion evidence to find.
+            const title = (body.title ?? prompt.slice(0, 60)).slice(0, 200);
+            const { data: gen, error: genErr } = await supabase
+              .from("generations")
+              .insert({
+                user_id: userId,
+                tool: toolId,
+                title,
+                output: full,
+                prompt_json: { prompt } as never,
+                tokens_used: usage.outputTokens ?? Math.ceil(full.length / 4),
+                credit_reservation_id: reservationId,
+              })
+              .select("id")
+              .maybeSingle();
+
+            if (genErr || !gen?.id) {
+              // The model produced real output, but it could not be
+              // durably saved — this is a confirmed failure, not an
+              // ambiguous case: consuming here would charge the user for
+              // a result they can never retrieve. Record evidence before
+              // the (fire-and-forget) refund attempt, so the reconciler
+              // can recover this even if the refund itself never lands.
+              await markJobOutcome(supabase, reservationId, "failed", "generation_persist_failed");
+              refundOnce("generation_persist_failed");
+              send({
+                type: "error",
+                message: "No se pudo guardar el resultado. Tus créditos no fueron cobrados.",
+              });
+              closeController();
+              return;
+            }
+
+            // The response about to go out claims the reservation is
+            // settled and the credit spent — that claim must be true
+            // before it's sent, not eventually true. Block on it here
+            // (bounded retries inside confirmConsumedOrLog), rather than
+            // firing it in the background the way the refund path does.
+            settled = true;
+            const confirmed = await confirmConsumedOrLog(supabase, reservationId, gen.id, {
+              toolId,
+              userId,
+            });
+
+            if (!confirmed) {
+              // Content was generated and persisted, but the ledger
+              // can't confirm the reservation as consumed. Sending
+              // "done" here would assert a billing fact we don't
+              // actually know to be true, so this is reported as an
+              // error instead — the reservation itself is left
+              // 'reserved' (safe, recoverable, already logged by
+              // confirmConsumedOrLog, AND now discoverable by the
+              // reconciler via the generation_id link set above) rather
+              // than guessed at.
+              send({
+                type: "error",
+                message:
+                  "El contenido se generó pero no se pudo confirmar el estado del crédito. Contactá soporte si el problema persiste.",
+              });
+              closeController();
+              return;
+            }
+
+            const { data: refreshed } = await supabase
+              .from("users")
+              .select("credits_used,credits_limit")
+              .eq("id", userId)
+              .maybeSingle();
+
+            send({
+              type: "done",
+              generationId: gen.id,
+              creditsRemaining: refreshed ? refreshed.credits_limit - refreshed.credits_used : null,
+            });
+            closeController();
+          } catch (err) {
+            const outcome = classifyProviderFailure(
+              abortController.signal,
+              providerTimeout.timeoutSignal,
+            );
+            logModelUsage({
+              provider: tool.provider,
+              model: tool.model,
+              operation: "single_tool",
+              toolKey: toolId,
+              usage,
+              durationMs: Date.now() - startedAt,
+              status: "error",
+              errorCode: outcome,
+            });
+            // Record confirmed-failure evidence BEFORE the (fire-and-
+            // forget) refund attempt — see the module-level contract
+            // comment. Awaited: it's one fast UPDATE, worth landing
+            // durably before any risk of the isolate dying mid-refund.
+            await markJobOutcome(supabase, reservationId, outcome, outcome);
+            refundOnce(outcome);
+            send({
+              type: "error",
+              message: err instanceof Error ? err.message : "Model call failed",
+            });
+            closeController();
+          }
+        }
 
         return new Response(stream, {
           headers: {
