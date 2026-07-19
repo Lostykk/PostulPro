@@ -513,3 +513,39 @@ Sin cambios. Último deploy de `lostykk-postulpro` (producción): `2026-07-19T05
 ## 27. Dictamen (Fase 8C)
 
 **NORMALIZADOR HOTMART CORREGIDO — LISTO PARA NUEVA PRUEBA COMPLETA**
+
+## 28. Fase 8C — QA final: ronda "PostulPro Preview QA" (12/12)
+
+Tras el deploy del normalizador corregido a `lostykk-postulpro-preview`, se ejecutó manualmente una "Prueba de configuración" completa desde el panel de Hotmart (configuración "PostulPro Preview QA"), reenviando los 12 eventos configurados. Auditoría de solo lectura contra `ccpejnklrfvgtwryqfrw`:
+
+- **12 filas nuevas y separadas** en `hotmart_events`, **12 `idempotency_key` distintas**, **12 `external_event_id` distintos** — cero colisiones.
+- Cada fila con `event_type` correctamente clasificado (ninguna `unrecognized_shape`, ninguna `unsupported`, ninguna `invalid_payload`), `processing_status` explícito (`ignored_test` / `no_action_required` / `unmapped_offer` según corresponda), identificadores normalizados cuando el payload los traía.
+- Las 12 pasaron la autenticación Hottok (su sola existencia en el ledger lo prueba — un fallo de auth nunca llega a crear fila).
+- **Cero efecto comercial**: `hotmart_pending_links = 0`, `subscriptions` con `provider = 'hotmart' = 0`, `hotmart_events` con `processing_status = 'processed' = 0`, los 5 usuarios reales con plan/rol/créditos byte-idénticos al baseline.
+- Suite completa 470/470, módulo Hotmart 103/103, `tsc` limpio, `build` exitoso, secret scan limpio, migraciones sincronizadas, RLS intacto en ambas tablas.
+
+**Dictamen: HOTMART PREVIEW QA APROBADO — 12/12 EVENTOS NORMALIZADOS CORRECTAMENTE.**
+
+## 29. Procedimiento de rollback (cutover a producción)
+
+Documentado antes de tocar `main`, para que el rollback sea ejecutable y no solamente teórico:
+
+- **Tag de rollback**: `rollback-pre-hotmart-production-20260719`, apuntando al commit de `origin/main` inmediatamente anterior al merge de esta integración.
+- **Revertir el código en `main`** (si el merge ya fue pusheado y se detecta una regresión):
+  ```
+  git revert -m 1 <SHA-del-merge-commit>
+  git push origin main
+  ```
+  (nunca `reset --hard` + force-push sobre `main` compartido).
+- **Revertir el Worker productivo** al deploy anterior conocido (`lostykk-postulpro`, version id documentado en §28 de este informe antes del cutover):
+  ```
+  npx wrangler rollback --name lostykk-postulpro <version-id-anterior>
+  ```
+- **Migraciones involucradas en este cutover**: únicamente `20260731000000_hotmart_events_status_expansion.sql`, puramente aditiva (amplía un `CHECK`, no toca filas, no requiere `DOWN` con pérdida de datos). Rollback si hiciera falta:
+  ```sql
+  ALTER TABLE public.hotmart_events DROP CONSTRAINT hotmart_events_processing_status_check;
+  ALTER TABLE public.hotmart_events ADD CONSTRAINT hotmart_events_processing_status_check
+    CHECK (processing_status IN ('pending', 'processed', 'ignored', 'error'));
+  ```
+  (nota: solo ejecutable si ninguna fila nueva usa todavía los estados ampliados — verificar antes de aplicar).
+- **Nada de esto toca** `HOTMART_HOTTOK`, planes, precios, usuarios, créditos ni suscripciones — el cutover de código no depende de, ni modifica, ningún dato comercial real.
