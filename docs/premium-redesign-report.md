@@ -23,11 +23,14 @@
   14. `9e00ad8` — **ronda 5, diagnóstico**: logging de `cancel()` que reveló un hallazgo nuevo (ver §15.6).
   15. `71161a6` — **ronda 6, fix real**: la generación completa (no solo el reembolso) envuelta en `waitUntil()` — hallazgo empírico de por qué el reembolso automático por desconexión no cerraba el ciclo (ver §16.3).
   16. `5274558` — **ronda 6, reconciliador** (migración NO aplicada): `reconcile_stale_reservations_v2` basado en evidencia + endpoint interno inerte, preparados y validados localmente, pendientes de autorización separada.
-- **URL de preview**: https://lostykk-postulpro-preview.ignacioo-ch13.workers.dev (Worker `lostykk-postulpro-preview`, redesplegado 9 veces en total, verificado 200 OK cada vez).
+  17. `5e1e512` — **ronda 7, tipos + fix real**: `types.ts` regenerado tras aplicar `20260728000000`; hallazgo en vivo de que `GET`/`PUT`/`DELETE` sobre el endpoint interno devolvían 200 (SSR) en vez de ser rechazados — corregido a 405 explícito.
+- **URL de preview**: https://lostykk-postulpro-preview.ignacioo-ch13.workers.dev (Worker `lostykk-postulpro-preview`, redesplegado 10 veces en total, verificado 200 OK cada vez).
 - **Producción**: sin cambios. `postulpro.com`/`www.postulpro.com` siguen en 200 en todo momento.
 - **Dictamen histórico de la ronda 3**: ~~LISTO PARA CUTOVER CON CONDICIONES~~ — superado por §14.
 - **Dictamen histórico de la ronda 4**: GO CON CONDICIONES (ver §14.9) — la condición #2 de esa ronda (reembolso de créditos en abort) es exactamente lo que resuelve, parcialmente, la ronda 5.
 - **Dictamen histórico de la ronda 5**: LEDGER VALIDADO CON CONDICIONES (ver §15.10) — la condición pendiente (el reembolso automático por desconexión no cerraba el ciclo) es lo que investiga y resuelve la ronda 6.
+- **Dictamen histórico de la ronda 6**: LEDGER LISTO CON CONDICIONES (ver §16.13) — las condiciones (migración del reconciliador + su mecanismo de ejecución) son exactamente lo que autoriza y ejecuta la ronda 7.
+- **Dictamen final (ver §17.11)**: **LEDGER LISTO CON CONDICIONES**.
 - **Dictamen final (ver §16.9)**: **LEDGER LISTO CON CONDICIONES**.
 
 ## 1. Auditoría inicial
@@ -1041,3 +1044,287 @@ Condiciones para pasar a `LEDGER LISTO PARA CUTOVER` sin reservas:
 No se realiza cutover visual ni se despliega código nuevo a producción sin
 una autorización adicional y separada. Se detiene esta tarea aquí, a la
 espera de esa autorización.
+
+---
+
+## 17. Reconciliador de reservas estancadas — migración aplicada (ronda 7)
+
+Autorización controlada recibida y ejecutada exactamente en el alcance
+especificado: migración del reconciliador, la RPC
+`reconcile_stale_reservations_v2`, pruebas controladas con datos QA,
+activación del endpoint interno únicamente en preview, limpieza idempotente
+de reservas QA. Sin merge a `main`, sin deploy productivo, sin cron
+productivo, sin cambios DNS/Hotmart/Marketplace, sin migraciones
+adicionales, sin tocar Auth/OAuth/planes/precios/roles/créditos.
+
+### 17.1 Discrepancia detectada y resuelta antes de aplicar
+
+La autorización pedía que `reconcile_stale_reservations_v2` "utilice
+`resolve_credit_reservation` para cualquier transición". Tal como estaba
+escrita (y ya auditada/committeada en la ronda 6), la función usa un CAS
+inline (`UPDATE ... WHERE status = 'reserved'`) en vez de invocar
+literalmente `resolve_credit_reservation` — esto no es un descuido:
+`resolve_credit_reservation` filtra por `user_id = auth.uid()`, y una
+llamada `service_role` procesando reservas de múltiples usuarios en un
+mismo lote tiene `auth.uid() = NULL`, por lo que esa función jamás
+matchearía ninguna fila si se la invocara así — sería un no-op silencioso
+para todo el lote. Es exactamente la misma razón, documentada en el propio
+comentario de `reconcile_stale_reservations` (v1, ya aplicada en la ronda
+5), por la que esa función original tampoco la invoca.
+
+Se detuvo la aplicación de la migración y se presentó la discrepancia
+explícitamente antes de proceder, con tres opciones. **Se eligió mantener
+el CAS inline**, igual al patrón ya aplicado y auditado de v1 — la garantía
+de atomicidad/idempotencia se conserva de forma idéntica
+(`UPDATE ... WHERE status = 'reserved'` + `IF FOUND`, verificado con
+concurrencia real en §17.4), solo que inline en vez de delegado. No se
+modificó `resolve_credit_reservation`.
+
+### 17.2 Verificación previa (antes de aplicar)
+
+- Project ref confirmado: `ccpejnklrfvgtwryqfrw`.
+- Rama: `claude/postulpro-premium-ui`.
+- Working tree limpio (confirmado antes y después).
+- Archivo exacto: `supabase/migrations/20260728000000_reservation_job_evidence.sql`
+  — hash SHA-256 confirmado sin cambios desde el commit `5274558`.
+- `npx supabase db push --dry-run` → confirmó que era la **única** migración
+  pendiente.
+- Las 34 migraciones anteriores: local = remote en las 34, cero drift.
+- Rollback documentado y verificado consistente con el forward:
+  `docs/reservation-job-evidence-rollback.sql`.
+- Re-revisada la migración completa línea por línea: solo agrega
+  `generations.credit_reservation_id`, `credit_reservations.job_outcome`/
+  `_reason`/`_at`, `mark_reservation_job_outcome`,
+  `reconcile_stale_reservations_v2`, sus índices y sus grants. No toca
+  `reserve_credits_v2`, `resolve_credit_reservation`, precios, cantidades
+  de créditos, planes, roles, Auth, OAuth, ni ninguna otra tabla o policy
+  RLS — confirmado por lectura completa del archivo, no por inferencia.
+
+### 17.3 Seguridad de `reconcile_stale_reservations_v2` — auditada antes de aplicar
+
+| Requisito | Resultado |
+|---|---|
+| `SECURITY DEFINER` solo si necesario | Presente, consistente con el resto de RPCs de este módulo (principalmente por el hardening de `search_path`, no por necesidad de bypass de RLS — `service_role` ya bypassea RLS de por sí) |
+| `search_path` explícito y seguro | `SET search_path = public` en ambas funciones nuevas |
+| Sin `user_id` controlado por el cliente | Confirmado — no existe parámetro de ese tipo; el batch se decide 100% server-side |
+| No ejecutable por `anon` | ✅ verificado en vivo tras aplicar: `401` |
+| No ejecutable directamente por `authenticated` | ✅ verificado en vivo tras aplicar: `403` |
+| Sin exposición de datos sensibles | `RETURNS TABLE(reservation_id UUID, outcome TEXT, evidence TEXT)` — ningún prompt, JWT, ni dato de otro usuario |
+| Compare-and-swap e idempotencia | Conservados (inline, no vía `resolve_credit_reservation` — ver §17.1); verificado con concurrencia real en §17.4 |
+| Lotes limitados | `LIMIT p_batch_limit`, validado `<= 1000`, default 200; el endpoint interno además acota a `<= 500` |
+| Sin operaciones sin límite / sin bloqueo de tablas completas | Cursor `FOR ... LOOP` con `UPDATE` de una fila a la vez — nunca un `UPDATE` masivo ni un lock de tabla |
+| Repetible sin duplicar consumos/reembolsos | ✅ verificado en vivo: correr dos veces seguidas devuelve `[]` la segunda vez |
+| Antigüedad nunca es evidencia suficiente para una reserva con generación vinculada | ✅ la rama (a) — vínculo con `generations` — se evalúa primero y siempre gana, incluso si además hay `job_outcome` contradictorio (probado explícitamente en pglite, ronda 6) |
+
+### 17.4 Aplicación de la migración
+
+- Ejecutado `npx supabase db push` una sola vez, confirmado interactivamente,
+  sin `repair`/`reset`/`squash`/edición manual de historial.
+- Aplicada a las `2026-07-19T02:00:01Z` (aprox.).
+- Verificación posterior: `npx supabase migration list --linked` →
+  **35/35 sincronizadas, cero drift**.
+- Firma confirmada en vivo: `reconcile_stale_reservations_v2(p_batch_limit INT DEFAULT 200) RETURNS TABLE(reservation_id UUID, outcome TEXT, evidence TEXT)`.
+- Grants confirmados en vivo (no solo leídos del archivo): `anon` → `401`
+  al intentar ejecutar; cuenta QA autenticada → `403`; ambos con el mensaje
+  estándar de Postgres `permission denied for function`.
+- Columnas nuevas confirmadas legibles: `generations.credit_reservation_id`,
+  `credit_reservations.job_outcome/_reason/_at`.
+
+### 17.5 Umbrales usados y justificación
+
+| Herramienta | Umbral | Motivo |
+|---|---|---|
+| `copywriter`, `landing-copy` | 10 min | `maxTokens` más bajo (1200–2500) del catálogo |
+| `sales-email`, `consultant` | 15 min | `maxTokens` medio (4000) |
+| `social-pack`, `email-sequences` | 20 min | `maxTokens` medio-alto (4000–6000) |
+| `business-plan`, herramienta desconocida/futura | 30 min | `maxTokens` más alto (8000); umbral más conservador también para cualquier `tool` no reconocida |
+
+No son duraciones típicas — son múltiplos generosos, elegidos para que sea
+prácticamente imposible que una generación legítima siga corriendo a esa
+antigüedad, precisamente para minimizar el único riesgo real de falso
+positivo del diseño (ver §17.3, última fila).
+
+### 17.6 Pruebas reales controladas — resultados exactos
+
+Todas contra `ccpejnklrfvgtwryqfrw` con la cuenta QA real
+(`.qa.local.json`) para crear reservas, y la clave `service_role` (nunca
+impresa, nunca commiteada, usada solo en memoria dentro de scripts
+temporales del scratchpad de la sesión) para invocar el reconciliador:
+
+| # | Escenario | Resultado real |
+|---|---|---|
+| 1 | Reserva linked a generación `completed` | ✅ `consumed`, `generation_id` vinculado |
+| 2 | Reserva con `job_outcome='failed'` | ✅ `refunded`, `refund_reason: "failed"` |
+| 3 | Reserva con `job_outcome='aborted'` | ✅ `refunded`, `refund_reason: "aborted"` |
+| 4 | Reserva con `job_outcome='timed_out'` | ✅ `refunded`, `refund_reason: "timed_out"` |
+| 5 | Reserva fresca, sin evidencia | ✅ permanece `reserved` en todas las corridas |
+| 6 | Reserva `business-plan` (herramienta lenta), sin evidencia, ~14 min de antigüedad (bajo su umbral de 30 min) | ✅ permanece `reserved` mientras una `copywriter` de antigüedad similar ya fue reembolsada — **umbrales por herramienta confirmados en vivo, no solo en pglite** |
+| 7 | Reserva con herramienta desconocida (`qa-unknown-tool-else-branch`), sin evidencia | ✅ permanece `reserved` bajo el umbral `ELSE` de 30 min |
+| 8 | Reserva sin generación, sin evidencia, **envejecida de forma real (sin manipular timestamps — esperando ~12.7 minutos reales)**, superó su umbral de 10 min (`copywriter`) | ✅ `refunded`, `refund_reason: "no_evidence_after_threshold"` |
+| 9 | Reserva reciente sin generación | ✅ permanece `reserved` (mismo caso que #5) |
+| 10 | Reconciliador ejecutado dos veces seguidas | ✅ segunda corrida devuelve `[]` — mismo resultado (nada más que hacer) |
+| 11 | Dos ejecuciones concurrentes reales (`Promise.all`) sobre 3 reservas con evidencia de fallo compartida | ✅ una corrida procesó las 3 (`refunded`), la otra devolvió `[]` — **cero solapamiento**, refund total exacto = 3 créditos (no 6) |
+| 12 | Reserva ya `consumed` | ✅ no cambia en corridas posteriores |
+| 13 | Reserva ya `refunded` | ✅ no cambia (nunca vuelve a ser seleccionada — el filtro `WHERE status = 'reserved'` la excluye desde el inicio) |
+| 14 | Reserva de otro usuario / manipulación externa | ✅ `anon` → `401`, `authenticated` (incluida la propia cuenta QA) → `403` — el reconciliador no es invocable por ningún caller que no sea `service_role`, la forma más fuerte de esta protección |
+| 15 | Lote con estados mezclados (completed + aborted + timed_out en una sola llamada) | ✅ cada uno resuelto correctamente en la misma corrida, sin interferencia cruzada |
+| 16 | Lote mayor al límite (`batchLimit=1` con múltiples filas elegibles) | ✅ procesó exactamente 1 fila — paginación/acotamiento confirmado |
+| 17 | Error parcial → recuperable en una ejecución posterior | No se pudo forzar un error real a mitad de lote sin arriesgar datos QA. Verificado por inspección: la función no tiene bloques `EXCEPTION`, por lo que corre como una única transacción implícita — un error inesperado revertiría el lote completo (nunca deja un estado parcial/inconsistente), pero tampoco preserva avance parcial dentro de la misma llamada. Documentado como comportamiento real, no como bug — ver §17.10. |
+
+### 17.7 Endpoint interno — activado en preview, validado
+
+- Secretos generados y almacenados **únicamente** como secrets del Worker
+  `lostykk-postulpro-preview` (`wrangler secret put ... --env preview`,
+  valor nunca impreso en esta sesión, nunca escrito en código/commits):
+  `RECONCILE_SECRET` (32 bytes aleatorios, hex) y `SUPABASE_SERVICE_ROLE_KEY`.
+- Comparación de secreto con `timingSafeEqual` (mismo patrón que la firma
+  del webhook de facturación).
+- **Hallazgo real corregido en esta ronda**: antes del fix, `GET`/`PUT`
+  contra el endpoint devolvían `200` con el shell SSR de la app en vez de
+  ser rechazados — TanStack Start no hace 404/405 automático para un
+  método sin handler registrado en una ruta con otros métodos definidos,
+  cae al renderizado normal de página. Corregido agregando handlers
+  explícitos `GET`/`PUT`/`PATCH`/`DELETE` que devuelven `405`.
+- Resultados confirmados en vivo, en este orden:
+
+| Prueba | Resultado |
+|---|---|
+| Sin secreto | `401` |
+| Secreto incorrecto | `401` |
+| `GET` | `405` |
+| `PUT` | `405` |
+| `DELETE` | `405` |
+| Secreto correcto | `200`, ejecución controlada (`{"ok":true,"batchLimit":50,"touched":0,...}` cuando no había nada elegible) |
+| Segundo llamado con el mismo secreto | `200`, mismo resultado — idempotente |
+| Reserva ajena/no relacionada afectada | Ninguna — confirmado consultando el estado exacto de las 4 reservas pendientes antes y después de cada corrida |
+
+- Sin `user_id` ni ningún filtro controlable por el cliente — el único
+  input aceptado es `batchLimit`, acotado a `<= 500`.
+- **No conectado a ningún cron productivo ni trigger de Cloudflare** — cada
+  ejecución de esta ronda fue una invocación manual y controlada, tal como
+  exigía la autorización. `wrangler.jsonc` no fue modificado, no existe
+  ninguna sección `[triggers]`.
+
+### 17.8 Reservas QA reconciliadas — únicamente vía el reconciliador
+
+Ninguna reserva de esta ronda fue resuelta con `UPDATE` directo — todas
+pasaron por `reconcile_stale_reservations_v2` (invocado vía el endpoint
+interno o directamente con la clave `service_role`), respetando su propia
+lógica basada en evidencia:
+
+| Reserva | Tool | Costo | Evidencia | Resultado |
+|---|---|---|---|---|
+| `6a666442-...` (de la verificación de esquema, `job_outcome='failed'`) | `qa-schema-verify` | 1 | `job_outcome` | `refunded` |
+| `34039752-...` | `qa-recon-completed` | 1 | `generations` vinculada | `consumed` |
+| `bab35105-...` | `qa-recon-aborted` | 1 | `job_outcome='aborted'` | `refunded` |
+| `cf911348-...` | `qa-recon-timedout` | 1 | `job_outcome='timed_out'` | `refunded` |
+| `a6c7569a-...`, `77448bb0-...`, `a38d62b5-...` (prueba de concurrencia) | `qa-recon-concurrency` | 1 c/u | `job_outcome='failed'` | `refunded` (los 3, sin duplicar) |
+| `0b81f856-...` | `copywriter` | 1 | Ninguna, umbral de 10 min superado (real, sin manipular timestamps) | `refunded` |
+
+**Pendientes al cierre de esta ronda** (legítimamente todavía dentro de su
+umbral — no requieren ni admiten intervención manual sin violar el propio
+diseño basado en evidencia):
+
+| Reserva | Tool | Costo | Antigüedad al cierre | Umbral |
+|---|---|---|---|---|
+| `8016eb82-...` | `qa-recon-active` | 1 | ~16 min | 30 min (`ELSE`) |
+| `fa534e02-...` | `business-plan` | 5 | ~16 min | 30 min |
+| `31e601ca-...` | `qa-unknown-tool-else-branch` | 1 | ~14 min | 30 min (`ELSE`) |
+
+Se resolverán solas la próxima vez que se invoque el reconciliador después
+de cruzar su umbral — **no se forzaron con `UPDATE` directo**, exactamente
+como exigía la autorización. Balance de la cuenta QA al cierre: **55/100**
+créditos usados (7 de esos 55 corresponden a estas 3 reservas legítimamente
+pendientes, no perdidos).
+
+### 17.9 Validaciones ejecutadas
+
+- `tsc --noEmit`: limpio.
+- `vitest run`: **36 archivos, 340 tests**, todos pasando.
+- `npx playwright test` (suite completa, 67 tests): **67/67 passed, cero
+  flaky** en la corrida final posterior a todos los cambios de esta ronda.
+- Re-verificación aislada de los 2 tests marcados "flaky" en la ronda
+  anterior, tal como exigía la consigna:
+  - `e2e/permissions-rls.spec.ts:92` (timeout de login) → ejecutado solo:
+    **1/1 passed**, limpio.
+  - `e2e/credit-reservations-live.spec.ts:249` (reintento tardío) →
+    incluido en la corrida completa de 9/9 de `credit-reservations-live.spec.ts`:
+    **passed sin reintento** esta vez.
+  - Ninguno de los dos se ocultó, se eliminó ni se modificó — ambos siguen
+    en la suite tal cual estaban.
+- `npm run build`: exitoso.
+- Secret scan sobre el diff completo desde el commit `5274558`: sin
+  coincidencias — confirmado con un patrón que cubre explícitamente
+  `RECONCILE_SECRET`/`SUPABASE_SERVICE_ROLE_KEY`/`sb_secret_`.
+- `npx supabase migration list --linked`: **35/35 aplicadas, cero drift**.
+- Smoke test del Worker de preview: homepage → `200`; `POST
+  /api/generate-ai` sin auth → `401`.
+- Prueba del endpoint protegido: ver tabla completa en §17.7.
+- Producción (`postulpro.com`, `www.postulpro.com`): `200`/`200`, sin
+  cambios.
+- Cron productivo: **sigue desactivado** — ninguna sección `[triggers]` en
+  `wrangler.jsonc`, ningún cron de Cloudflare configurado en ningún entorno.
+
+### 17.10 Riesgos restantes
+
+1. **El código de aplicación real (`generate-ai.ts`/`executor.server.ts`)
+   todavía no setea `credit_reservation_id` al insertar en `generations`
+   ni llama a `mark_reservation_job_outcome` en fallos confirmados** — esta
+   integración fue diseñada y documentada (ronda 6, §16.5) pero
+   deliberadamente no implementada, y esta ronda tampoco la autorizó
+   explícitamente. **Consecuencia real**: hoy, en tráfico de producción
+   real, el reconciliador solo tiene disponible la rama de umbral por
+   antigüedad (§17.5) — las ramas más inteligentes (evidencia de
+   completado/fallo confirmado) están construidas, probadas y activas en
+   la base de datos, pero no las alimenta ningún flujo real todavía. Es
+   una mejora de seguridad real igual (ya no es el umbral ciego de 30
+   minutos de v1, ahora es por herramienta y más conservador), pero el
+   diseño completo de "evidencia primero, antigüedad como último recurso"
+   no se realiza del todo hasta esa integración.
+2. **Ningún mecanismo de ejecución automática está activo** — la
+   autorización de esta ronda explícitamente prohibió conectar un cron
+   productivo o configurar un scheduler externo ("la validación remota
+   debe hacerse mediante una invocación manual"). El endpoint funciona,
+   está probado, pero hoy no se ejecuta solo.
+3. **`reconcile_stale_reservations` (v1, ciega por antigüedad) sigue
+   existiendo**, sin invocar, superseded — mismo riesgo latente ya
+   documentado en la ronda 6.
+4. **Hallazgo incidental, fuera de alcance**: el mismo problema de
+   `GET`/`PUT` devolviendo `200` en vez de `404`/`405` (§17.7) es
+   probablemente compartido por otras rutas API de este proyecto que
+   también solo declaran un método (`POST` o `GET`) — no se auditaron ni
+   corrigieron otras rutas en esta ronda, ya que excede el alcance
+   autorizado (específico al endpoint de reconciliación).
+
+### 17.11 Dictamen final
+
+**LEDGER LISTO CON CONDICIONES**
+
+Lo que se cierra completamente esta ronda: la migración del reconciliador
+está aplicada, auditada y verificada en vivo (35/35, cero drift); la RPC
+`reconcile_stale_reservations_v2` es segura (solo `service_role`, sin
+exposición de datos, CAS/idempotencia conservados, lotes acotados) y su
+lógica basada en evidencia fue probada con las 17 pruebas pedidas,
+incluyendo concurrencia real y un umbral por antigüedad verificado con una
+espera real (no simulada); el endpoint interno está activo únicamente en
+preview, protegido con secretos reales nunca expuestos, y un hallazgo real
+de seguridad (métodos HTTP no rechazados) fue encontrado y corregido antes
+de cerrar esta ronda.
+
+No corresponde "LISTO PARA CUTOVER" sin reservas porque: (1) el código de
+aplicación real todavía no alimenta las ramas de evidencia del
+reconciliador (§17.10.1) — funciona hoy, pero solo vía el umbral por
+antigüedad, que es más seguro que v1 pero no es el diseño completo; (2) no
+existe ningún mecanismo de ejecución automática activo, por instrucción
+explícita de esta misma autorización.
+
+Condiciones para pasar a `LEDGER LISTO PARA CUTOVER` sin reservas:
+1. Autorización separada para integrar `mark_reservation_job_outcome` y
+   `generations.credit_reservation_id` en `generate-ai.ts`/`executor.server.ts`.
+2. Autorización separada para decidir y activar un mecanismo de ejecución
+   automática (Cloudflare Cron Trigger o scheduler externo) apuntando al
+   endpoint interno, con la frecuencia y alcance que se decida entonces.
+
+No se realizó merge a `main`, deploy productivo, cron productivo, cambios
+DNS, ni se tocó Hotmart/Marketplace/Auth/OAuth/planes/precios/roles. Se
+detiene esta tarea aquí, a la espera de autorización.
