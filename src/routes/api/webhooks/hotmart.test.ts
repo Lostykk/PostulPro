@@ -192,6 +192,17 @@ describe("POST /api/webhooks/hotmart", () => {
     expect(args.p_event_type).toBe("purchase_approved");
   });
 
+  it("an approved-status delivery for an already-linked subscription is sent as renewal_approved, not purchase_approved (no duplicate welcome email)", async () => {
+    activeScenario.subscriptionLookup = { data: { user_id: "linked-user-1", plan: "pro", billing_interval: "month" }, error: null };
+    const res = await handler({ request: makeRequest(approvedPurchaseBody()) });
+    expect(res.status).toBe(200);
+
+    const rpcCall = calls.find((c) => c.rpcName === "process_hotmart_event");
+    const args = rpcCall!.args as Record<string, unknown>;
+    expect(args.p_user_id).toBe("linked-user-1");
+    expect(args.p_event_type).toBe("renewal_approved");
+  });
+
   it("approved purchase for a brand-new email invites a new user instead of guessing a password", async () => {
     activeScenario.usersLookup = { data: null, error: null };
     activeScenario.inviteUser = { data: { user: { id: "brand-new-user-1" } }, error: null };

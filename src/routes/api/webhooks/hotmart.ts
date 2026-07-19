@@ -230,6 +230,19 @@ async function handlePost({ request }: { request: Request }) {
     existingSubscriptionUserId = existingSub?.user_id ?? null;
   }
 
+  // Hotmart's confirmed flat payload has no explicit "this is a renewal"
+  // flag distinct from a fresh purchase — both arrive with the same
+  // `status: approved`. The only reliable signal is our own state: a
+  // subscriptions row already existing for this subscriber_code before
+  // this event means it's a renewal, not an initial purchase. This
+  // matters beyond bookkeeping — process_hotmart_event only sends the
+  // "pro_confirmation" welcome email for 'purchase_approved', never for
+  // 'renewal_approved', matching the original contract's explicit
+  // requirement ("renovación: igual que compra aprobada, sin re-enviar
+  // email de bienvenida").
+  const effectiveEventType =
+    existingSubscriptionUserId && event.eventType === "purchase_approved" ? "renewal_approved" : event.eventType;
+
   if (existingSubscriptionUserId) {
     userId = existingSubscriptionUserId;
   } else if (event.eventType === "purchase_approved" || event.eventType === "plan_change") {
@@ -283,7 +296,7 @@ async function handlePost({ request }: { request: Request }) {
   const { data: rpcRows, error: rpcError } = await supabaseAdmin.rpc("process_hotmart_event", {
     p_secret: billingRpcSecret,
     p_idempotency_key: idempotencyKey,
-    p_event_type: event.eventType,
+    p_event_type: effectiveEventType,
     p_user_id: userId,
     p_provider_subscription_id: event.subscriptionId ?? "",
     p_provider_customer_id: "",
@@ -314,7 +327,7 @@ async function handlePost({ request }: { request: Request }) {
     return json({ error: "Webhook handling failed" }, 500);
   }
 
-  log({ result: "processed", event_type: event.eventType, latency_ms: Date.now() - startedAt });
+  log({ result: "processed", event_type: effectiveEventType, latency_ms: Date.now() - startedAt });
   return json({ ok: true, message: result.message }, 200);
 }
 
