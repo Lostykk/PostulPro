@@ -364,10 +364,27 @@ export function verifyHottok(bodyHottok: string | null, headerHottok: string | n
   return verifyOne(bodyHottok, configured) || verifyOne(headerHottok, configured);
 }
 
-function verifyOne(provided: string | null, configured: string): boolean {
+// Single-value constant-time check — exported so the webhook route can
+// authenticate via the header ALONE, before ever parsing the body as
+// JSON (Fase C hotfix, 2026-07-19: the route must validate the Hottok
+// before doing any other work, including rate limiting — see
+// docs/hotmart-integration-report.md §30). verifyHottok() above still
+// covers the combined body-or-header case for the post-parse path.
+export function verifyOne(provided: string | null, configured: string): boolean {
   if (!provided) return false;
   const a = Buffer.from(provided, "utf8");
   const b = Buffer.from(configured, "utf8");
   if (a.length !== b.length) return false;
   return timingSafeEqual(a, b);
+}
+
+// Best-effort, crash-proof extraction of just the top-level `hottok`
+// field from an already-parsed JSON value — used by the route's
+// pre-rate-limit auth fallback (body-only Hottok, no header) without
+// running the full normalizer. Never throws on a malformed/unexpected
+// shape.
+export function extractHottokFromPayload(payload: unknown): string | null {
+  if (typeof payload !== "object" || payload === null || Array.isArray(payload)) return null;
+  const value = (payload as Record<string, unknown>).hottok;
+  return typeof value === "string" && value.length > 0 ? value : null;
 }
