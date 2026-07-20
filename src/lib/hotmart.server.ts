@@ -50,8 +50,14 @@ export function findMappingByIds(productId: string, offerId: string): (HotmartOf
   if (productId !== resolveProductId()) return undefined;
 
   for (const key of HOTMART_PLAN_KEYS) {
-    if (resolveOfferId(key) === offerId) {
-      return { key, ...HOTMART_OFFER_PLAN_MAP[key] };
+    const mapping = HOTMART_OFFER_PLAN_MAP[key];
+    // Matches the canonical offerId (respecting the env-override hook via
+    // resolveOfferId) OR any additionalOfferIds — other real Hotmart
+    // checkout-link variants (e.g. a coupon-specific link) for this exact
+    // same plan/price, never a different offer. See
+    // HotmartOfferMapping.additionalOfferIds's own comment.
+    if (resolveOfferId(key) === offerId || mapping.additionalOfferIds?.includes(offerId)) {
+      return { key, ...mapping };
     }
   }
   return undefined;

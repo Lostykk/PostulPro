@@ -65,6 +65,27 @@ describe("hotmart.server config", () => {
     expect(findMappingByIds("8148076", "64lrx4be")?.key).toBe("business_annual");
   });
 
+  it("resolves the POSTULPRO30 coupon's own checkout-link offer codes to the SAME plans, never a different one", () => {
+    // Hotmart mints a distinct offer code per coupon-linked checkout
+    // variant — verified live 2026-07-20 (see hotmart-config.ts's own
+    // comment): yjo2udb9 / oa0kfv5m are real, additional codes for the
+    // exact same pro_monthly / business_monthly plan+price, not new offers.
+    expect(findMappingByIds("8148076", "yjo2udb9")).toEqual({
+      key: "pro_monthly",
+      ...HOTMART_OFFER_PLAN_MAP.pro_monthly,
+    });
+    expect(findMappingByIds("8148076", "oa0kfv5m")).toEqual({
+      key: "business_monthly",
+      ...HOTMART_OFFER_PLAN_MAP.business_monthly,
+    });
+  });
+
+  it("both the canonical and the coupon offer code for pro_monthly resolve to identical price/credits/plan", () => {
+    const canonical = findMappingByIds("8148076", "w6nw1f3o");
+    const viaCoupon = findMappingByIds("8148076", "yjo2udb9");
+    expect(viaCoupon).toEqual(canonical);
+  });
+
   it("an unrecognized offer_id never resolves, even with the correct real product_id", () => {
     expect(findMappingByIds("8148076", "SOME_UNKNOWN_OFFER")).toBeUndefined();
   });
