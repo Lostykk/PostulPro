@@ -1590,6 +1590,13 @@ export type Database = {
           reservation_id: string;
         }[];
       };
+      reconcile_stuck_ai_project_planning: {
+        Args: { p_batch_limit?: number; p_timeout_minutes?: number };
+        Returns: {
+          outcome: string;
+          project_id: string;
+        }[];
+      };
       refund_credits: {
         Args: { p_cost: number };
         Returns: {

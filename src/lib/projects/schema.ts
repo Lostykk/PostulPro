@@ -9,7 +9,11 @@ export const IDEA_MIN_LEN = 8;
 export const IDEA_MAX_LEN = 4000;
 
 export const CreateProjectInputSchema = z.object({
-  idea: z.string().trim().min(IDEA_MIN_LEN, "Contanos un poco más sobre tu idea.").max(IDEA_MAX_LEN, "La idea es demasiado larga."),
+  idea: z
+    .string()
+    .trim()
+    .min(IDEA_MIN_LEN, "Contanos un poco más sobre tu idea.")
+    .max(IDEA_MAX_LEN, "La idea es demasiado larga."),
   objective: z.string().trim().max(300).optional(),
   targetAudience: z.string().trim().max(300).optional(),
   language: z.string().trim().min(2).max(10).default("es"),
@@ -69,7 +73,10 @@ export const ProjectPlanSchema = z.object({
   knownFacts: z.array(z.string().trim().max(300)).max(15).default([]),
   assumptions: z.array(z.string().trim().max(300)).max(15).default([]),
   questionsOrWarnings: z.array(z.string().trim().max(300)).max(10).default([]),
-  deliverables: z.array(PlanDeliverableSchema).min(1, "El plan necesita al menos un entregable.").max(MAX_DELIVERABLES),
+  deliverables: z
+    .array(PlanDeliverableSchema)
+    .min(1, "El plan necesita al menos un entregable.")
+    .max(MAX_DELIVERABLES),
   totalEstimatedCredits: z.number().int().min(0).default(0),
 });
 export type ProjectPlan = z.infer<typeof ProjectPlanSchema>;
@@ -99,3 +106,44 @@ export const StepStatusEnum = z.enum([
   "cancelled",
 ]);
 export type StepStatus = z.infer<typeof StepStatusEnum>;
+
+// User-facing text for every last_error_code a failed-during-planning
+// project can carry — never blames the user's idea/billing for a technical
+// or environment-restriction failure. Covers both the planner's own codes
+// (lib/projects/planner.server.ts's PlannerErrorCode) and the gate
+// rejections that precede it (preview guard, rate limit — see
+// routes/api/projects/$id.plan.ts and
+// docs/build-with-ai-stuck-project-incident.md), plus the reconciler's
+// 'timeout'. Falls back to a safe generic message for any other/unknown
+// code so a new failure mode never renders blank.
+export const PLANNING_FAILURE_MESSAGES: Record<string, string> = {
+  empty_response: "La IA devolvió una respuesta vacía. Podés reintentar sin perder créditos.",
+  truncated_response:
+    "La IA devolvió una respuesta incompleta. Ya reintentamos de forma segura, pero no se pudo completar — podés reintentar sin perder créditos.",
+  json_parse_failed:
+    "No pudimos interpretar la respuesta de la IA. Podés reintentar sin perder créditos.",
+  schema_validation_failed:
+    "El plan generado no tenía el formato esperado. Podés reintentar sin perder créditos.",
+  no_valid_deliverables: "El plan no propuso ninguna capacidad válida. Probá reformular la idea.",
+  provider_error:
+    "El servicio de IA tardó más de lo esperado o no respondió. Podés reintentar sin perder créditos.",
+  persistence_failed: "No pudimos terminar de guardar tu proyecto. Tu saldo no fue afectado.",
+  ai_disabled_in_preview:
+    "La generación con IA está deshabilitada temporalmente en este entorno de preview.",
+  ai_restricted_in_preview:
+    "La generación con IA en este entorno de preview está restringida a la cuenta de QA.",
+  rate_limited:
+    "Alcanzaste el límite de planes que podés generar por ahora. Probá de nuevo más tarde.",
+  rate_limit_unavailable:
+    "No pudimos verificar el límite de solicitudes. Probá de nuevo en un momento.",
+  timeout:
+    "La planificación tardó demasiado y fue cancelada. Podés reintentar sin perder créditos.",
+};
+
+export const DEFAULT_PLANNING_FAILURE_MESSAGE =
+  "No pudimos completar la planificación. Tu saldo no fue afectado. Podés reintentar este mismo proyecto.";
+
+export function planningFailureMessage(errorCode: string | null | undefined): string {
+  if (!errorCode) return DEFAULT_PLANNING_FAILURE_MESSAGE;
+  return PLANNING_FAILURE_MESSAGES[errorCode] ?? DEFAULT_PLANNING_FAILURE_MESSAGE;
+}

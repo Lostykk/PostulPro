@@ -5,6 +5,9 @@ import {
   ProjectBriefSchema,
   PlanDeliverableSchema,
   IDEA_MIN_LEN,
+  planningFailureMessage,
+  DEFAULT_PLANNING_FAILURE_MESSAGE,
+  PLANNING_FAILURE_MESSAGES,
 } from "@/lib/projects/schema";
 
 describe("CreateProjectInputSchema", () => {
@@ -24,7 +27,9 @@ describe("CreateProjectInputSchema", () => {
   });
 
   it("accepts a valid idea and defaults executionMode/language", () => {
-    const result = CreateProjectInputSchema.safeParse({ idea: "Quiero lanzar un curso de fotografía online" });
+    const result = CreateProjectInputSchema.safeParse({
+      idea: "Quiero lanzar un curso de fotografía online",
+    });
     expect(result.success).toBe(true);
     if (result.success) {
       expect(result.data.executionMode).toBe("guided");
@@ -67,7 +72,10 @@ describe("ProjectPlanSchema", () => {
   });
 
   it("accepts a minimal valid plan and fills in defaults", () => {
-    const result = ProjectPlanSchema.safeParse({ title: "Mi proyecto", deliverables: [validDeliverable] });
+    const result = ProjectPlanSchema.safeParse({
+      title: "Mi proyecto",
+      deliverables: [validDeliverable],
+    });
     expect(result.success).toBe(true);
     if (result.success) {
       expect(result.data.knownFacts).toEqual([]);
@@ -112,5 +120,45 @@ describe("ProjectBriefSchema", () => {
   it("still rejects a tone field beyond the 200-char cap", () => {
     const result = ProjectBriefSchema.safeParse({ tone: "a".repeat(201) });
     expect(result.success).toBe(false);
+  });
+});
+
+describe("planningFailureMessage", () => {
+  it("falls back to the generic message for null/undefined/unknown codes", () => {
+    expect(planningFailureMessage(null)).toBe(DEFAULT_PLANNING_FAILURE_MESSAGE);
+    expect(planningFailureMessage(undefined)).toBe(DEFAULT_PLANNING_FAILURE_MESSAGE);
+    expect(planningFailureMessage("some_future_code_nobody_mapped_yet")).toBe(
+      DEFAULT_PLANNING_FAILURE_MESSAGE,
+    );
+  });
+
+  it("returns a specific, honest message for the preview-guard and rate-limit codes", () => {
+    // These are the two codes at the heart of the incident this schema
+    // change fixes (see docs/build-with-ai-stuck-project-incident.md) —
+    // neither should ever fall back to the generic "planning failed" text,
+    // since neither implies the planner itself ran or failed.
+    expect(planningFailureMessage("ai_disabled_in_preview")).toBe(
+      PLANNING_FAILURE_MESSAGES.ai_disabled_in_preview,
+    );
+    expect(planningFailureMessage("ai_restricted_in_preview")).toBe(
+      PLANNING_FAILURE_MESSAGES.ai_restricted_in_preview,
+    );
+    expect(planningFailureMessage("rate_limited")).toBe(PLANNING_FAILURE_MESSAGES.rate_limited);
+    expect(planningFailureMessage("timeout")).toBe(PLANNING_FAILURE_MESSAGES.timeout);
+  });
+
+  it("covers every existing planner error code with a distinct message", () => {
+    const plannerCodes = [
+      "empty_response",
+      "truncated_response",
+      "json_parse_failed",
+      "schema_validation_failed",
+      "no_valid_deliverables",
+      "provider_error",
+    ];
+    for (const code of plannerCodes) {
+      expect(planningFailureMessage(code)).toBe(PLANNING_FAILURE_MESSAGES[code]);
+      expect(planningFailureMessage(code)).not.toBe(DEFAULT_PLANNING_FAILURE_MESSAGE);
+    }
   });
 });

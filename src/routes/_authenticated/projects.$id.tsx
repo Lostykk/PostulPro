@@ -25,6 +25,7 @@ import { useProjectStepStream } from "@/hooks/use-project-step-stream";
 import { projectsApiFetch, ApiError } from "@/lib/projects/api-client";
 import { downloadTxt } from "@/hooks/use-ai-stream";
 import { canClaimStep, canSkipStep, canPause, canResume } from "@/lib/projects/state-machine";
+import { planningFailureMessage } from "@/lib/projects/schema";
 import type { ProjectBrief, ProjectPlan, ProjectStatus, StepStatus } from "@/lib/projects/schema";
 import { DeliverableRenderer } from "@/components/deliverables/DeliverableRenderer";
 
@@ -331,6 +332,7 @@ function WorkspacePage() {
     return (
       <PlanningFailed
         idea={project.original_idea}
+        errorCode={project.last_error_code}
         retrying={planningInFlight}
         onRetry={() => void triggerPlanning()}
       />
@@ -442,7 +444,11 @@ function WorkspacePage() {
                 <span className="text-sm font-medium truncate">{s.title}</span>
               </div>
               <p className="mt-1 text-[11px] text-muted-foreground">
-                {s.credits_cost} créditos · <StatusBadge status={s.status} className="bg-transparent p-0 text-[11px] font-normal" />
+                {s.credits_cost} créditos ·{" "}
+                <StatusBadge
+                  status={s.status}
+                  className="bg-transparent p-0 text-[11px] font-normal"
+                />
               </p>
             </button>
           ))}
@@ -670,10 +676,12 @@ function PlanningInProgress({ idea, messageIdx }: { idea: string; messageIdx: nu
 
 function PlanningFailed({
   idea,
+  errorCode,
   retrying,
   onRetry,
 }: {
   idea: string;
+  errorCode: string | null;
   retrying: boolean;
   onRetry: () => void;
 }) {
@@ -681,10 +689,7 @@ function PlanningFailed({
     <div className="max-w-2xl mx-auto px-4 md:px-6 py-16 text-center">
       <div className="rounded-3xl border border-white/10 bg-gradient-to-br from-red-500/10 to-red-500/5 p-10">
         <AlertTriangle className="w-10 h-10 mx-auto mb-4 text-red-300" />
-        <h1 className="font-display text-xl font-bold">
-          No pudimos completar la planificación. Tu saldo no fue afectado. Podés reintentar este
-          mismo proyecto.
-        </h1>
+        <h1 className="font-display text-xl font-bold">{planningFailureMessage(errorCode)}</h1>
         <p className="mt-3 text-sm text-muted-foreground line-clamp-2">{idea}</p>
         <button
           type="button"

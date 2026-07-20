@@ -146,6 +146,17 @@ export const Route = createFileRoute("/api/projects/$id/plan")({
         }
         const guard = checkAiExecutionAllowed(userId, isAdminForGuard);
         if (!guard.allowed) {
+          // Without this, the project row is left exactly as
+          // create_ai_project left it (status='planning', no plan) forever —
+          // indistinguishable from "still running", since the client's retry
+          // effect just hits this same rejection again on every reload. See
+          // docs/build-with-ai-stuck-project-incident.md.
+          await supabase
+            .rpc("fail_ai_project_planning", { p_project_id: params.id, p_error_code: guard.code })
+            .then(
+              () => {},
+              () => {},
+            );
           return json({ error: guard.message, code: guard.code }, guard.status);
         }
 
@@ -155,6 +166,15 @@ export const Route = createFileRoute("/api/projects/$id/plan")({
         try {
           rate = await claimPlanRateLimit(supabase, request);
         } catch {
+          await supabase
+            .rpc("fail_ai_project_planning", {
+              p_project_id: params.id,
+              p_error_code: "rate_limit_unavailable",
+            })
+            .then(
+              () => {},
+              () => {},
+            );
           return json(
             {
               error: "No se pudo verificar el límite de solicitudes. Probá de nuevo en un momento.",
@@ -163,6 +183,18 @@ export const Route = createFileRoute("/api/projects/$id/plan")({
           );
         }
         if (!rate.allowed) {
+          // Same reasoning as the guard rejection above: this is a real,
+          // user-facing rejection of the current attempt, not silence — the
+          // project must not be left indistinguishable from "still planning".
+          await supabase
+            .rpc("fail_ai_project_planning", {
+              p_project_id: params.id,
+              p_error_code: "rate_limited",
+            })
+            .then(
+              () => {},
+              () => {},
+            );
           return json(
             {
               error:

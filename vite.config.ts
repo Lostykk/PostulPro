@@ -8,7 +8,12 @@ import { defineConfig } from "@lovable.dev/vite-tanstack-config";
 import { fileURLToPath } from "node:url";
 
 const reconcileTaskPath = fileURLToPath(new URL("./tasks/reconcile-credits.ts", import.meta.url));
-const reconcileHotmartTaskPath = fileURLToPath(new URL("./tasks/reconcile-hotmart.ts", import.meta.url));
+const reconcileHotmartTaskPath = fileURLToPath(
+  new URL("./tasks/reconcile-hotmart.ts", import.meta.url),
+);
+const reconcileStuckProjectsTaskPath = fileURLToPath(
+  new URL("./tasks/reconcile-stuck-projects.ts", import.meta.url),
+);
 
 export default defineConfig({
   tanstackStart: {
@@ -47,7 +52,7 @@ export default defineConfig({
   // explicitly here bypasses directory scanning entirely by pointing
   // straight at the file, per Nitro's own documented config-based
   // registration path (nitro/docs/tasks, "Registering tasks via config").
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- see comment above
+
   // scheduledTasks activates the production Cron Trigger: Nitro's
   // cloudflare-module preset translates this into a `[triggers].crons`
   // entry in the generated wrangler config at build time, which Cloudflare
@@ -79,11 +84,23 @@ export default defineConfig({
       // assistant.
       "reconcile-hotmart": {
         handler: reconcileHotmartTaskPath,
-        description: "Reconcile stale Hotmart subscriptions/events and auto-retry recoverable failures",
+        description:
+          "Reconcile stale Hotmart subscriptions/events and auto-retry recoverable failures",
+      },
+      // Defense-in-depth for "Construir con IA" projects stuck forever in
+      // 'planning' — see docs/build-with-ai-stuck-project-incident.md. Same
+      // cadence as the two tasks above: well under the 15-minute default
+      // timeout (reconcile_stuck_ai_project_planning's own p_timeout_minutes),
+      // so this can't fire mid-generation for a project that's still
+      // legitimately planning.
+      "reconcile-stuck-projects": {
+        handler: reconcileStuckProjectsTaskPath,
+        description:
+          "Fail 'planning' AI projects stuck past a timeout via reconcile_stuck_ai_project_planning",
       },
     },
     scheduledTasks: {
-      "*/5 * * * *": ["reconcile-credits", "reconcile-hotmart"],
+      "*/5 * * * *": ["reconcile-credits", "reconcile-hotmart", "reconcile-stuck-projects"],
     },
   } as any,
 });

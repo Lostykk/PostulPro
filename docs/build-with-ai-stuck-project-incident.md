@@ -1,0 +1,162 @@
+# Incident: "Construir con IA" project stuck forever in "Planificando"
+
+**Reported:** 2026-07-20, Preview environment
+**Affected project:** `4d71dfd5-ca53-495b-ada6-5eccaed90884`
+**Status:** Root cause identified and fixed in code (see commits on this branch). DB-level
+confirmation of this specific row was not possible — see "Audit limitations" below.
+
+## Symptom
+
+User submitted an idea via "Construir con IA" in Preview. The created project stayed in
+"Creando la estructura de tu proyecto…" / status `planning` indefinitely: 0% progress, no
+plan, no error, `0/0 créditos`. Reloading the page did not resolve it.
+
+## Prior, related (already-fixed) incident
+
+On 2026-07-15 (commits `7e48133`, `b291fac`, migrations `20260719000000_fail_ai_project_planning.sql`
+and `20260720000000_allow_retry_from_failed_planning.sql`), the exact same class of symptom was
+fixed for a different project (`8cec067e-864f-42d6-b28a-4478692c07f9`): the planner route
+(`POST /api/projects/:id/plan`) caught planner/persistence failures and returned an error to the
+client, but never wrote that failure to the `ai_projects` row. The row stayed exactly as
+`create_ai_project` left it (`status='planning'`, no `brief_json`/`plan_json`,
+`updated_at == created_at`) — indistinguishable from "still running", with no way to retry other
+than hoping a reload helped. The fix added `fail_ai_project_planning` (a `SECURITY DEFINER` RPC)
+and had the route's `catch` block around `generateProjectPlan()`/`save_ai_project_plan` call it,
+plus a frontend auto-retry-once-per-load + "Reintentar" UI for the resulting `failed` state.
+
+## Root cause of THIS incident
+
+That July 15 fix only wrapped the `try { generateProjectPlan(...) } catch { fail_ai_project_planning }`
+block. It did **not** cover two earlier `return` statements in the same handler
+(`src/routes/api/projects/$id.plan.ts`, `POST`) that also leave the project stuck:
+
+1. **Preview AI guard rejection** (`checkAiExecutionAllowed`, `src/lib/ai/preview-guard.server.ts`).
+   In Preview, AI execution requires `AI_GENERATION_ENABLED === "true"` and either an admin/owner
+   caller or a match against `PREVIEW_AI_ALLOWED_USER_ID`. When this guard rejects, the handler
+   returns `403`/`503` **before ever calling `fail_ai_project_planning`**.
+2. **Plan rate-limit rejection** (`claimPlanRateLimit`, `src/lib/rate-limit.server.ts` /
+   `claim_plan_rate_limit` RPC). This applies in both Preview and production. When the limit is
+   exceeded, the handler returns `429` **before ever calling `fail_ai_project_planning`**.
+
+In both cases the client (`src/routes/_authenticated/projects.$id.tsx`, `triggerPlanning()`)
+receives an error from `fetch`, but its `catch` block is a deliberate no-op — it assumes (per the
+July 15 fix's own comment) that "the server already persisted a real failed state". That
+assumption is false for these two paths. The `ai_projects` row is never updated, so:
+
+- `status` stays `"planning"` forever.
+- `brief_json`/`plan_json` stay `NULL` → `estimated_credits` stays `0` → any "X/Y créditos" display
+  reads `0/0`.
+- `updated_at == created_at`, indistinguishable from "just started".
+- On page reload, `planAutoTriggeredRef` resets (new component mount) and the effect re-fires
+  `triggerPlanning()` — which hits the exact same guard/rate-limit rejection again, silently, with
+  no error ever surfacing. This exactly matches "reloading the page does not resolve it" and "no
+  error visible".
+
+No job queue, cron, or worker exists in this codebase for "Construir con IA" — planning and step
+execution are both driven synchronously by the authenticated user's own HTTP requests
+(`POST /api/projects/:id/plan`, `POST /api/projects/:id/steps/:stepId/run`,
+`POST /api/projects/:id/run-next`). There is no separate `jobs` table; `ai_projects` +
+`ai_project_steps` together are the closest equivalent. Because of this architecture, the only
+existing periodic reconciliation is for **credit reservations**
+(`reconcile_stale_reservations_v2`, `src/lib/ai/reconcile-credits.server.ts`) — there was no
+reconciler at all for a project stuck in `planning`, which is the gap being closed here too as
+defense-in-depth (see fix section).
+
+## Why credits show 0/0 (not a credits bug)
+
+Credits are never touched during planning in this codebase — `estimated_credits`/`spent_credits`
+are only set by `save_ai_project_plan` (on a successful plan) and by step execution
+(`claim_ai_project_step` / `complete_ai_project_step`). A project stuck in `planning` never
+reserved or spent anything. `0/0` is the accurate (if confusing) reflection of "no plan was ever
+saved" — not a leaked reservation or double charge. No credit-side correction is needed for this
+incident.
+
+## Scope: Preview only, or also production?
+
+The rate-limit-rejection path applies in **both** environments — a user who exhausts
+`PLAN_RATE_LIMIT_MAX_REQUESTS` (default 5 per 10 min) or `PLAN_RATE_LIMIT_DAILY_MAX` (default 20/day)
+in production would hit the identical stuck-`planning` bug there too. The Preview-guard path is,
+by construction, Preview-only (`isPreviewEnvironment()` short-circuits to `allowed: true` whenever
+`APP_ENV !== "preview"`, which production never sets). The fix (below) covers both paths, so both
+environments are protected going forward.
+
+## Audit limitations (what could not be directly confirmed)
+
+Per this task's security rules, no environment variable **values** were read or printed — only
+names/existence were checked (`wrangler secret list --name lostykk-postulpro-preview`, name-only
+output). This confirmed `AI_GENERATION_ENABLED` and `PREVIEW_AI_ALLOWED_USER_ID` (among all other
+required secrets) **are configured** on the preview Worker, but not their actual values — so it
+was not possible to determine from this session which of the two guard branches (kill-switch off,
+vs. caller not the allowlisted QA user) actually fired for this specific request, nor to
+distinguish that from the rate-limit path, without either:
+
+- direct SQL read access to `ai_projects`/`ai_project_steps` for this project id — attempted via
+  `supabase db query --linked` (Management API, no DB password needed), which failed with
+  `403: Your account does not have the necessary privileges to access this endpoint`; or
+- the `SUPABASE_SERVICE_ROLE_KEY` (deliberately not read/used outside its normal server-side
+  runtime context), or the project owner's own authenticated session.
+
+This does not weaken the fix: **every** early-return path between `create_ai_project` (which sets
+`status='planning'`) and the try/catch around `generateProjectPlan`/`save_ai_project_plan` is
+fixed to persist a real `failed` state, regardless of which one caused this particular project's
+symptom. Recovering `4d71dfd5-ca53-495b-ada6-5eccaed90884` itself (Section 12 of the task) happens
+automatically, on the same project id, the next time its owner opens `/projects/4d71dfd5-...`
+under the fixed code — no DB write from this session is required or was made.
+
+## Preview deployment
+
+Deployed to `lostykk-postulpro-preview` (Worker Version ID `050777dc-05f2-4f3a-acf0-1fd2f1ba3b5f`,
+`https://lostykk-postulpro-preview.ignacioo-ch13.workers.dev`). Verified post-deploy, unauthenticated:
+landing page `200`; `POST /api/internal/reconcile-stuck-projects` and the existing
+`reconcile-credits` sibling both correctly `401` without the shared secret; `GET` on the new
+endpoint correctly `405` (briefly `404` immediately after deploy — edge propagation lag, gone on
+retry). Production Worker (`lostykk-postulpro`) was not touched by this deploy.
+
+**Deploy workaround note**: `wrangler deploy --env preview` fails on wrangler 4.108 with
+`Redirected configurations cannot include environments` — a known, previously-documented
+incompatibility between this wrangler version and Nitro's generated `.output/server/wrangler.json`
+(unrelated to this fix; see `docs/premium-redesign-report.md` §8 and §16.8 for the same issue hit
+and resolved the same way in an earlier session). Worked around identically: edited the
+generated, gitignored `.output/server/wrangler.json` (never the tracked `wrangler.jsonc` source)
+to set `name: "lostykk-postulpro-preview"` / `workers_dev: true` at the root and dropped the `env`
+block, then deployed without `--env`. The deployed target is unambiguous either way (the Worker
+name in the config, confirmed again in the deploy command's own output).
+
+**Not yet done, and why**: a full authenticated click-through (real login → real plan generation →
+real persisted deliverable) was not performed from this session — no QA account credentials are
+available here, and entering/using a password is outside this session's authority regardless. The
+route-level and unit tests above prove the fix mechanically (the guard/rate-limit paths now call
+`fail_ai_project_planning`), and the code is live on preview, but the task's own bar for
+"GENERACIÓN REAL OPERATIVA" (a real persisted result, not just "the spinner disappeared") requires
+a real logged-in session this session doesn't have. Whoever has QA access should open
+`/projects/4d71dfd5-ca53-495b-ada6-5eccaed90884` on preview once — that alone completes the
+recovery attempt for this specific project (same id, same idempotency key, no new project/credit
+spend), and confirms end-to-end.
+
+Separately, the new `reconcile_stuck_ai_project_planning` migration has **not been applied** to the
+shared database — see "Audit limitations" above; the Supabase CLI account authenticated in this
+session returned `403` on both `db query --linked` and `migration list --linked` (an org-permission
+limit, not something fixable from here). This does not block the core fix (which only calls the
+already-applied `fail_ai_project_planning`), but the defense-in-depth reconciler stays inert
+(scheduled every 5 minutes, erroring harmlessly and logging "function does not exist") until
+someone with sufficient Supabase org privileges runs `supabase db push --linked` (or applies
+`supabase/migrations/20260802020000_reconcile_stuck_ai_project_planning.sql` directly).
+
+## Fix (see code changes on this branch)
+
+1. `src/routes/api/projects/$id.plan.ts` — both the preview-guard rejection and the rate-limit
+   rejection now call `fail_ai_project_planning` (best-effort, same pattern as the existing
+   provider-error catch) before returning their error response, with `error_code` set to the
+   guard's own code (`ai_disabled_in_preview` / `ai_restricted_in_preview`) or `"rate_limited"`.
+2. `src/routes/_authenticated/projects.$id.tsx` — `PlanningFailed` now shows a message specific to
+   `last_error_code` (including the two new codes and the existing planner codes) instead of one
+   generic sentence, so "restricted in preview" / "rate limited" / "timed out" read as distinct,
+   honest, non-billing-blaming states.
+3. New migration `20260720010000_reconcile_stuck_ai_project_planning.sql` — a bounded,
+   `service_role`-only `reconcile_stuck_ai_project_planning()` RPC that marks any project stuck in
+   `planning` past a timeout (default 15 minutes) as `failed` with `last_error_code='timeout'`.
+   This is defense-in-depth for any *future*, still-unknown cause of the same symptom (e.g. a
+   Worker killed mid-request before any catch block runs) — mirroring the existing
+   `reconcile_stale_reservations_v2` pattern exactly (batched, idempotent, service-role only, no
+   client-supplied filters). Wired through the same secret-gated internal-HTTP + Nitro Task
+   pattern as the existing credit reconciler (`RECONCILE_SECRET`, already configured on preview).
