@@ -1,34 +1,29 @@
 import { defineTask } from "nitro/task";
 import { createClient } from "@supabase/supabase-js";
 import type { Database } from "@/integrations/supabase/types";
+import { runHotmartReconciliation } from "@/lib/hotmart/reconcile-hotmart.server";
 
-// Nitro Task for commercial (Hotmart) reconciliation — Fase I. Registered
-// exactly like tasks/reconcile-credits.ts (same experimental.tasks
-// mechanism, see that file's header comment for the full mechanism
-// citation), but deliberately NOT added to vite.config.ts's
-// `scheduledTasks` map — this task exists and is invocable via
-// runTask("reconcile-hotmart", ...) for manual/preview testing, but no
-// Cron Trigger is registered for it in any environment. Activating it in
-// production is a separate, later, explicitly authorized step (mirroring
-// exactly how the credit reconciler's own cron activation was staged in
-// docs/premium-redesign-report.md).
+// Nitro Task for commercial (Hotmart) reconciliation. Thin adapter only —
+// all real logic lives in reconcile-hotmart.server.ts's
+// runHotmartReconciliation (see that module's header comment for the full
+// Fase 5 autonomous-recovery design), the same "no logic duplicated in the
+// task layer" convention tasks/reconcile-credits.ts already follows.
 //
-// Deliberately its own task, not folded into "reconcile-credits": the
-// two reconcile completely different domains (AI-generation credit
-// reservations vs. Hotmart commercial subscriptions) against completely
-// different tables, and mixing them would make each harder to reason
-// about, test, and — critically — activate independently later.
+// Registered in vite.config.ts's scheduledTasks alongside reconcile-credits
+// (same */5 cron cadence — no new Cron Trigger, no new infrastructure).
 export default defineTask({
   meta: {
     name: "reconcile-hotmart",
-    description: "Reconcile stale Hotmart subscriptions/events via reconcile_hotmart_stale",
+    description: "Reconcile stale Hotmart subscriptions/events and auto-retry recoverable failures",
   },
   run: async ({ payload }) => {
     const batchLimit = typeof payload?.batchLimit === "number" ? payload.batchLimit : 200;
+    const retryBatchLimit = typeof payload?.retryBatchLimit === "number" ? payload.retryBatchLimit : 25;
 
     const SUPABASE_URL = process.env.SUPABASE_URL;
     const SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
-    if (!SUPABASE_URL || !SERVICE_ROLE_KEY) {
+    const billingRpcSecret = process.env.BILLING_RPC_SECRET;
+    if (!SUPABASE_URL || !SERVICE_ROLE_KEY || !billingRpcSecret) {
       console.log(JSON.stringify({ scope: "hotmart_reconcile_run", result: "rejected_config" }));
       return { result: { ok: false, errorMessage: "not_configured" } };
     }
@@ -37,13 +32,10 @@ export default defineTask({
       auth: { persistSession: false, autoRefreshToken: false, storage: undefined },
     });
 
-    const { data, error } = await supabase.rpc("reconcile_hotmart_stale", { p_batch_limit: batchLimit });
-    if (error) {
-      console.log(JSON.stringify({ scope: "hotmart_reconcile_run", result: "error", error: error.message }));
-      return { result: { ok: false, errorMessage: error.message } };
+    const outcome = await runHotmartReconciliation(supabase, billingRpcSecret, batchLimit, retryBatchLimit);
+    if (!outcome.ok) {
+      return { result: { ok: false, errorMessage: outcome.errorMessage } };
     }
-    const summary = data?.[0] ?? { expired_subscriptions: 0, stuck_events_flagged: 0 };
-    console.log(JSON.stringify({ scope: "hotmart_reconcile_run", result: "ok", summary }));
-    return { result: { ok: true, ...summary } };
+    return { result: { ok: true, ...outcome.summary } };
   },
 });
