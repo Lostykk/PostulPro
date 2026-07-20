@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { normalizeHotmartPayload, verifyHottok } from "@/lib/hotmart/normalize";
+import { normalizeHotmartPayload, verifyHottok, isPlausibleCurrencyCode } from "@/lib/hotmart/normalize";
 import { buildIdempotencyKey } from "@/lib/hotmart/idempotency-key";
 import {
   buildFixture,
@@ -166,6 +166,26 @@ describe("normalizeHotmartPayload — real nested (2.0.0) structure", () => {
     expect(result.eventType).toBe("purchase_approved");
     expect(result.productId).toBe("P1");
     expect(result.offerId).toBe("O1");
+  });
+});
+
+describe("isPlausibleCurrencyCode — structural sanity only, never a specific-currency allowlist", () => {
+  it("accepts real-looking ISO 4217 codes, including ones with no special handling elsewhere in the codebase", () => {
+    for (const code of ["USD", "ARS", "BRL", "EUR", "MXN", "COP", "CLP", "PEN", "GBP", "JPY"]) {
+      expect(isPlausibleCurrencyCode(code)).toBe(true);
+    }
+  });
+
+  it("accepts lowercase (normalized elsewhere, this check is shape-only)", () => {
+    expect(isPlausibleCurrencyCode("usd")).toBe(true);
+  });
+
+  it("rejects structurally malformed values — never a real currency", () => {
+    expect(isPlausibleCurrencyCode("12$")).toBe(false);
+    expect(isPlausibleCurrencyCode("US")).toBe(false);
+    expect(isPlausibleCurrencyCode("DOLLARS")).toBe(false);
+    expect(isPlausibleCurrencyCode("")).toBe(false);
+    expect(isPlausibleCurrencyCode(null)).toBe(false);
   });
 });
 

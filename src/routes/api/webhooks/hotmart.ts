@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { createFileRoute } from "@tanstack/react-router";
 import { createClient } from "@supabase/supabase-js";
 import type { Database } from "@/integrations/supabase/types";
-import { normalizeHotmartPayload, verifyOne, extractHottokFromPayload, type HotmartNormalizedEvent } from "@/lib/hotmart/normalize";
+import { normalizeHotmartPayload, verifyOne, extractHottokFromPayload, isPlausibleCurrencyCode, type HotmartNormalizedEvent } from "@/lib/hotmart/normalize";
 import { buildIdempotencyKey } from "@/lib/hotmart/idempotency-key";
 import { findMappingByIds, validateHotmartConfig } from "@/lib/hotmart.server";
 import { resolveOrInviteBuyer, recordPendingLink } from "@/lib/hotmart/buyer-linking.server";
@@ -357,15 +357,38 @@ async function processEvent(args: {
     return { httpStatus: 200, result: "unmapped_offer", message: "Product/offer not configured — held for review" };
   }
 
-  // Currency is validated against the mapped offer's expected currency,
-  // never used to infer the plan. A mismatch on an otherwise
-  // correctly-mapped offer is unusual enough (a different storefront
-  // currency, a misconfigured offer) to hold for review rather than
-  // silently grant access at a price point that was never actually
-  // approved for that currency.
+  // Currency/amount: hard-blocked only when structurally impossible,
+  // never merely "different from the offer's reference currency". See
+  // docs/hotmart-integration-report.md §5 for the incident that drove
+  // this: a real POSTULPRO30 purchase was legitimately charged in ARS
+  // (Hotmart's own IP-based localization for international buyers) and
+  // was wrongly rejected by an equality check against USD — even though
+  // `expectedPrice` was never actually validated either, so the currency
+  // check added no real protection against a mispriced purchase. The
+  // offer_id match above is, and remains, the sole authority for which
+  // plan/credits this event grants; currency/amount are recorded for
+  // audit and anomaly review, never used to gate a legitimately mapped
+  // offer.
+  if (mapping && event.currency && !isPlausibleCurrencyCode(event.currency)) {
+    await markRow(supabaseAdmin, hotmartEventRowId, "failed", { last_error: `malformed currency value: ${event.currency.slice(0, 20)}` });
+    return { httpStatus: 400, result: "failed", message: "Malformed currency value" };
+  }
+  if (mapping && event.fullPrice !== null && (!Number.isFinite(event.fullPrice) || event.fullPrice <= 0)) {
+    await markRow(supabaseAdmin, hotmartEventRowId, "failed", { last_error: `structurally invalid amount: ${event.fullPrice}` });
+    return { httpStatus: 400, result: "failed", message: "Structurally invalid amount" };
+  }
   if (mapping && event.currency && event.currency.toUpperCase() !== mapping.expectedCurrency) {
-    await markRow(supabaseAdmin, hotmartEventRowId, "failed", { last_error: `unexpected currency: ${event.currency}` });
-    return { httpStatus: 400, result: "failed", message: "Unexpected currency for mapped offer" };
+    // Observability only — never blocks. Logged (not persisted to a new
+    // column; see the report's scoping note on why this round didn't add
+    // one) so currency conversions are visible without gating access.
+    log({
+      scope: "hotmart_webhook_currency_observation",
+      event: "currency_conversion_detected",
+      base_currency: mapping.expectedCurrency,
+      charged_currency: event.currency.toUpperCase(),
+      offer_id: event.offerId,
+      transaction_id: event.transactionId,
+    });
   }
 
   // Resolve user_id: for the very first event on a subscription (no

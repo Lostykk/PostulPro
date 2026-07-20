@@ -388,3 +388,18 @@ export function extractHottokFromPayload(payload: unknown): string | null {
   const value = (payload as Record<string, unknown>).hottok;
   return typeof value === "string" && value.length > 0 ? value : null;
 }
+
+// Structural-only currency sanity check (ISO 4217 shape: exactly 3
+// letters) — deliberately NOT an equality check against any specific
+// currency. Hotmart legitimately charges international buyers in their
+// local currency for an offer configured with a USD reference price
+// (confirmed live 2026-07-20: a real POSTULPRO30 purchase was charged in
+// ARS) — the currency itself is never the security boundary for which
+// plan to grant (offer_id already is, see hotmart.server.ts's
+// findMappingByIds). This only catches a genuinely malformed/garbage
+// value, which is a real structural problem worth hard-blocking on,
+// never a legitimate-but-different currency.
+export function isPlausibleCurrencyCode(value: string | null): boolean {
+  if (!value) return false;
+  return /^[A-Za-z]{3}$/.test(value);
+}
