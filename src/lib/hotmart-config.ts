@@ -31,6 +31,16 @@ export type HotmartOfferMapping = {
   expectedPrice: number; // USD, matches src/lib/plans.ts exactly — audited, not authoritative for access
   expectedCurrency: "USD";
   offerId: string;
+  // Other real Hotmart-issued offer codes that resolve to this exact same
+  // plan/price/interval — never a different offer. Hotmart mints a
+  // distinct offer code per checkout-link variant (confirmed 2026-07-20:
+  // the coupon-linked checkout for this same monthly plan/price came back
+  // with its own new `off=` code, not the original one below), so
+  // findMappingByIds must recognize all of them, not just the first one
+  // ever configured. Adding a code here never changes price/plan/credits
+  // for anyone — it only widens which real Hotmart offer ids resolve to
+  // the SAME already-approved grant.
+  additionalOfferIds?: string[];
   checkoutUrl: string;
 };
 
@@ -53,6 +63,11 @@ export const HOTMART_OFFER_PLAN_MAP: Record<HotmartPlanKey, HotmartOfferMapping>
     expectedPrice: 29,
     expectedCurrency: "USD",
     offerId: "w6nw1f3o",
+    // The POSTULPRO30 coupon's own checkout link for this same plan/price
+    // (verified 2026-07-20: $20.30 first month / $29.00 renewal, exactly
+    // 30% off, same product) — a distinct Hotmart-issued offer code, not
+    // a different offer.
+    additionalOfferIds: ["yjo2udb9"],
     checkoutUrl: "https://pay.hotmart.com/E106787841U?off=w6nw1f3o",
   },
   pro_annual: {
@@ -71,6 +86,11 @@ export const HOTMART_OFFER_PLAN_MAP: Record<HotmartPlanKey, HotmartOfferMapping>
     expectedPrice: 99,
     expectedCurrency: "USD",
     offerId: "zy2exb4h",
+    // The POSTULPRO30 coupon's own checkout link for this same plan/price
+    // (verified 2026-07-20: $69.30 first month / $99.00 renewal, exactly
+    // 30% off, same product) — a distinct Hotmart-issued offer code, not
+    // a different offer.
+    additionalOfferIds: ["oa0kfv5m"],
     checkoutUrl: "https://pay.hotmart.com/E106787841U?off=zy2exb4h",
   },
   business_annual: {
