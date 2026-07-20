@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import { Link } from "@tanstack/react-router";
 import { Sparkles, Zap, Users } from "lucide-react";
+import { PostulProMark } from "@/components/brand/PostulProMark";
 
 export function AuthSplitLayout({ children }: { children: ReactNode }) {
   return (
@@ -17,9 +18,7 @@ export function AuthSplitLayout({ children }: { children: ReactNode }) {
         />
         <div className="relative">
           <Link to="/" className="flex items-center gap-2">
-            <div className="grid place-items-center w-9 h-9 rounded-lg bg-gradient-brand shadow-lg">
-              <Sparkles className="w-5 h-5 text-white" />
-            </div>
+            <PostulProMark className="w-9 h-9" />
             <span className="font-display text-xl font-bold tracking-tight">PostulPro</span>
           </Link>
         </div>
@@ -57,9 +56,7 @@ export function AuthSplitLayout({ children }: { children: ReactNode }) {
         <div className="w-full max-w-md">
           <div className="lg:hidden mb-8 flex justify-center">
             <Link to="/" className="flex items-center gap-2">
-              <div className="grid place-items-center w-9 h-9 rounded-lg bg-gradient-brand">
-                <Sparkles className="w-5 h-5 text-white" />
-              </div>
+              <PostulProMark className="w-9 h-9" />
               <span className="font-display text-xl font-bold">PostulPro</span>
             </Link>
           </div>

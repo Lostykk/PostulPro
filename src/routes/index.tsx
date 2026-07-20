@@ -27,6 +27,7 @@ import {
 import { captureReferral } from "@/lib/referral";
 import { MARKETPLACE_ENABLED } from "@/lib/features";
 import { PLANS } from "@/lib/plans";
+import { PostulProMark } from "@/components/brand/PostulProMark";
 
 export const Route = createFileRoute("/")({
   component: Landing,
@@ -59,19 +60,7 @@ function Landing() {
 function Logo({ className = "" }: { className?: string }) {
   return (
     <div className={`flex items-center gap-2 ${className}`}>
-      <div
-        aria-hidden
-        className="relative grid h-8 w-8 place-items-center rounded-full bg-gradient-brand glow-brand"
-      >
-        <svg viewBox="0 0 24 24" className="h-4 w-4 text-white" fill="none" stroke="currentColor" strokeWidth="2">
-          <circle cx="12" cy="12" r="2" />
-          <circle cx="5" cy="6" r="1.4" />
-          <circle cx="19" cy="6" r="1.4" />
-          <circle cx="5" cy="18" r="1.4" />
-          <circle cx="19" cy="18" r="1.4" />
-          <path d="M12 12L5 6M12 12l7-6M12 12l-7 6M12 12l7 6" />
-        </svg>
-      </div>
+      <PostulProMark className="h-8 w-8" />
       <span className="font-display text-lg font-bold tracking-tight">PostulPro</span>
     </div>
   );
