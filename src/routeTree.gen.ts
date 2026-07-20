@@ -34,6 +34,7 @@ import { Route as ApiProjectsIndexRouteImport } from './routes/api/projects/inde
 import { Route as AuthenticatedToolsIndexRouteImport } from './routes/_authenticated/tools.index'
 import { Route as AuthenticatedProjectsIndexRouteImport } from './routes/_authenticated/projects.index'
 import { Route as AuthenticatedMarketplaceIndexRouteImport } from './routes/_authenticated/marketplace.index'
+import { Route as AuthenticatedAdminIndexRouteImport } from './routes/_authenticated/admin.index'
 import { Route as ApiWebhooksHotmartRouteImport } from './routes/api/webhooks/hotmart'
 import { Route as ApiProjectsCapabilitiesRouteImport } from './routes/api/projects/capabilities'
 import { Route as ApiProjectsIdRouteImport } from './routes/api/projects/$id'
@@ -53,6 +54,7 @@ import { Route as AuthenticatedToolsBusinessPlanRouteImport } from './routes/_au
 import { Route as AuthenticatedProjectsIdRouteImport } from './routes/_authenticated/projects.$id'
 import { Route as AuthenticatedMarketplaceSellRouteImport } from './routes/_authenticated/marketplace.sell'
 import { Route as AuthenticatedMarketplaceProductIdRouteImport } from './routes/_authenticated/marketplace.$productId'
+import { Route as AuthenticatedAdminPromotionalCreditsRouteImport } from './routes/_authenticated/admin.promotional-credits'
 import { Route as ApiProjectsIdRunNextRouteImport } from './routes/api/projects/$id.run-next'
 import { Route as ApiProjectsIdResumeRouteImport } from './routes/api/projects/$id.resume'
 import { Route as ApiProjectsIdPlanRouteImport } from './routes/api/projects/$id.plan'
@@ -191,6 +193,11 @@ const AuthenticatedMarketplaceIndexRoute =
     path: '/',
     getParentRoute: () => AuthenticatedMarketplaceRoute,
   } as any)
+const AuthenticatedAdminIndexRoute = AuthenticatedAdminIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => AuthenticatedAdminRoute,
+} as any)
 const ApiWebhooksHotmartRoute = ApiWebhooksHotmartRouteImport.update({
   id: '/api/webhooks/hotmart',
   path: '/api/webhooks/hotmart',
@@ -297,6 +304,12 @@ const AuthenticatedMarketplaceProductIdRoute =
     path: '/$productId',
     getParentRoute: () => AuthenticatedMarketplaceRoute,
   } as any)
+const AuthenticatedAdminPromotionalCreditsRoute =
+  AuthenticatedAdminPromotionalCreditsRouteImport.update({
+    id: '/promotional-credits',
+    path: '/promotional-credits',
+    getParentRoute: () => AuthenticatedAdminRoute,
+  } as any)
 const ApiProjectsIdRunNextRoute = ApiProjectsIdRunNextRouteImport.update({
   id: '/run-next',
   path: '/run-next',
@@ -355,7 +368,7 @@ export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/demo': typeof DemoRoute
   '/legal': typeof LegalRoute
-  '/admin': typeof AuthenticatedAdminRoute
+  '/admin': typeof AuthenticatedAdminRouteWithChildren
   '/affiliates': typeof AuthenticatedAffiliatesRoute
   '/build': typeof AuthenticatedBuildRoute
   '/dashboard': typeof AuthenticatedDashboardRoute
@@ -372,6 +385,7 @@ export interface FileRoutesByFullPath {
   '/auth/reset-password': typeof AuthResetPasswordRoute
   '/p/$slug': typeof PSlugRoute
   '/ref/$code': typeof RefCodeRoute
+  '/admin/promotional-credits': typeof AuthenticatedAdminPromotionalCreditsRoute
   '/marketplace/$productId': typeof AuthenticatedMarketplaceProductIdRoute
   '/marketplace/sell': typeof AuthenticatedMarketplaceSellRoute
   '/projects/$id': typeof AuthenticatedProjectsIdRoute
@@ -391,6 +405,7 @@ export interface FileRoutesByFullPath {
   '/api/projects/$id': typeof ApiProjectsIdRouteWithChildren
   '/api/projects/capabilities': typeof ApiProjectsCapabilitiesRoute
   '/api/webhooks/hotmart': typeof ApiWebhooksHotmartRoute
+  '/admin/': typeof AuthenticatedAdminIndexRoute
   '/marketplace/': typeof AuthenticatedMarketplaceIndexRoute
   '/projects/': typeof AuthenticatedProjectsIndexRoute
   '/tools/': typeof AuthenticatedToolsIndexRoute
@@ -410,7 +425,6 @@ export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/demo': typeof DemoRoute
   '/legal': typeof LegalRoute
-  '/admin': typeof AuthenticatedAdminRoute
   '/affiliates': typeof AuthenticatedAffiliatesRoute
   '/build': typeof AuthenticatedBuildRoute
   '/dashboard': typeof AuthenticatedDashboardRoute
@@ -426,6 +440,7 @@ export interface FileRoutesByTo {
   '/auth/reset-password': typeof AuthResetPasswordRoute
   '/p/$slug': typeof PSlugRoute
   '/ref/$code': typeof RefCodeRoute
+  '/admin/promotional-credits': typeof AuthenticatedAdminPromotionalCreditsRoute
   '/marketplace/$productId': typeof AuthenticatedMarketplaceProductIdRoute
   '/marketplace/sell': typeof AuthenticatedMarketplaceSellRoute
   '/projects/$id': typeof AuthenticatedProjectsIdRoute
@@ -445,6 +460,7 @@ export interface FileRoutesByTo {
   '/api/projects/$id': typeof ApiProjectsIdRouteWithChildren
   '/api/projects/capabilities': typeof ApiProjectsCapabilitiesRoute
   '/api/webhooks/hotmart': typeof ApiWebhooksHotmartRoute
+  '/admin': typeof AuthenticatedAdminIndexRoute
   '/marketplace': typeof AuthenticatedMarketplaceIndexRoute
   '/projects': typeof AuthenticatedProjectsIndexRoute
   '/tools': typeof AuthenticatedToolsIndexRoute
@@ -466,7 +482,7 @@ export interface FileRoutesById {
   '/_authenticated': typeof AuthenticatedRouteRouteWithChildren
   '/demo': typeof DemoRoute
   '/legal': typeof LegalRoute
-  '/_authenticated/admin': typeof AuthenticatedAdminRoute
+  '/_authenticated/admin': typeof AuthenticatedAdminRouteWithChildren
   '/_authenticated/affiliates': typeof AuthenticatedAffiliatesRoute
   '/_authenticated/build': typeof AuthenticatedBuildRoute
   '/_authenticated/dashboard': typeof AuthenticatedDashboardRoute
@@ -483,6 +499,7 @@ export interface FileRoutesById {
   '/auth/reset-password': typeof AuthResetPasswordRoute
   '/p/$slug': typeof PSlugRoute
   '/ref/$code': typeof RefCodeRoute
+  '/_authenticated/admin/promotional-credits': typeof AuthenticatedAdminPromotionalCreditsRoute
   '/_authenticated/marketplace/$productId': typeof AuthenticatedMarketplaceProductIdRoute
   '/_authenticated/marketplace/sell': typeof AuthenticatedMarketplaceSellRoute
   '/_authenticated/projects/$id': typeof AuthenticatedProjectsIdRoute
@@ -502,6 +519,7 @@ export interface FileRoutesById {
   '/api/projects/$id': typeof ApiProjectsIdRouteWithChildren
   '/api/projects/capabilities': typeof ApiProjectsCapabilitiesRoute
   '/api/webhooks/hotmart': typeof ApiWebhooksHotmartRoute
+  '/_authenticated/admin/': typeof AuthenticatedAdminIndexRoute
   '/_authenticated/marketplace/': typeof AuthenticatedMarketplaceIndexRoute
   '/_authenticated/projects/': typeof AuthenticatedProjectsIndexRoute
   '/_authenticated/tools/': typeof AuthenticatedToolsIndexRoute
@@ -540,6 +558,7 @@ export interface FileRouteTypes {
     | '/auth/reset-password'
     | '/p/$slug'
     | '/ref/$code'
+    | '/admin/promotional-credits'
     | '/marketplace/$productId'
     | '/marketplace/sell'
     | '/projects/$id'
@@ -559,6 +578,7 @@ export interface FileRouteTypes {
     | '/api/projects/$id'
     | '/api/projects/capabilities'
     | '/api/webhooks/hotmart'
+    | '/admin/'
     | '/marketplace/'
     | '/projects/'
     | '/tools/'
@@ -578,7 +598,6 @@ export interface FileRouteTypes {
     | '/'
     | '/demo'
     | '/legal'
-    | '/admin'
     | '/affiliates'
     | '/build'
     | '/dashboard'
@@ -594,6 +613,7 @@ export interface FileRouteTypes {
     | '/auth/reset-password'
     | '/p/$slug'
     | '/ref/$code'
+    | '/admin/promotional-credits'
     | '/marketplace/$productId'
     | '/marketplace/sell'
     | '/projects/$id'
@@ -613,6 +633,7 @@ export interface FileRouteTypes {
     | '/api/projects/$id'
     | '/api/projects/capabilities'
     | '/api/webhooks/hotmart'
+    | '/admin'
     | '/marketplace'
     | '/projects'
     | '/tools'
@@ -650,6 +671,7 @@ export interface FileRouteTypes {
     | '/auth/reset-password'
     | '/p/$slug'
     | '/ref/$code'
+    | '/_authenticated/admin/promotional-credits'
     | '/_authenticated/marketplace/$productId'
     | '/_authenticated/marketplace/sell'
     | '/_authenticated/projects/$id'
@@ -669,6 +691,7 @@ export interface FileRouteTypes {
     | '/api/projects/$id'
     | '/api/projects/capabilities'
     | '/api/webhooks/hotmart'
+    | '/_authenticated/admin/'
     | '/_authenticated/marketplace/'
     | '/_authenticated/projects/'
     | '/_authenticated/tools/'
@@ -888,6 +911,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedMarketplaceIndexRouteImport
       parentRoute: typeof AuthenticatedMarketplaceRoute
     }
+    '/_authenticated/admin/': {
+      id: '/_authenticated/admin/'
+      path: '/'
+      fullPath: '/admin/'
+      preLoaderRoute: typeof AuthenticatedAdminIndexRouteImport
+      parentRoute: typeof AuthenticatedAdminRoute
+    }
     '/api/webhooks/hotmart': {
       id: '/api/webhooks/hotmart'
       path: '/api/webhooks/hotmart'
@@ -1021,6 +1051,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedMarketplaceProductIdRouteImport
       parentRoute: typeof AuthenticatedMarketplaceRoute
     }
+    '/_authenticated/admin/promotional-credits': {
+      id: '/_authenticated/admin/promotional-credits'
+      path: '/promotional-credits'
+      fullPath: '/admin/promotional-credits'
+      preLoaderRoute: typeof AuthenticatedAdminPromotionalCreditsRouteImport
+      parentRoute: typeof AuthenticatedAdminRoute
+    }
     '/api/projects/$id/run-next': {
       id: '/api/projects/$id/run-next'
       path: '/run-next'
@@ -1094,6 +1131,20 @@ declare module '@tanstack/react-router' {
   }
 }
 
+interface AuthenticatedAdminRouteChildren {
+  AuthenticatedAdminPromotionalCreditsRoute: typeof AuthenticatedAdminPromotionalCreditsRoute
+  AuthenticatedAdminIndexRoute: typeof AuthenticatedAdminIndexRoute
+}
+
+const AuthenticatedAdminRouteChildren: AuthenticatedAdminRouteChildren = {
+  AuthenticatedAdminPromotionalCreditsRoute:
+    AuthenticatedAdminPromotionalCreditsRoute,
+  AuthenticatedAdminIndexRoute: AuthenticatedAdminIndexRoute,
+}
+
+const AuthenticatedAdminRouteWithChildren =
+  AuthenticatedAdminRoute._addFileChildren(AuthenticatedAdminRouteChildren)
+
 interface AuthenticatedMarketplaceRouteChildren {
   AuthenticatedMarketplaceProductIdRoute: typeof AuthenticatedMarketplaceProductIdRoute
   AuthenticatedMarketplaceSellRoute: typeof AuthenticatedMarketplaceSellRoute
@@ -1114,7 +1165,7 @@ const AuthenticatedMarketplaceRouteWithChildren =
   )
 
 interface AuthenticatedRouteRouteChildren {
-  AuthenticatedAdminRoute: typeof AuthenticatedAdminRoute
+  AuthenticatedAdminRoute: typeof AuthenticatedAdminRouteWithChildren
   AuthenticatedAffiliatesRoute: typeof AuthenticatedAffiliatesRoute
   AuthenticatedBuildRoute: typeof AuthenticatedBuildRoute
   AuthenticatedDashboardRoute: typeof AuthenticatedDashboardRoute
@@ -1135,7 +1186,7 @@ interface AuthenticatedRouteRouteChildren {
 }
 
 const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
-  AuthenticatedAdminRoute: AuthenticatedAdminRoute,
+  AuthenticatedAdminRoute: AuthenticatedAdminRouteWithChildren,
   AuthenticatedAffiliatesRoute: AuthenticatedAffiliatesRoute,
   AuthenticatedBuildRoute: AuthenticatedBuildRoute,
   AuthenticatedDashboardRoute: AuthenticatedDashboardRoute,

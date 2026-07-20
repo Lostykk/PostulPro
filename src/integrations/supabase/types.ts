@@ -916,6 +916,149 @@ export type Database = {
           },
         ];
       };
+      promotional_credit_campaigns: {
+        Row: {
+          allowed_plan_ids: string[];
+          coupon_code: string | null;
+          created_at: string;
+          created_by: string | null;
+          credits_per_user: number;
+          description: string | null;
+          ends_at: string | null;
+          expires_after_days: number | null;
+          grants_count: number;
+          hotmart_product_id: string | null;
+          id: string;
+          internal_name: string;
+          maximum_recipients: number;
+          public_name: string;
+          starts_at: string | null;
+          status: string;
+          updated_at: string;
+        };
+        Insert: {
+          allowed_plan_ids?: string[];
+          coupon_code?: string | null;
+          created_at?: string;
+          created_by?: string | null;
+          credits_per_user: number;
+          description?: string | null;
+          ends_at?: string | null;
+          expires_after_days?: number | null;
+          grants_count?: number;
+          hotmart_product_id?: string | null;
+          id?: string;
+          internal_name: string;
+          maximum_recipients: number;
+          public_name: string;
+          starts_at?: string | null;
+          status?: string;
+          updated_at?: string;
+        };
+        Update: {
+          allowed_plan_ids?: string[];
+          coupon_code?: string | null;
+          created_at?: string;
+          created_by?: string | null;
+          credits_per_user?: number;
+          description?: string | null;
+          ends_at?: string | null;
+          expires_after_days?: number | null;
+          grants_count?: number;
+          hotmart_product_id?: string | null;
+          id?: string;
+          internal_name?: string;
+          maximum_recipients?: number;
+          public_name?: string;
+          starts_at?: string | null;
+          status?: string;
+          updated_at?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "promotional_credit_campaigns_created_by_fkey";
+            columns: ["created_by"];
+            isOneToOne: false;
+            referencedRelation: "users";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      promotional_credit_grants: {
+        Row: {
+          campaign_id: string;
+          credits_granted: number;
+          credits_reverted: number | null;
+          granted_at: string;
+          granted_by: string;
+          expires_at: string | null;
+          hotmart_reference: string | null;
+          id: string;
+          idempotency_key: string;
+          metadata: Json;
+          reason: string | null;
+          revoked_at: string | null;
+          revoked_by: string | null;
+          revoked_reason: string | null;
+          reversal_ledger_entry_id: string | null;
+          status: string;
+          user_id: string;
+        };
+        Insert: {
+          campaign_id: string;
+          credits_granted: number;
+          credits_reverted?: number | null;
+          granted_at?: string;
+          granted_by: string;
+          expires_at?: string | null;
+          hotmart_reference?: string | null;
+          id?: string;
+          idempotency_key: string;
+          metadata?: Json;
+          reason?: string | null;
+          revoked_at?: string | null;
+          revoked_by?: string | null;
+          revoked_reason?: string | null;
+          reversal_ledger_entry_id?: string | null;
+          status?: string;
+          user_id: string;
+        };
+        Update: {
+          campaign_id?: string;
+          credits_granted?: number;
+          credits_reverted?: number | null;
+          granted_at?: string;
+          granted_by?: string;
+          expires_at?: string | null;
+          hotmart_reference?: string | null;
+          id?: string;
+          idempotency_key?: string;
+          metadata?: Json;
+          reason?: string | null;
+          revoked_at?: string | null;
+          revoked_by?: string | null;
+          revoked_reason?: string | null;
+          reversal_ledger_entry_id?: string | null;
+          status?: string;
+          user_id?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "promotional_credit_grants_campaign_id_fkey";
+            columns: ["campaign_id"];
+            isOneToOne: false;
+            referencedRelation: "promotional_credit_campaigns";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "promotional_credit_grants_user_id_fkey";
+            columns: ["user_id"];
+            isOneToOne: false;
+            referencedRelation: "users";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
       purchases: {
         Row: {
           amount: number | null;
@@ -1178,6 +1321,22 @@ export type Database = {
       [_ in never]: never;
     };
     Functions: {
+      admin_grant_promotional_credits: {
+        Args: {
+          p_campaign_id: string;
+          p_hotmart_reference?: string;
+          p_reason?: string;
+          p_target_user_id: string;
+        };
+        Returns: {
+          credits_granted: number | null;
+          grant_id: string | null;
+          message: string;
+          new_bonus_credits: number | null;
+          new_credits_limit: number | null;
+          ok: boolean;
+        }[];
+      };
       admin_resolve_hotmart_pending_link: {
         Args: {
           p_billing_interval: string;
@@ -1189,6 +1348,30 @@ export type Database = {
         Returns: {
           message: string;
           ok: boolean;
+        }[];
+      };
+      admin_revoke_promotional_credit_grant: {
+        Args: {
+          p_confirm_partial_consumption?: boolean;
+          p_grant_id: string;
+          p_reason: string;
+        };
+        Returns: {
+          credits_reverted: number | null;
+          message: string;
+          new_bonus_credits: number | null;
+          new_credits_limit: number | null;
+          ok: boolean;
+          was_partially_consumed: boolean | null;
+        }[];
+      };
+      admin_set_promotional_campaign_status: {
+        Args: { p_campaign_id: string; p_new_status: string };
+        Returns: {
+          campaign_id: string;
+          message: string;
+          ok: boolean;
+          status: string;
         }[];
       };
       admin_update_user_plan: {
