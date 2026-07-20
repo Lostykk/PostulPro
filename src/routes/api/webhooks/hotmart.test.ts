@@ -387,12 +387,24 @@ describe("POST /api/webhooks/hotmart", () => {
     expect(calls.find((c) => c.rpcName === "process_hotmart_event")).toBeUndefined();
   });
 
-  it("rejects an unexpected currency on an otherwise-mapped offer with result=failed, 400", async () => {
-    const res = await handler({ request: makeRequest(approvedPurchaseBody({ currency: "BRL" })) });
-    expect(res.status).toBe(400);
-    const body = (await res.json()) as { result: string };
-    expect(body.result).toBe("failed");
-    expect(calls.find((c) => c.rpcName === "process_hotmart_event")).toBeUndefined();
+  // Currency policy rewritten 2026-07-20 after a real incident (see
+  // docs/hotmart-integration-report.md §5): Hotmart legitimately charges
+  // international buyers in their local currency for a USD-configured
+  // offer. offer_id is the sole authority for which plan to grant —
+  // currency differing from the offer's reference currency is recorded
+  // for observability, never blocked. Only a structurally malformed
+  // currency value or a non-positive/non-finite amount is a hard block.
+  it("accepts a legitimate currency different from the offer's reference currency (e.g. ARS/BRL) and still grants the plan", async () => {
+    activeScenario.usersLookup = { data: { id: "existing-user-1" }, error: null };
+    for (const currency of ["ARS", "BRL", "EUR", "MXN"]) {
+      calls.length = 0;
+      activeScenario.hotmartEventsInsert = undefined;
+      const res = await handler({ request: makeRequest(approvedPurchaseBody({ currency, transaction: `TXN-${currency}` })) });
+      expect(res.status, currency).toBe(200);
+      const body = (await res.json()) as { result: string };
+      expect(body.result, currency).toBe("processed");
+      expect(calls.find((c) => c.rpcName === "process_hotmart_event"), currency).toBeTruthy();
+    }
   });
 
   it("accepts the matching expected currency", async () => {
@@ -400,6 +412,22 @@ describe("POST /api/webhooks/hotmart", () => {
     const res = await handler({ request: makeRequest(approvedPurchaseBody({ currency: "USD" })) });
     expect(res.status).toBe(200);
     expect(calls.find((c) => c.rpcName === "process_hotmart_event")).toBeTruthy();
+  });
+
+  it("hard-blocks a structurally malformed currency value (not a real ISO 4217 code), never a false 200", async () => {
+    const res = await handler({ request: makeRequest(approvedPurchaseBody({ currency: "12$" })) });
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as { result: string };
+    expect(body.result).toBe("failed");
+    expect(calls.find((c) => c.rpcName === "process_hotmart_event")).toBeUndefined();
+  });
+
+  it("hard-blocks a non-positive amount even with a valid currency and a valid offer", async () => {
+    const res = await handler({ request: makeRequest(approvedPurchaseBody({ currency: "USD", full_price: 0 })) });
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as { result: string };
+    expect(body.result).toBe("failed");
+    expect(calls.find((c) => c.rpcName === "process_hotmart_event")).toBeUndefined();
   });
 
   it("rejects a body over the size limit with 413", async () => {
