@@ -39,3 +39,27 @@ Arquitectura real, confirmada leyendo las migraciones (no asumida):
 - **Doble entrega por error humano**: mitigado con el `UNIQUE (campaign_id, user_id)` — la RPC devuelve "ya otorgado" en vez de duplicar, nunca un segundo grant silencioso.
 
 Ninguna inconsistencia crítica bloqueante encontrada. Se procede a implementar.
+
+## 5. Hotmart multimoneda — hallazgo real durante la compra de prueba controlada (2026-07-20)
+
+Tras corregir el mapeo de `offer_id` para el cupón POSTULPRO30 (`yjo2udb9`→pro_monthly, `oa0kfv5m`→business_monthly) y desplegarlo a producción, el fundador realizó la única compra real controlada autorizada: Pro Mensual, cupón POSTULPRO30, cuenta `themisterywhite@gmail.com` (cuenta preexistente en plan `free`).
+
+**Evidencia capturada (sanitizada):**
+
+| Campo | Fila 1 | Fila 2 |
+|---|---|---|
+| `external_event_id` | `c852155d-...` | `dfb1fe46-...` |
+| `event_type` | purchase_approved | purchase_approved |
+| `processing_status` | **failed** | **failed** |
+| `transaction_id` | `HP2883966668` (misma transacción en ambas) | |
+| `subscription_id` | `86WFIQ22` (misma en ambas) | |
+| `product_id` / `offer_id` | `8148076` / `yjo2udb9` — **reconocidos correctamente** | igual |
+| `last_error` | `unexpected currency: ARS` | `unexpected currency: ARS` |
+| `user_id` | `NULL` — nunca vinculado | `NULL` |
+| `idempotency_key` | distinta en cada fila (basada en `external_event_id`, ver diseño Fase 8C) | |
+
+**Causa raíz:** Hotmart cobró la compra en ARS (localización automática por IP del comprador), no en USD. El webhook rechazó el evento con un bloqueo duro de moneda (`mapping.expectedCurrency !== event.currency`) — diseñado originalmente para evitar otorgar acceso a un precio nunca aprobado, pero: (a) el precio (`expectedPrice`) **nunca se valida realmente** en el código — solo la moneda; (b) el `offer_id` ya es, por sí solo, la fuente de verdad de qué plan corresponde; (c) Hotmart localiza moneda para la mayoría de compradores no-US, por lo que este bloqueo afectaría a la mayoría de compradores reales de un producto en español orientado a LATAM.
+
+**Confirmado sin efecto comercial:** `users.plan` sigue `free`, `bonus_credits=0`, `credits_limit=60`, 0 filas en `subscriptions` con `provider='hotmart'`, 0 entradas en `billing_history` para este usuario. La compra real ya fue pagada y cobrada por Hotmart; PostulPro nunca la acreditó.
+
+**Decisión del fundador:** eliminar el bloqueo duro por moneda (nunca fue una validación de precio real), mantenerlo como señal de observabilidad, y reprocesar esta compra real a través del pipeline oficial una vez desplegado el fix — ver §6 en adelante para la implementación.
