@@ -1,9 +1,8 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
-import { Lock, ArrowLeft, Gift, Search, History, ShieldAlert } from "lucide-react";
+import { ArrowLeft, Gift, Search, History, ShieldAlert } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
-import { useProfile } from "@/hooks/use-profile";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -58,29 +57,9 @@ type GrantRow = {
   granted_by_user: { name: string | null; email: string } | null;
 };
 
+// No auth gate here — the parent layout (admin.tsx) already confirmed
+// admin access before this route's <Outlet /> ever mounts this component.
 function PromotionalCreditsPage() {
-  const { profile, loading } = useProfile();
-
-  if (!loading && profile && profile.role !== "admin") {
-    return (
-      <div className="max-w-2xl mx-auto px-4 md:px-6 py-16 text-center">
-        <div className="rounded-3xl border border-white/10 bg-gradient-to-br from-red-500/10 to-red-500/5 p-10">
-          <Lock className="w-10 h-10 mx-auto mb-4 text-red-300" />
-          <h1 className="font-display text-2xl font-bold">Acceso restringido</h1>
-          <p className="mt-3 text-sm text-muted-foreground">Esta sección es solo para administradores.</p>
-          <Link to="/dashboard" className="mt-6 inline-flex items-center justify-center h-11 px-6 rounded-lg bg-white/10 font-semibold text-sm hover:bg-white/15 transition">
-            Volver al dashboard
-          </Link>
-        </div>
-      </div>
-    );
-  }
-  if (loading || !profile) return <div className="max-w-6xl mx-auto px-4 py-8 text-sm text-muted-foreground">Cargando…</div>;
-
-  return <PromotionalCreditsDashboard />;
-}
-
-function PromotionalCreditsDashboard() {
   const [campaign, setCampaign] = useState<Campaign | null | undefined>(undefined);
   const [grants, setGrants] = useState<GrantRow[]>([]);
   const [search, setSearch] = useState("");

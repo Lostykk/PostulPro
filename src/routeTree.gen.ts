@@ -34,6 +34,7 @@ import { Route as ApiProjectsIndexRouteImport } from './routes/api/projects/inde
 import { Route as AuthenticatedToolsIndexRouteImport } from './routes/_authenticated/tools.index'
 import { Route as AuthenticatedProjectsIndexRouteImport } from './routes/_authenticated/projects.index'
 import { Route as AuthenticatedMarketplaceIndexRouteImport } from './routes/_authenticated/marketplace.index'
+import { Route as AuthenticatedAdminIndexRouteImport } from './routes/_authenticated/admin.index'
 import { Route as ApiWebhooksHotmartRouteImport } from './routes/api/webhooks/hotmart'
 import { Route as ApiProjectsCapabilitiesRouteImport } from './routes/api/projects/capabilities'
 import { Route as ApiProjectsIdRouteImport } from './routes/api/projects/$id'
@@ -192,6 +193,11 @@ const AuthenticatedMarketplaceIndexRoute =
     path: '/',
     getParentRoute: () => AuthenticatedMarketplaceRoute,
   } as any)
+const AuthenticatedAdminIndexRoute = AuthenticatedAdminIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => AuthenticatedAdminRoute,
+} as any)
 const ApiWebhooksHotmartRoute = ApiWebhooksHotmartRouteImport.update({
   id: '/api/webhooks/hotmart',
   path: '/api/webhooks/hotmart',
@@ -399,6 +405,7 @@ export interface FileRoutesByFullPath {
   '/api/projects/$id': typeof ApiProjectsIdRouteWithChildren
   '/api/projects/capabilities': typeof ApiProjectsCapabilitiesRoute
   '/api/webhooks/hotmart': typeof ApiWebhooksHotmartRoute
+  '/admin/': typeof AuthenticatedAdminIndexRoute
   '/marketplace/': typeof AuthenticatedMarketplaceIndexRoute
   '/projects/': typeof AuthenticatedProjectsIndexRoute
   '/tools/': typeof AuthenticatedToolsIndexRoute
@@ -418,7 +425,6 @@ export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/demo': typeof DemoRoute
   '/legal': typeof LegalRoute
-  '/admin': typeof AuthenticatedAdminRouteWithChildren
   '/affiliates': typeof AuthenticatedAffiliatesRoute
   '/build': typeof AuthenticatedBuildRoute
   '/dashboard': typeof AuthenticatedDashboardRoute
@@ -454,6 +460,7 @@ export interface FileRoutesByTo {
   '/api/projects/$id': typeof ApiProjectsIdRouteWithChildren
   '/api/projects/capabilities': typeof ApiProjectsCapabilitiesRoute
   '/api/webhooks/hotmart': typeof ApiWebhooksHotmartRoute
+  '/admin': typeof AuthenticatedAdminIndexRoute
   '/marketplace': typeof AuthenticatedMarketplaceIndexRoute
   '/projects': typeof AuthenticatedProjectsIndexRoute
   '/tools': typeof AuthenticatedToolsIndexRoute
@@ -512,6 +519,7 @@ export interface FileRoutesById {
   '/api/projects/$id': typeof ApiProjectsIdRouteWithChildren
   '/api/projects/capabilities': typeof ApiProjectsCapabilitiesRoute
   '/api/webhooks/hotmart': typeof ApiWebhooksHotmartRoute
+  '/_authenticated/admin/': typeof AuthenticatedAdminIndexRoute
   '/_authenticated/marketplace/': typeof AuthenticatedMarketplaceIndexRoute
   '/_authenticated/projects/': typeof AuthenticatedProjectsIndexRoute
   '/_authenticated/tools/': typeof AuthenticatedToolsIndexRoute
@@ -570,6 +578,7 @@ export interface FileRouteTypes {
     | '/api/projects/$id'
     | '/api/projects/capabilities'
     | '/api/webhooks/hotmart'
+    | '/admin/'
     | '/marketplace/'
     | '/projects/'
     | '/tools/'
@@ -589,7 +598,6 @@ export interface FileRouteTypes {
     | '/'
     | '/demo'
     | '/legal'
-    | '/admin'
     | '/affiliates'
     | '/build'
     | '/dashboard'
@@ -625,6 +633,7 @@ export interface FileRouteTypes {
     | '/api/projects/$id'
     | '/api/projects/capabilities'
     | '/api/webhooks/hotmart'
+    | '/admin'
     | '/marketplace'
     | '/projects'
     | '/tools'
@@ -682,6 +691,7 @@ export interface FileRouteTypes {
     | '/api/projects/$id'
     | '/api/projects/capabilities'
     | '/api/webhooks/hotmart'
+    | '/_authenticated/admin/'
     | '/_authenticated/marketplace/'
     | '/_authenticated/projects/'
     | '/_authenticated/tools/'
@@ -901,6 +911,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedMarketplaceIndexRouteImport
       parentRoute: typeof AuthenticatedMarketplaceRoute
     }
+    '/_authenticated/admin/': {
+      id: '/_authenticated/admin/'
+      path: '/'
+      fullPath: '/admin/'
+      preLoaderRoute: typeof AuthenticatedAdminIndexRouteImport
+      parentRoute: typeof AuthenticatedAdminRoute
+    }
     '/api/webhooks/hotmart': {
       id: '/api/webhooks/hotmart'
       path: '/api/webhooks/hotmart'
@@ -1116,11 +1133,13 @@ declare module '@tanstack/react-router' {
 
 interface AuthenticatedAdminRouteChildren {
   AuthenticatedAdminPromotionalCreditsRoute: typeof AuthenticatedAdminPromotionalCreditsRoute
+  AuthenticatedAdminIndexRoute: typeof AuthenticatedAdminIndexRoute
 }
 
 const AuthenticatedAdminRouteChildren: AuthenticatedAdminRouteChildren = {
   AuthenticatedAdminPromotionalCreditsRoute:
     AuthenticatedAdminPromotionalCreditsRoute,
+  AuthenticatedAdminIndexRoute: AuthenticatedAdminIndexRoute,
 }
 
 const AuthenticatedAdminRouteWithChildren =
