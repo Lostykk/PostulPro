@@ -42,12 +42,29 @@ import { processEvent, log } from "@/lib/hotmart/process-event.server";
 //     the row's last-seen status) prevents two concurrent reconciler runs
 //     — or a reconciler run racing a live webhook redelivery of the same
 //     row — from both processing the same row at once.
-// Rows are capped at MAX_ATTEMPTS before being flipped to 'failed_terminal'
-// (see 20260802000000_hotmart_events_failed_terminal.sql) instead of
-// retried forever — a genuinely broken row stays visible for admin review
-// rather than looping.
+// Rows are capped at MAX_RECONCILE_ATTEMPTS before being flipped to
+// 'failed_terminal' (see 20260802000000_hotmart_events_failed_terminal.sql)
+// instead of retried forever — a genuinely broken row stays visible for
+// admin review rather than looping.
+//
+// Second tier (added after a real incident, see
+// docs/hotmart-integration-report.md §32-33): a row can reach
+// 'failed_terminal' from a run of bad luck in TIMING, not just bad data —
+// e.g. it exhausted its 5 attempts against a genuine infrastructure bug
+// that got fixed and deployed moments too late. reconcileTerminalEvents
+// gives every 'failed_terminal' row ONE bounded second chance
+// (MAX_TERMINAL_RECONCILE_ATTEMPTS, tracked by its own separate counter,
+// terminal_reconcile_attempts) rather than requiring a human to manually
+// reopen it. This is safe as a GENERIC rule, not a one-off for any
+// specific transaction: every row that ever reaches 'failed'/
+// 'failed_terminal' got there via processEvent's own classification, which
+// reserves distinct states (unmapped_offer, invalid_payload, unsupported)
+// for genuine business/data rejections — 'failed'/'failed_terminal' is
+// reserved exclusively for technical failures, by construction never a
+// business rejection that a retry could never fix.
 
 export const MAX_RECONCILE_ATTEMPTS = 5;
+export const MAX_TERMINAL_RECONCILE_ATTEMPTS = 3;
 
 export type HotmartReconciliationSummary = {
   expired_subscriptions: number;
@@ -56,6 +73,7 @@ export type HotmartReconciliationSummary = {
   still_recoverable: number;
   moved_to_terminal: number;
   skipped_locked: number;
+  reconciled_from_terminal: number;
 };
 
 export async function runHotmartReconciliation(
@@ -72,8 +90,9 @@ export async function runHotmartReconciliation(
   const staleSummary = data?.[0] ?? { expired_subscriptions: 0, stuck_events_flagged: 0 };
 
   const retrySummary = await reconcileFailedEvents(supabase, billingRpcSecret, retryBatchLimit);
+  const terminalSummary = await reconcileTerminalEvents(supabase, billingRpcSecret, retryBatchLimit);
 
-  const summary: HotmartReconciliationSummary = { ...staleSummary, ...retrySummary };
+  const summary: HotmartReconciliationSummary = { ...staleSummary, ...retrySummary, reconciled_from_terminal: terminalSummary.reconciled };
   log({ scope: "hotmart_reconcile_run", result: "ok", summary });
   return { ok: true, summary };
 }
@@ -172,9 +191,16 @@ export async function reconcileFailedEvents(
     if (outcome.result !== "failed" && outcome.result !== "pending_link") continue;
 
     if (nextAttempts >= MAX_RECONCILE_ATTEMPTS) {
+      // Preserve the REAL last error from this final attempt (read back
+      // from the row processEvent just updated) rather than overwriting it
+      // with a generic message — a real incident (see
+      // docs/hotmart-integration-report.md §32-33) lost this diagnostic
+      // exactly when it mattered most. Only the cap note is appended.
+      const { data: justFailed } = await supabase.from("hotmart_events").select("last_error").eq("id", row.id).maybeSingle();
+      const realError = justFailed?.last_error ?? "unknown error";
       await supabase
         .from("hotmart_events")
-        .update({ processing_status: "failed_terminal", last_error: `reconciler gave up after ${nextAttempts} attempts` })
+        .update({ processing_status: "failed_terminal", last_error: `${realError} (reconciler gave up after ${nextAttempts} attempts)`.slice(0, 300) })
         .eq("id", row.id);
       movedToTerminal += 1;
     } else {
@@ -183,4 +209,99 @@ export async function reconcileFailedEvents(
   }
 
   return { reconciled, still_recoverable: stillRecoverable, moved_to_terminal: movedToTerminal, skipped_locked: skippedLocked };
+}
+
+// Second-tier reconciliation for 'failed_terminal' rows — see the header
+// comment above for why this is safe as a generic rule. Structurally
+// mirrors reconcileFailedEvents (same CAS claim, same event reconstruction,
+// same processEvent replay), but reads/writes terminal_reconcile_attempts
+// instead of processing_attempts, and never re-flips a row back to
+// 'failed_terminal' with a fresh full cap — once THIS tier is exhausted,
+// the row stays in 'failed_terminal' for good (a true dead end, matching
+// the "detenete únicamente ante una anomalía real que no pueda resolverse
+// de forma segura" boundary).
+export async function reconcileTerminalEvents(
+  supabase: SupabaseClient<Database>,
+  billingRpcSecret: string,
+  limit: number,
+): Promise<{ reconciled: number }> {
+  let reconciled = 0;
+
+  const { data: candidates, error } = await supabase
+    .from("hotmart_events")
+    .select("id, idempotency_key, external_event_id, event_type, transaction_id, subscription_id, product_id, offer_id, buyer_email, processing_status, terminal_reconcile_attempts")
+    .eq("processing_status", "failed_terminal")
+    .lt("terminal_reconcile_attempts", MAX_TERMINAL_RECONCILE_ATTEMPTS)
+    .not("transaction_id", "is", null)
+    .order("received_at", { ascending: true })
+    .limit(limit);
+
+  if (error || !candidates) {
+    log({ scope: "hotmart_reconcile_terminal_retry", result: "candidate_query_failed", error: error?.message });
+    return { reconciled };
+  }
+
+  for (const row of candidates) {
+    if (!(row.product_id && row.offer_id) && !row.subscription_id) continue;
+
+    const nextAttempts = row.terminal_reconcile_attempts + 1;
+    const { data: claimed, error: claimError } = await supabase
+      .from("hotmart_events")
+      .update({ processing_status: "pending", terminal_reconcile_attempts: nextAttempts })
+      .eq("id", row.id)
+      .eq("processing_status", "failed_terminal")
+      .select("id")
+      .maybeSingle();
+
+    if (claimError || !claimed) continue;
+
+    const event: HotmartNormalizedEvent = {
+      eventType: row.event_type as HotmartNormalizedEvent["eventType"],
+      rawEventName: null,
+      rawStatus: null,
+      externalEventId: row.external_event_id,
+      transactionId: row.transaction_id,
+      subscriptionId: row.subscription_id,
+      productId: row.product_id,
+      productUcode: null,
+      offerId: row.offer_id,
+      buyerEmail: row.buyer_email,
+      currency: null,
+      fullPrice: null,
+      hottok: null,
+      providerUpdatedAt: null,
+      isTestPayload: false,
+      parseWarnings: [],
+    };
+
+    const outcome = await processEvent({ supabaseAdmin: supabase, event, hotmartEventRowId: row.id, billingRpcSecret });
+    log({ scope: "hotmart_reconcile_terminal_retry", result: outcome.result, event_type: row.event_type, attempt: nextAttempts, hotmart_event_id: row.id });
+
+    if (outcome.result === "processed" || outcome.result === "no_action_required" || outcome.result === "ignored_test") {
+      reconciled += 1;
+      continue;
+    }
+
+    // Any other outcome (including 'failed' again) is sent back to
+    // 'failed_terminal' — never left at a transient 'pending'/'failed' —
+    // preserving the real error, with the attempt count appended, exactly
+    // like the first tier above. Once terminal_reconcile_attempts reaches
+    // the cap, the candidate query above simply stops selecting it: a true
+    // dead end, not an infinite loop.
+    //
+    // Re-read the row's own last_error (just written by processEvent's
+    // markRow) rather than outcome.message — processEvent deliberately
+    // returns a generic HTTP-facing message ("Webhook handling failed") for
+    // RPC-rejection cases, keeping the real, specific reason only in the
+    // row itself (see hotmart.ts's original design) — same reasoning as
+    // the first tier's read-back above.
+    const { data: justFailed } = await supabase.from("hotmart_events").select("last_error").eq("id", row.id).maybeSingle();
+    const realError = justFailed?.last_error ?? outcome.message;
+    await supabase
+      .from("hotmart_events")
+      .update({ processing_status: "failed_terminal", last_error: `${realError} (terminal reconcile attempt ${nextAttempts}/${MAX_TERMINAL_RECONCILE_ATTEMPTS})`.slice(0, 300) })
+      .eq("id", row.id);
+  }
+
+  return { reconciled };
 }

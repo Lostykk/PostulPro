@@ -640,6 +640,7 @@ export type Database = {
           product_id: string | null;
           received_at: string;
           subscription_id: string | null;
+          terminal_reconcile_attempts: number;
           transaction_id: string | null;
           user_id: string | null;
         };
@@ -661,6 +662,7 @@ export type Database = {
           product_id?: string | null;
           received_at?: string;
           subscription_id?: string | null;
+          terminal_reconcile_attempts?: number;
           transaction_id?: string | null;
           user_id?: string | null;
         };
@@ -682,6 +684,7 @@ export type Database = {
           product_id?: string | null;
           received_at?: string;
           subscription_id?: string | null;
+          terminal_reconcile_attempts?: number;
           transaction_id?: string | null;
           user_id?: string | null;
         };
