@@ -67,20 +67,23 @@ export default defineConfig({
         handler: reconcileTaskPath,
         description: "Reconcile stale credit_reservations via reconcile_stale_reservations_v2",
       },
-      // Fase I (Hotmart commercial reconciliation) — registered so it's
-      // bundled and invocable via runTask("reconcile-hotmart", ...) for
-      // manual/preview testing, but deliberately NOT added to
-      // `scheduledTasks` below: no Cron Trigger for this task in any
-      // environment yet. Activating it in production is a separate,
-      // later, explicitly authorized step — see
-      // docs/hotmart-integration-report.md §I.
+      // Fase 5 (autonomous entitlement recovery, see
+      // docs/hotmart-integration-report.md §5-6): now ALSO added to
+      // scheduledTasks below, on the SAME cadence as reconcile-credits — no
+      // new Cron Trigger, no new infrastructure. This is what makes the
+      // recovery of a currency-blocked-then-fixed purchase (and any future
+      // recoverable failure) genuinely autonomous: the Worker's own
+      // scheduled() handler calls this task directly, with
+      // BILLING_RPC_SECRET already bound in its own environment — no
+      // manual HTTP call, no secret ever touched by the founder or by an
+      // assistant.
       "reconcile-hotmart": {
         handler: reconcileHotmartTaskPath,
-        description: "Reconcile stale Hotmart subscriptions/events via reconcile_hotmart_stale",
+        description: "Reconcile stale Hotmart subscriptions/events and auto-retry recoverable failures",
       },
     },
     scheduledTasks: {
-      "*/5 * * * *": ["reconcile-credits"],
+      "*/5 * * * *": ["reconcile-credits", "reconcile-hotmart"],
     },
   } as any,
 });
