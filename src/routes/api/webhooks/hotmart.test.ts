@@ -238,6 +238,31 @@ describe("POST /api/webhooks/hotmart", () => {
     expect(args.p_event_type).toBe("purchase_approved");
   });
 
+  // Regression test for a real incident (see
+  // docs/hotmart-integration-report.md §32): process_hotmart_event's SQL
+  // signature has NO DEFAULT for p_renews_at/p_ends_at (only
+  // p_provider_updated_at has one). supabase-js's rpc() drops any argument
+  // whose JS value is `undefined` before serializing the request body, so
+  // passing `undefined` for a parameter with no SQL default makes
+  // PostgREST unable to resolve the function at all ("Could not found the
+  // function ... in the schema cache") -- a failure this project's own
+  // mocked RPC layer can't otherwise catch, since it never round-trips
+  // through JSON. Confirmed live: every real hotmart_events row ever
+  // written had processing_status='failed' -- not one had EVER reached
+  // 'processed' in production before this fix. Asserting `null` (not
+  // `undefined`) here is what prevents this regressing silently.
+  it("always sends p_renews_at/p_ends_at as null, never omitted/undefined (they have no SQL default, unlike p_provider_updated_at)", async () => {
+    activeScenario.usersLookup = { data: { id: "existing-user-1" }, error: null };
+    const res = await handler({ request: makeRequest(approvedPurchaseBody()) });
+    expect(res.status).toBe(200);
+    const rpcCall = calls.find((c) => c.rpcName === "process_hotmart_event");
+    const args = rpcCall!.args as Record<string, unknown>;
+    expect(args.p_renews_at).toBeNull();
+    expect(args.p_ends_at).toBeNull();
+    expect("p_renews_at" in args).toBe(true);
+    expect("p_ends_at" in args).toBe(true);
+  });
+
   it("an approved-status delivery for an already-linked subscription is sent as renewal_approved, not purchase_approved (no duplicate welcome email)", async () => {
     activeScenario.subscriptionLookup = { data: { user_id: "linked-user-1" }, error: null };
     const res = await handler({ request: makeRequest(approvedPurchaseBody()) });

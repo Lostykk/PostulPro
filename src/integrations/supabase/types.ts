@@ -1508,7 +1508,7 @@ export type Database = {
         Args: {
           p_billing_interval: string;
           p_credits_limit: number;
-          p_ends_at?: string;
+          p_ends_at: string | null;
           p_event_type: string;
           p_idempotency_key: string;
           p_offer_id: string;
@@ -1517,7 +1517,7 @@ export type Database = {
           p_provider_customer_id: string;
           p_provider_subscription_id: string;
           p_provider_updated_at?: string;
-          p_renews_at?: string;
+          p_renews_at: string | null;
           p_secret: string;
           p_status: string;
           p_user_id: string;
