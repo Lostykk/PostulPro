@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { createFileRoute } from "@tanstack/react-router";
 import { createClient } from "@supabase/supabase-js";
 import type { Database } from "@/integrations/supabase/types";
-import { normalizeHotmartPayload, verifyHottok, type HotmartNormalizedEvent } from "@/lib/hotmart/normalize";
+import { normalizeHotmartPayload, verifyOne, extractHottokFromPayload, type HotmartNormalizedEvent } from "@/lib/hotmart/normalize";
 import { buildIdempotencyKey } from "@/lib/hotmart/idempotency-key";
 import { findMappingByIds, validateHotmartConfig } from "@/lib/hotmart.server";
 import { resolveOrInviteBuyer, recordPendingLink } from "@/lib/hotmart/buyer-linking.server";
@@ -139,10 +139,68 @@ async function handlePost({ request }: { request: Request }) {
     auth: { persistSession: false, autoRefreshToken: false, storage: undefined },
   });
 
-  // Rate limit before parsing/authenticating — keyed by hashed source IP,
-  // gated by BILLING_RPC_SECRET (see claim_webhook_rate_limit's own
-  // comment for why: there is no auth.uid() on an inbound webhook call to
-  // authenticate the caller otherwise).
+  // Security order (Fase C hotfix, 2026-07-19 — see
+  // docs/hotmart-integration-report.md §30): method (enforced by the
+  // route table itself — only POST ever reaches this function) -> Hottok
+  // presence/validity -> JSON/structure -> rate limiting -> normalization
+  // /idempotency -> commercial processing. This used to call the
+  // rate-limiter RPC BEFORE authenticating the caller at all, which meant
+  // an unrelated failure in that RPC (e.g. a misconfigured
+  // BILLING_RPC_SECRET) turned into a 500 on every single request,
+  // authenticated or not, before Hottok was ever checked — confirmed live
+  // in production. Authenticating first, via the header alone whenever
+  // possible, means a request that was never going to be accepted spends
+  // no DB round-trip at all.
+  const headerHottok = request.headers.get("x-hotmart-hottok");
+  let payload: unknown;
+  let authenticated = verifyOne(headerHottok, hottokSecret);
+
+  if (!authenticated) {
+    // No valid header — the only remaining way to authenticate is the
+    // body's own `hottok` field, which requires parsing JSON first. A
+    // parse failure here is intentionally still reported as 401, not
+    // 400: we do not yet know whether this caller is legitimate, and
+    // "invalid JSON" is only ever a meaningful, safe-to-disclose signal
+    // for an ALREADY authenticated caller (see below).
+    try {
+      payload = JSON.parse(rawBody);
+    } catch {
+      log({ result: "rejected_auth", reason: "no_valid_header_and_unparseable_body", latency_ms: Date.now() - startedAt });
+      return json({ ok: false, result: "failed", message: "Unauthorized" }, 401);
+    }
+    authenticated = verifyOne(extractHottokFromPayload(payload), hottokSecret);
+    if (!authenticated) {
+      log({ result: "rejected_auth", latency_ms: Date.now() - startedAt });
+      return json({ ok: false, result: "failed", message: "Unauthorized" }, 401);
+    }
+  }
+
+  // Authenticated. If we authenticated via the header alone, the body
+  // still hasn't been parsed — do that now, with its own honest 400.
+  if (payload === undefined) {
+    try {
+      payload = JSON.parse(rawBody);
+    } catch {
+      log({ result: "rejected_invalid_json", latency_ms: Date.now() - startedAt });
+      return json({ ok: false, result: "invalid_payload", message: "Invalid JSON" }, 400);
+    }
+  }
+
+  const event = normalizeHotmartPayload(payload);
+  if (event.parseWarnings.length > 0) {
+    log({ scope: "hotmart_webhook_parse_warnings", event_type: event.eventType, raw_event_name: event.rawEventName, warnings: event.parseWarnings });
+  }
+
+  // Rate limit — only ever reached by an already-authenticated caller.
+  // Keyed by hashed source IP, gated by BILLING_RPC_SECRET (see
+  // claim_webhook_rate_limit's own comment for why: there is no
+  // auth.uid() on an inbound webhook call to authenticate the caller
+  // otherwise). A failure HERE (RPC unreachable, misconfigured secret,
+  // etc.) is this endpoint's own infrastructure being unavailable, not
+  // the caller's fault — 503, never a generic 500, so Hotmart's retry
+  // logic knows to try again rather than treating it as a permanent
+  // rejection. Rate limiting itself is never skipped or bypassed on this
+  // failure path — a broken limiter fails CLOSED (503), not open.
   const ipHash = await hashIp(clientIpFrom(request));
   const rateKey = ipHash ?? "no-ip";
   const { data: rateLimitRows, error: rateLimitError } = await supabaseAdmin.rpc("claim_webhook_rate_limit", {
@@ -153,37 +211,12 @@ async function handlePost({ request }: { request: Request }) {
   });
   if (rateLimitError) {
     log({ result: "error", reason: "rate_limit_unavailable", latency_ms: Date.now() - startedAt });
-    return json({ ok: false, result: "failed", message: "Temporarily unavailable" }, 500);
+    return json({ ok: false, result: "failed", message: "Temporarily unavailable" }, 503, { "Retry-After": "30" });
   }
   const rateLimit = rateLimitRows?.[0];
   if (!rateLimit?.allowed) {
     log({ result: "rate_limited", latency_ms: Date.now() - startedAt });
     return json({ ok: false, result: "failed", message: "Too many requests" }, 429, { "Retry-After": "60" });
-  }
-
-  let payload: unknown;
-  try {
-    payload = JSON.parse(rawBody);
-  } catch {
-    log({ result: "rejected_invalid_json", latency_ms: Date.now() - startedAt });
-    return json({ ok: false, result: "invalid_payload", message: "Invalid JSON" }, 400);
-  }
-
-  const event = normalizeHotmartPayload(payload);
-
-  // Hottok verification — accepts either the confirmed body field or the
-  // x-hotmart-hottok header (both observed present on real deliveries).
-  // Constant-time compare, never a plain === . A missing or wrong hottok
-  // is rejected identically either way (no information leaked about
-  // which check failed).
-  const headerHottok = request.headers.get("x-hotmart-hottok");
-  if (!verifyHottok(event.hottok, headerHottok, hottokSecret)) {
-    log({ result: "rejected_auth", latency_ms: Date.now() - startedAt });
-    return json({ ok: false, result: "failed", message: "Unauthorized" }, 401);
-  }
-
-  if (event.parseWarnings.length > 0) {
-    log({ scope: "hotmart_webhook_parse_warnings", event_type: event.eventType, raw_event_name: event.rawEventName, warnings: event.parseWarnings });
   }
 
   const idempotencyKey = buildIdempotencyKey(event);

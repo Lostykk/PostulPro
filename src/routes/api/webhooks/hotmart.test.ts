@@ -204,6 +204,24 @@ describe("POST /api/webhooks/hotmart", () => {
     expect(res.status).toBe(429);
   });
 
+  it("a broken rate limiter (RPC error) fails CLOSED with 503, never a generic 500 — but only for an authenticated caller", async () => {
+    activeScenario.rateLimit = { data: null, error: { message: "some internal db detail that should not leak" } };
+    const res = await handler({ request: makeRequest(approvedPurchaseBody()) });
+    expect(res.status).toBe(503);
+    const body = (await res.json()) as { ok: boolean; result: string };
+    expect(body.ok).toBe(false);
+    expect(body.result).toBe("failed");
+    const text = await handler({ request: makeRequest(approvedPurchaseBody()) }).then((r) => r.text());
+    expect(text).not.toContain("some internal db detail");
+  });
+
+  it("the rate limiter is never called at all for an unauthenticated request — auth is checked first (Fase C security order)", async () => {
+    activeScenario.rateLimit = { data: null, error: { message: "should never be reached" } };
+    const res = await handler({ request: makeRequest(approvedPurchaseBody(), { hottok: "wrong-value" }) });
+    expect(res.status).toBe(401);
+    expect(calls.find((c) => c.rpcName === "claim_webhook_rate_limit")).toBeUndefined();
+  });
+
   it("approved purchase for an existing user resolves by email and calls process_hotmart_event with the resolved plan", async () => {
     activeScenario.usersLookup = { data: { id: "existing-user-1" }, error: null };
     const res = await handler({ request: makeRequest(approvedPurchaseBody()) });
@@ -399,7 +417,7 @@ describe("POST /api/webhooks/hotmart", () => {
     expect(calls.find((c) => c.rpcName === "process_hotmart_event")).toBeUndefined();
   });
 
-  it("invalid JSON is rejected with 400", async () => {
+  it("invalid JSON with no valid Hottok header is 401, never 400 — auth is checked before JSON is trusted", async () => {
     const res = await handler({
       request: new Request("https://preview.example/api/webhooks/hotmart", {
         method: "POST",
@@ -407,7 +425,20 @@ describe("POST /api/webhooks/hotmart", () => {
         body: "{not valid json",
       }),
     });
+    expect(res.status).toBe(401);
+  });
+
+  it("invalid JSON authenticated via the header IS 400 — the security order is header-auth before JSON parsing", async () => {
+    const res = await handler({
+      request: new Request("https://preview.example/api/webhooks/hotmart", {
+        method: "POST",
+        headers: { "content-type": "application/json", "x-hotmart-hottok": HOTTOK },
+        body: "{not valid json",
+      }),
+    });
     expect(res.status).toBe(400);
+    const body = (await res.json()) as { result: string };
+    expect(body.result).toBe("invalid_payload");
   });
 
   it("never leaks the configured secret or a raw error in any response body", async () => {

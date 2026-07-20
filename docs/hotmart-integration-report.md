@@ -549,3 +549,25 @@ Documentado antes de tocar `main`, para que el rollback sea ejecutable y no sola
   ```
   (nota: solo ejecutable si ninguna fila nueva usa todavía los estados ampliados — verificar antes de aplicar).
 - **Nada de esto toca** `HOTMART_HOTTOK`, planes, precios, usuarios, créditos ni suscripciones — el cutover de código no depende de, ni modifica, ningún dato comercial real.
+
+## 30. Hotfix — `BILLING_RPC_SECRET` desincronizado bloqueaba el webhook productivo
+
+**Síntoma:** tras el cutover, `POST /api/webhooks/hotmart` en producción devolvía **500** ("Temporarily unavailable") en vez de 401, incluso sin ningún Hottok.
+
+**Causa raíz exacta:** el código llamaba a `claim_webhook_rate_limit` (rate limiter, gateado por `BILLING_RPC_SECRET`) **antes** de validar el Hottok. Esa RPC, a diferencia de `process_hotmart_event`/`process_lemon_squeezy_event` (que devuelven una fila `ok:false` en un secreto incorrecto), hace `RAISE EXCEPTION 'Unauthorized'` — un fallo duro. Confirmado empíricamente que `p_secret` llegaba no-nulo desde el Worker (se descartó binding ausente) y que `billing_rpc_config` tenía una fila válida (hash de 64 caracteres, sin nulls) — por eliminación, el valor de `BILLING_RPC_SECRET` cargado en el Worker productivo no coincidía con el hash almacenado. Auditoría de consumidores: **3 RPCs comparten este secreto** (`process_lemon_squeezy_event`, `process_hotmart_event`, `claim_webhook_rate_limit`), usadas por **2 Workers** (`lostykk-postulpro`, `lostykk-postulpro-preview`). Esto significa que el webhook de **Lemon Squeezy también estaba afectado** (un evento real habría recibido `ok:false` y el route hubiera devuelto 500 — no un 200 falso, pero sí un fallo silencioso hasta el próximo reintento de Lemon Squeezy).
+
+**Orden anterior vs. nuevo del endpoint:**
+- Antes: config → content-type → body → **rate limit** → JSON → Hottok → idempotencia → comercial.
+- Ahora: config → content-type → body → **Hottok (header primero, body como fallback)** → JSON → **rate limit** → idempotencia → comercial.
+
+Un caller sin Hottok válido nunca llega a tocar la base de datos.
+
+**Corrección de contrato HTTP:** `GET` → 405; `POST` sin Hottok → 401; Hottok incorrecto → 401; JSON inválido **autenticado** → 400 (JSON inválido **sin** autenticar → 401, nunca se revela si el problema era el JSON); fallo interno del rate limiter → **503** con `Retry-After`, nunca 500 genérico; evento válido → procesamiento normal.
+
+**Rotación de `BILLING_RPC_SECRET`:** sí fue necesaria. Generada localmente (`openssl rand -hex 32`, 256 bits), cargada vía stdin (`printf '%s' "$SECRET" | wrangler secret put ...`, nunca como argumento de proceso, nunca impresa, nunca escrita a disco) en **ambos** Workers (`lostykk-postulpro`, `lostykk-postulpro-preview`), hash actualizado en `billing_rpc_config` en la misma pasada. Verificación end-to-end real (no solo "Success!"): se invocó `claim_webhook_rate_limit` vía PostgREST con el secreto recién rotado (body enviado por stdin a `curl`, nunca como argumento) y devolvió `200 {"allowed":true}`; un secreto incorrecto sigue devolviendo `400 Unauthorized`. El valor crudo nunca apareció en ningún output, log, archivo ni commit — solo su hash SHA-256 (no sensible, mismo criterio ya usado en la migración original que fija el hash inicial).
+
+**Archivos modificados:** `src/lib/hotmart/normalize.ts` (`verifyOne` exportado, nuevo `extractHottokFromPayload`), `src/routes/api/webhooks/hotmart.ts` (reordenamiento completo), `src/routes/api/webhooks/hotmart.test.ts` (+4 tests: 401 autenticación-antes-de-JSON, 400 JSON-inválido-autenticado, 503 rate-limiter-roto, rate-limiter-nunca-invocado-sin-auth). Ninguna migración nueva — la rotación es un cambio de configuración (secretos + un `UPDATE` de una sola fila), no de esquema.
+
+**Resultados de tests:** `tsc` limpio; suite completa **473/473** (+3 desde el round anterior); secret scan limpio; migraciones sincronizadas (sin cambios de esquema); RLS intacto; verificación HTTP en vivo en preview confirmó el nuevo orden (401 rápido y consistente en las 3 variantes de solicitud no autenticada, 405 en `GET`).
+
+**Estado de rollback:** tag `rollback-pre-billing-rpc-hotfix-20260719` (apunta a `origin/main` pre-hotfix) creado y pusheado antes de tocar nada. La rotación en sí no tiene "rollback" en el sentido de revertir código — si hiciera falta, se repite el mismo procedimiento con un secreto nuevo.
