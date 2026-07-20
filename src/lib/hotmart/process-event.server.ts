@@ -219,9 +219,17 @@ export async function processEvent(args: {
     p_billing_interval: mapping?.interval ?? "",
     p_credits_limit: mapping?.creditsLimit ?? 0,
     // Not yet confirmed in the real payload's captured structure (see
-    // normalize.ts's header comment) — never guessed, always omitted.
-    p_renews_at: undefined,
-    p_ends_at: undefined,
+    // normalize.ts's header comment) — never guessed, always explicit
+    // null. MUST be null, not undefined: process_hotmart_event's SQL
+    // signature has no DEFAULT for these two params (only
+    // p_provider_updated_at does), and supabase-js's rpc() drops any key
+    // whose value is `undefined` before serializing the request body —
+    // omitting them entirely makes PostgREST unable to resolve the
+    // function overload at all ("Could not find the function ... in the
+    // schema cache"), a real incident this fix corrects (see
+    // docs/hotmart-integration-report.md §31/32).
+    p_renews_at: null,
+    p_ends_at: null,
     p_provider_updated_at: event.providerUpdatedAt ?? undefined,
   });
 
