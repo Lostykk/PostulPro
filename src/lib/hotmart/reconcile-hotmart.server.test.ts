@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from "vitest";
-import { runHotmartReconciliation } from "@/lib/hotmart/reconcile-hotmart.server";
+import { runHotmartReconciliation, reconcileFailedEvents } from "@/lib/hotmart/reconcile-hotmart.server";
 
 const RPC_SECRET = "rpc-secret";
 
@@ -15,6 +15,7 @@ type HotmartEventRow = {
   buyer_email: string | null;
   processing_status: string;
   processing_attempts: number;
+  terminal_reconcile_attempts: number;
 };
 
 let rows: HotmartEventRow[] = [];
@@ -31,6 +32,7 @@ function makeFakeSupabase() {
       if (table === "hotmart_events") {
         return {
           select: () => ({
+            // Tier 1 (reconcileFailedEvents): .in('processing_status', [...]).lt('processing_attempts', n)
             in: (_col: string, statuses: string[]) => ({
               lt: (_c: string, maxAttempts: number) => ({
                 not: () => ({
@@ -42,6 +44,25 @@ function makeFakeSupabase() {
                   }),
                 }),
               }),
+            }),
+            // Two shapes share select().eq():
+            //   Tier 2 candidates: .eq('processing_status', 'failed_terminal').lt('terminal_reconcile_attempts', n)
+            //   Direct lookup (re-reading the real last_error before capping): .eq('id', rowId).maybeSingle()
+            eq: (col: string, value: string) => ({
+              lt: (_c: string, maxAttempts: number) => ({
+                not: () => ({
+                  order: () => ({
+                    limit: async (n: number) => ({
+                      data: rows.filter((r) => r.processing_status === value && r.terminal_reconcile_attempts < maxAttempts).slice(0, n),
+                      error: null,
+                    }),
+                  }),
+                }),
+              }),
+              maybeSingle: async () => {
+                const row = col === "id" ? rows.find((r) => r.id === value) : undefined;
+                return { data: row ? { last_error: (row as unknown as { last_error?: string }).last_error ?? null } : null, error: null };
+              },
             }),
           }),
           update: (patch: Partial<HotmartEventRow>) => ({
@@ -102,7 +123,6 @@ function makeFakeSupabase() {
         });
       }
       throw new Error(`unexpected rpc in test: ${name}`);
-      // eslint-disable-next-line no-unreachable
     },
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
   } as any;
@@ -132,6 +152,7 @@ function currencyFailedRow(overrides: Partial<HotmartEventRow> = {}): HotmartEve
     buyer_email: "themisterywhite@example.test",
     processing_status: "failed",
     processing_attempts: 0,
+    terminal_reconcile_attempts: 0,
     ...overrides,
   };
 }
@@ -190,11 +211,96 @@ describe("runHotmartReconciliation — autonomous recovery of recoverable failur
     expect(row.processing_attempts).toBe(5);
   });
 
-  it("a row already at the attempt cap is not picked up again", async () => {
-    rows = [currencyFailedRow({ processing_status: "failed_terminal", processing_attempts: 5 })];
+  // Regression test for a real incident (see
+  // docs/hotmart-integration-report.md §32-33): the first version of this
+  // capping logic overwrote last_error with a generic "gave up" message,
+  // losing the real underlying error exactly when an admin/future debugging
+  // pass would need it most.
+  it("preserves the REAL last error when capping to failed_terminal, never overwrites it with only a generic message", async () => {
+    // Calls reconcileFailedEvents (tier 1) in isolation — a full
+    // runHotmartReconciliation pass would immediately hand this row to
+    // tier 2 in the same tick (by design, see the terminal-tier tests
+    // below), which would overwrite this tier's own message before we can
+    // observe it.
+    processHotmartEventResult = { ok: false, message: "a specific, real failure reason" };
+    rows = [currencyFailedRow({ processing_attempts: 4 })];
+    await reconcileFailedEvents(makeFakeSupabase(), RPC_SECRET, 25);
+
+    const row = rows.find((r) => r.id === "row-1")!;
+    expect(row.processing_status).toBe("failed_terminal");
+    expect((row as unknown as { last_error: string }).last_error).toContain("a specific, real failure reason");
+    expect((row as unknown as { last_error: string }).last_error).toContain("gave up after 5 attempts");
+  });
+
+  describe("second tier — bounded reconciliation of 'failed_terminal' rows", () => {
+    it("recovers a row that reached failed_terminal from bad timing (the real HP2883966668 shape: exhausted its cap against a bug that got fixed moments too late)", async () => {
+      rows = [
+        currencyFailedRow({
+          processing_status: "failed_terminal",
+          processing_attempts: 5,
+          terminal_reconcile_attempts: 0,
+        }),
+      ];
+      const outcome = await runHotmartReconciliation(makeFakeSupabase(), RPC_SECRET, 200, 25);
+      if (!outcome.ok) throw new Error("unreachable");
+      expect(outcome.summary.reconciled_from_terminal).toBe(1);
+
+      const row = rows.find((r) => r.id === "row-1")!;
+      expect(row.processing_status).toBe("processed");
+
+      const grantCall = rpcCalls.find((c) => c.name === "process_hotmart_event");
+      expect((grantCall!.args as Record<string, unknown>).p_plan).toBe("pro");
+    });
+
+    it("a row already at the terminal-tier cap is not retried a third time — a true dead end", async () => {
+      rows = [
+        currencyFailedRow({
+          processing_status: "failed_terminal",
+          processing_attempts: 5,
+          terminal_reconcile_attempts: 3,
+        }),
+      ];
+      const outcome = await runHotmartReconciliation(makeFakeSupabase(), RPC_SECRET, 200, 25);
+      if (!outcome.ok) throw new Error("unreachable");
+      expect(outcome.summary.reconciled_from_terminal).toBe(0);
+      expect(rpcCalls.find((c) => c.name === "process_hotmart_event")).toBeUndefined();
+    });
+
+    it("a persistently-broken failed_terminal row stays in failed_terminal after exhausting the second tier too, never retried a third way", async () => {
+      processHotmartEventResult = { ok: false, message: "still genuinely broken" };
+      rows = [
+        currencyFailedRow({
+          processing_status: "failed_terminal",
+          processing_attempts: 5,
+          terminal_reconcile_attempts: 2,
+        }),
+      ];
+      await runHotmartReconciliation(makeFakeSupabase(), RPC_SECRET, 200, 25);
+
+      const row = rows.find((r) => r.id === "row-1")!;
+      expect(row.processing_status).toBe("failed_terminal");
+      expect(row.terminal_reconcile_attempts).toBe(3);
+    });
+
+    it("running the reconciler twice after a terminal-tier recovery is idempotent — no double grant", async () => {
+      rows = [currencyFailedRow({ processing_status: "failed_terminal", processing_attempts: 5 })];
+      const supabase = makeFakeSupabase();
+      await runHotmartReconciliation(supabase, RPC_SECRET, 200, 25);
+      rpcCalls.length = 0;
+
+      const second = await runHotmartReconciliation(supabase, RPC_SECRET, 200, 25);
+      if (!second.ok) throw new Error("unreachable");
+      expect(second.summary.reconciled_from_terminal).toBe(0);
+      expect(rpcCalls.find((c) => c.name === "process_hotmart_event")).toBeUndefined();
+    });
+  });
+
+  it("a row exhausted in BOTH tiers (first-tier cap and second-tier cap) is never picked up again by either", async () => {
+    rows = [currencyFailedRow({ processing_status: "failed_terminal", processing_attempts: 5, terminal_reconcile_attempts: 3 })];
     const outcome = await runHotmartReconciliation(makeFakeSupabase(), RPC_SECRET, 200, 25);
     if (!outcome.ok) throw new Error("unreachable");
     expect(outcome.summary.reconciled).toBe(0);
+    expect(outcome.summary.reconciled_from_terminal).toBe(0);
     expect(rpcCalls.find((c) => c.name === "process_hotmart_event")).toBeUndefined();
   });
 
