@@ -1,0 +1,13 @@
+{
+  "name": "PostulPro",
+  "short_name": "PostulPro",
+  "description": "La plataforma todo-en-uno que convierte tu conocimiento y la IA en productos digitales que venden solos.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#07070E",
+  "theme_color": "#07070E",
+  "icons": [
+    { "src": "/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "/icon-512.png", "sizes": "512x512", "type": "image/png" }
+  ]
+}

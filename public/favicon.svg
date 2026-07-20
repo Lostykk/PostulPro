@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64">
+  <rect width="64" height="64" rx="14" fill="#0B0B14"/>
+  <g transform="translate(10,10) scale(1.375)">
+    
+  <defs>
+    <linearGradient id="postulpro-mark-gradient" x1="4" y1="2" x2="26" y2="30" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#22d3ee"/>
+      <stop offset="0.4" stop-color="#3b82f6"/>
+      <stop offset="0.65" stop-color="#c026d3"/>
+      <stop offset="1" stop-color="#f472b6"/>
+    </linearGradient>
+  </defs>
+  <path d="M11 7 C11 6.44772 11.4477 6 12 6 L15.5 6 C19.0899 6 22 8.91015 22 12.5 C22 16.0899 19.0899 19 15.5 19 L13 19 L13 25 C13 25.5523 12.5523 26 12 26 L10 26 C9.44772 26 9 25.5523 9 25 L9 8 C9 7.44772 9.44772 7 10 7 Z"
+    fill="none" stroke="url(#postulpro-mark-gradient)" stroke-width="2.4" stroke-linejoin="round" stroke-linecap="round"/>
+  <path d="M12.5 13.5 L14.7 16 L20 10" fill="none" stroke="url(#postulpro-mark-gradient)" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/>
+
+
+  </g>
+</svg>

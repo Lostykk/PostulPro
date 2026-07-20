@@ -18,6 +18,7 @@ import {
 } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
 import { ProfileProvider, useProfile } from "@/hooks/use-profile";
+import { PostulProMark } from "@/components/brand/PostulProMark";
 import { isOwner } from "@/lib/auth/is-owner";
 import { MARKETPLACE_ENABLED } from "@/lib/features";
 import { Progress } from "@/components/ui/progress";
@@ -127,9 +128,7 @@ function Sidebar() {
   return (
     <aside className="hidden md:flex fixed inset-y-0 left-0 w-[240px] flex-col border-r border-white/5 bg-[color:var(--surface-1)]/60 backdrop-blur">
       <div className="h-16 flex items-center gap-2 px-5 border-b border-white/5">
-        <div className="w-8 h-8 rounded-lg bg-gradient-brand grid place-items-center">
-          <Sparkles className="w-4 h-4 text-white" />
-        </div>
+        <PostulProMark className="w-8 h-8" />
         <span className="font-display font-bold">PostulPro</span>
       </div>
 
