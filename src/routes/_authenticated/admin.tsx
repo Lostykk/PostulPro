@@ -1,6 +1,6 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
-import { Lock, Users, DollarSign, TrendingUp, Zap, ShoppingBag, Search } from "lucide-react";
+import { Lock, Users, DollarSign, TrendingUp, Zap, ShoppingBag, Search, Gift } from "lucide-react";
 import { toast } from "sonner";
 import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { supabase } from "@/integrations/supabase/client";
@@ -152,8 +152,14 @@ function AdminDashboard() {
 
   return (
     <div className="max-w-7xl mx-auto px-4 md:px-6 py-8 space-y-8">
-      <header>
+      <header className="flex items-center justify-between flex-wrap gap-3">
         <h1 className="font-display text-3xl font-bold">🛡️ Admin</h1>
+        <Link
+          to="/admin/promotional-credits"
+          className="inline-flex items-center gap-2 h-10 px-4 rounded-lg bg-white/10 text-sm font-semibold hover:bg-white/15 transition"
+        >
+          <Gift className="w-4 h-4" /> Créditos promocionales
+        </Link>
       </header>
 
       {!metrics ? (

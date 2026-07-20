@@ -53,6 +53,7 @@ import { Route as AuthenticatedToolsBusinessPlanRouteImport } from './routes/_au
 import { Route as AuthenticatedProjectsIdRouteImport } from './routes/_authenticated/projects.$id'
 import { Route as AuthenticatedMarketplaceSellRouteImport } from './routes/_authenticated/marketplace.sell'
 import { Route as AuthenticatedMarketplaceProductIdRouteImport } from './routes/_authenticated/marketplace.$productId'
+import { Route as AuthenticatedAdminPromotionalCreditsRouteImport } from './routes/_authenticated/admin.promotional-credits'
 import { Route as ApiProjectsIdRunNextRouteImport } from './routes/api/projects/$id.run-next'
 import { Route as ApiProjectsIdResumeRouteImport } from './routes/api/projects/$id.resume'
 import { Route as ApiProjectsIdPlanRouteImport } from './routes/api/projects/$id.plan'
@@ -297,6 +298,12 @@ const AuthenticatedMarketplaceProductIdRoute =
     path: '/$productId',
     getParentRoute: () => AuthenticatedMarketplaceRoute,
   } as any)
+const AuthenticatedAdminPromotionalCreditsRoute =
+  AuthenticatedAdminPromotionalCreditsRouteImport.update({
+    id: '/promotional-credits',
+    path: '/promotional-credits',
+    getParentRoute: () => AuthenticatedAdminRoute,
+  } as any)
 const ApiProjectsIdRunNextRoute = ApiProjectsIdRunNextRouteImport.update({
   id: '/run-next',
   path: '/run-next',
@@ -355,7 +362,7 @@ export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/demo': typeof DemoRoute
   '/legal': typeof LegalRoute
-  '/admin': typeof AuthenticatedAdminRoute
+  '/admin': typeof AuthenticatedAdminRouteWithChildren
   '/affiliates': typeof AuthenticatedAffiliatesRoute
   '/build': typeof AuthenticatedBuildRoute
   '/dashboard': typeof AuthenticatedDashboardRoute
@@ -372,6 +379,7 @@ export interface FileRoutesByFullPath {
   '/auth/reset-password': typeof AuthResetPasswordRoute
   '/p/$slug': typeof PSlugRoute
   '/ref/$code': typeof RefCodeRoute
+  '/admin/promotional-credits': typeof AuthenticatedAdminPromotionalCreditsRoute
   '/marketplace/$productId': typeof AuthenticatedMarketplaceProductIdRoute
   '/marketplace/sell': typeof AuthenticatedMarketplaceSellRoute
   '/projects/$id': typeof AuthenticatedProjectsIdRoute
@@ -410,7 +418,7 @@ export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/demo': typeof DemoRoute
   '/legal': typeof LegalRoute
-  '/admin': typeof AuthenticatedAdminRoute
+  '/admin': typeof AuthenticatedAdminRouteWithChildren
   '/affiliates': typeof AuthenticatedAffiliatesRoute
   '/build': typeof AuthenticatedBuildRoute
   '/dashboard': typeof AuthenticatedDashboardRoute
@@ -426,6 +434,7 @@ export interface FileRoutesByTo {
   '/auth/reset-password': typeof AuthResetPasswordRoute
   '/p/$slug': typeof PSlugRoute
   '/ref/$code': typeof RefCodeRoute
+  '/admin/promotional-credits': typeof AuthenticatedAdminPromotionalCreditsRoute
   '/marketplace/$productId': typeof AuthenticatedMarketplaceProductIdRoute
   '/marketplace/sell': typeof AuthenticatedMarketplaceSellRoute
   '/projects/$id': typeof AuthenticatedProjectsIdRoute
@@ -466,7 +475,7 @@ export interface FileRoutesById {
   '/_authenticated': typeof AuthenticatedRouteRouteWithChildren
   '/demo': typeof DemoRoute
   '/legal': typeof LegalRoute
-  '/_authenticated/admin': typeof AuthenticatedAdminRoute
+  '/_authenticated/admin': typeof AuthenticatedAdminRouteWithChildren
   '/_authenticated/affiliates': typeof AuthenticatedAffiliatesRoute
   '/_authenticated/build': typeof AuthenticatedBuildRoute
   '/_authenticated/dashboard': typeof AuthenticatedDashboardRoute
@@ -483,6 +492,7 @@ export interface FileRoutesById {
   '/auth/reset-password': typeof AuthResetPasswordRoute
   '/p/$slug': typeof PSlugRoute
   '/ref/$code': typeof RefCodeRoute
+  '/_authenticated/admin/promotional-credits': typeof AuthenticatedAdminPromotionalCreditsRoute
   '/_authenticated/marketplace/$productId': typeof AuthenticatedMarketplaceProductIdRoute
   '/_authenticated/marketplace/sell': typeof AuthenticatedMarketplaceSellRoute
   '/_authenticated/projects/$id': typeof AuthenticatedProjectsIdRoute
@@ -540,6 +550,7 @@ export interface FileRouteTypes {
     | '/auth/reset-password'
     | '/p/$slug'
     | '/ref/$code'
+    | '/admin/promotional-credits'
     | '/marketplace/$productId'
     | '/marketplace/sell'
     | '/projects/$id'
@@ -594,6 +605,7 @@ export interface FileRouteTypes {
     | '/auth/reset-password'
     | '/p/$slug'
     | '/ref/$code'
+    | '/admin/promotional-credits'
     | '/marketplace/$productId'
     | '/marketplace/sell'
     | '/projects/$id'
@@ -650,6 +662,7 @@ export interface FileRouteTypes {
     | '/auth/reset-password'
     | '/p/$slug'
     | '/ref/$code'
+    | '/_authenticated/admin/promotional-credits'
     | '/_authenticated/marketplace/$productId'
     | '/_authenticated/marketplace/sell'
     | '/_authenticated/projects/$id'
@@ -1021,6 +1034,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedMarketplaceProductIdRouteImport
       parentRoute: typeof AuthenticatedMarketplaceRoute
     }
+    '/_authenticated/admin/promotional-credits': {
+      id: '/_authenticated/admin/promotional-credits'
+      path: '/promotional-credits'
+      fullPath: '/admin/promotional-credits'
+      preLoaderRoute: typeof AuthenticatedAdminPromotionalCreditsRouteImport
+      parentRoute: typeof AuthenticatedAdminRoute
+    }
     '/api/projects/$id/run-next': {
       id: '/api/projects/$id/run-next'
       path: '/run-next'
@@ -1094,6 +1114,18 @@ declare module '@tanstack/react-router' {
   }
 }
 
+interface AuthenticatedAdminRouteChildren {
+  AuthenticatedAdminPromotionalCreditsRoute: typeof AuthenticatedAdminPromotionalCreditsRoute
+}
+
+const AuthenticatedAdminRouteChildren: AuthenticatedAdminRouteChildren = {
+  AuthenticatedAdminPromotionalCreditsRoute:
+    AuthenticatedAdminPromotionalCreditsRoute,
+}
+
+const AuthenticatedAdminRouteWithChildren =
+  AuthenticatedAdminRoute._addFileChildren(AuthenticatedAdminRouteChildren)
+
 interface AuthenticatedMarketplaceRouteChildren {
   AuthenticatedMarketplaceProductIdRoute: typeof AuthenticatedMarketplaceProductIdRoute
   AuthenticatedMarketplaceSellRoute: typeof AuthenticatedMarketplaceSellRoute
@@ -1114,7 +1146,7 @@ const AuthenticatedMarketplaceRouteWithChildren =
   )
 
 interface AuthenticatedRouteRouteChildren {
-  AuthenticatedAdminRoute: typeof AuthenticatedAdminRoute
+  AuthenticatedAdminRoute: typeof AuthenticatedAdminRouteWithChildren
   AuthenticatedAffiliatesRoute: typeof AuthenticatedAffiliatesRoute
   AuthenticatedBuildRoute: typeof AuthenticatedBuildRoute
   AuthenticatedDashboardRoute: typeof AuthenticatedDashboardRoute
@@ -1135,7 +1167,7 @@ interface AuthenticatedRouteRouteChildren {
 }
 
 const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
-  AuthenticatedAdminRoute: AuthenticatedAdminRoute,
+  AuthenticatedAdminRoute: AuthenticatedAdminRouteWithChildren,
   AuthenticatedAffiliatesRoute: AuthenticatedAffiliatesRoute,
   AuthenticatedBuildRoute: AuthenticatedBuildRoute,
   AuthenticatedDashboardRoute: AuthenticatedDashboardRoute,
