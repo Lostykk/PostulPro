@@ -236,4 +236,11 @@ column reference inside the function body, "ambiguous column" on every call, sam
   mid-stream with nothing persisted, so there is no content to recover. The step is now `'failed'`
   with a real "Reintentar" button, same idempotency key
   (`4d71dfd5-ca53-495b-ada6-5eccaed90884::1::business-plan`), ready for exactly one real retry
-  attempt — not yet performed as of this writing.
+  attempt.
+
+**Closed 2026-07-21**: the owner retried once. Verified live: the step is `completed`
+(`attempts: 2`), a real 22,543-character generation is persisted and linked to its credit
+reservation, the project is genuinely `completed` at 100%, `spent_credits: 13` matches
+`estimated_credits: 13` exactly, and `users.credits_used: 13` — no double charge across the whole
+incident (the first attempt's 5 credits were refunded before the retry charged 5 once). Both
+incidents on this project are fully resolved and verified with real data, not inference.
