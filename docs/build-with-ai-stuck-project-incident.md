@@ -2,8 +2,13 @@
 
 **Reported:** 2026-07-20, Preview environment
 **Affected project:** `4d71dfd5-ca53-495b-ada6-5eccaed90884`
-**Status:** Root cause identified and fixed in code (see commits on this branch). DB-level
-confirmation of this specific row was not possible — see "Audit limitations" below.
+**Status:** CLOSED — 2026-07-21. Fixed in production (`main` @ `57ec453`, Worker
+`lostykk-postulpro` version `ab8acec9-1406-422a-b8fb-38761a499aef`), manually verified in
+production by the owner: login, plan/credits, Founder/Admin, Dashboard, Mis proyectos, Biblioteca
+all correct; the recovered project shows 4/4 deliverables, all open correctly, no new credit
+consumption from opening them, no infinite spinner, no errors. Rollback tag
+`rollback-before-construir-ia-cutover-20260721` → `8e01a3b` (pre-cutover production Worker version
+`ffe6625e-7bfd-4d26-9403-3c46f9b2bfb4`) stays in place.
 
 **Update 2026-07-21:** Supabase Management API access was granted mid-incident, closing that
 gap — the pending migration was applied, and a second, related incident on this same project
