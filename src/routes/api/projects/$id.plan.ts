@@ -104,7 +104,7 @@ export const Route = createFileRoute("/api/projects/$id/plan")({
       POST: async ({ request, params }) => {
         const ctx = await authenticate(request);
         if (!isAuthedCtx(ctx)) return ctx;
-        const { supabase, userId } = ctx;
+        const { supabase, userId, email } = ctx;
 
         const { data: project, error: loadErr } = await supabase
           .from("ai_projects")
@@ -134,19 +134,20 @@ export const Route = createFileRoute("/api/projects/$id/plan")({
         // Preview-only allowlist gate — checked before rate limiting/credits
         // so a disallowed caller never even reaches those. Admins bypass the
         // single-QA-user restriction without replacing it. The role lookup
-        // only runs in preview, so production pays zero extra cost.
+        // only runs in preview, so production pays zero extra cost. Email
+        // comes from the verified Auth session (ctx.email), not the
+        // public.users profile column — the authoritative source regardless
+        // of whether that column is populated/kept in sync.
         let isAdminForGuard = false;
-        let emailForGuard: string | null = null;
         if (isPreviewEnvironment()) {
           const { data: guardProfile } = await supabase
             .from("users")
-            .select("role,email")
+            .select("role")
             .eq("id", userId)
             .maybeSingle();
           isAdminForGuard = isOwner(guardProfile);
-          emailForGuard = guardProfile?.email ?? null;
         }
-        const guard = checkAiExecutionAllowed(userId, isAdminForGuard, emailForGuard);
+        const guard = checkAiExecutionAllowed(userId, isAdminForGuard, email);
         if (!guard.allowed) {
           // Without this, the project row is left exactly as
           // create_ai_project left it (status='planning', no plan) forever —

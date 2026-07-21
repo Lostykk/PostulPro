@@ -6,7 +6,16 @@ import type { Database } from "@/integrations/supabase/types";
 // duplicated across routes/api/billing/*.ts and routes/api/generate-ai.ts.
 // Returns either the authenticated context or a ready-to-return Response.
 
-export type AuthedCtx = { supabase: SupabaseClient<Database>; userId: string };
+export type AuthedCtx = {
+  supabase: SupabaseClient<Database>;
+  userId: string;
+  // From the verified Supabase Auth session itself (auth.getUser), not the
+  // public.users profile row — the authoritative source for "what did this
+  // person actually sign in with", independent of whether a profile-table
+  // column is populated/synced. See preview-guard.server.ts's email
+  // allowlist for the one place this matters today.
+  email: string | null;
+};
 
 export async function authenticate(request: Request): Promise<AuthedCtx | Response> {
   const auth = request.headers.get("authorization") ?? "";
@@ -25,7 +34,7 @@ export async function authenticate(request: Request): Promise<AuthedCtx | Respon
   const { data: userData, error } = await supabase.auth.getUser(token);
   if (error || !userData?.user) return json({ error: "Unauthorized" }, 401);
 
-  return { supabase, userId: userData.user.id };
+  return { supabase, userId: userData.user.id, email: userData.user.email ?? null };
 }
 
 export function isAuthedCtx(x: AuthedCtx | Response): x is AuthedCtx {
