@@ -98,14 +98,23 @@ export function SectionEditor({
           onChange={(testimonials) => set({ testimonials })}
           renderItem={(item, update) => (
             <>
-              <TextAreaField label="Cita" value={item.quote} onChange={(v) => update({ ...item, quote: v })} />
+              {item.source === "ai_suggested" && (
+                <p className="text-[11px] font-semibold uppercase tracking-wide text-amber-400">
+                  Ejemplo sugerido por IA — editalo para confirmar que es real
+                </p>
+              )}
+              <TextAreaField
+                label="Cita"
+                value={item.quote}
+                onChange={(v) => update({ ...item, quote: v, source: "user_confirmed" })}
+              />
               <div className="grid grid-cols-2 gap-2">
-                <TextField label="Nombre" value={item.name} onChange={(v) => update({ ...item, name: v })} />
-                <TextField label="Rol" value={item.role} onChange={(v) => update({ ...item, role: v })} />
+                <TextField label="Nombre" value={item.name} onChange={(v) => update({ ...item, name: v, source: "user_confirmed" })} />
+                <TextField label="Rol" value={item.role} onChange={(v) => update({ ...item, role: v, source: "user_confirmed" })} />
               </div>
             </>
           )}
-          newItem={{ quote: "", name: "", role: "" }}
+          newItem={{ quote: "", name: "", role: "", source: "user_confirmed" }}
         />
       )}
 
@@ -115,12 +124,19 @@ export function SectionEditor({
           items={c.stats ?? []}
           onChange={(stats) => set({ stats })}
           renderItem={(item, update) => (
-            <div className="grid grid-cols-2 gap-2">
-              <TextField label="Valor" value={item.value} onChange={(v) => update({ ...item, value: v })} />
-              <TextField label="Etiqueta" value={item.label} onChange={(v) => update({ ...item, label: v })} />
-            </div>
+            <>
+              {item.source === "ai_suggested" && (
+                <p className="text-[11px] font-semibold uppercase tracking-wide text-amber-400">
+                  Ejemplo sugerido por IA — editalo para confirmar que es real
+                </p>
+              )}
+              <div className="grid grid-cols-2 gap-2">
+                <TextField label="Valor" value={item.value} onChange={(v) => update({ ...item, value: v, source: "user_confirmed" })} />
+                <TextField label="Etiqueta" value={item.label} onChange={(v) => update({ ...item, label: v, source: "user_confirmed" })} />
+              </div>
+            </>
           )}
-          newItem={{ label: "Etiqueta", value: "0" }}
+          newItem={{ label: "Etiqueta", value: "0", source: "user_confirmed" }}
         />
       )}
 

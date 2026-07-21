@@ -1,14 +1,16 @@
 import type { LandingTheme, LandingThemeId } from "@/lib/landing/schema";
 
-// Three genuinely different presets (Fase G): a dark/premium tech look, a
-// clean high-contrast commercial look, and a bold/loud brand look. Each is
-// fully customizable afterward (colors, button style, radius, shadow,
-// spacing, font, intensity) without ever losing section content — switching
-// themes only ever touches `doc.theme`, never `doc.sections`.
+// 8 genuinely different presets ("Landing Studio"). The original 3 ids
+// (authority_dark/conversion_light/bold_brand) are kept forever unrenamed —
+// only their display `name` changed to line up with the 8 named presets —
+// so documents saved before Landing Studio still resolve correctly. Each
+// preset is fully customizable afterward (colors, button style, radius,
+// shadow, spacing, font, intensity) without ever losing section content —
+// applying a preset only ever touches `doc.theme`, never `doc.sections`.
 export const THEME_PRESETS: Record<LandingThemeId, LandingTheme> = {
   authority_dark: {
     id: "authority_dark",
-    name: "Authority Dark",
+    name: "Oscuro Premium",
     primary: "#8b5cf6",
     secondary: "#d946ef",
     background: "#0b0b12",
@@ -25,7 +27,7 @@ export const THEME_PRESETS: Record<LandingThemeId, LandingTheme> = {
   },
   conversion_light: {
     id: "conversion_light",
-    name: "Conversion Light",
+    name: "Profesional",
     primary: "#2563eb",
     secondary: "#0891b2",
     background: "#ffffff",
@@ -42,7 +44,7 @@ export const THEME_PRESETS: Record<LandingThemeId, LandingTheme> = {
   },
   bold_brand: {
     id: "bold_brand",
-    name: "Bold Brand",
+    name: "Energético",
     primary: "#f97316",
     secondary: "#ec4899",
     background: "#fff7ed",
@@ -56,6 +58,91 @@ export const THEME_PRESETS: Record<LandingThemeId, LandingTheme> = {
     spacing: "spacious",
     font: "display",
     intensity: "bold",
+  },
+  moderno: {
+    id: "moderno",
+    name: "Moderno",
+    primary: "#0ea5e9",
+    secondary: "#14b8a6",
+    background: "#f5f8fb",
+    surface: "#ffffff",
+    text: "#101828",
+    muted: "#5c6b82",
+    buttonStyle: "solid",
+    radius: "md",
+    shadow: true,
+    maxWidth: 1120,
+    spacing: "normal",
+    font: "sans",
+    intensity: "balanced",
+  },
+  minimalista: {
+    id: "minimalista",
+    name: "Minimalista",
+    primary: "#111111",
+    secondary: "#555555",
+    background: "#fefefe",
+    surface: "#f4f4f4",
+    text: "#141414",
+    muted: "#767676",
+    buttonStyle: "outline",
+    radius: "none",
+    shadow: false,
+    maxWidth: 980,
+    spacing: "spacious",
+    font: "sans",
+    intensity: "subtle",
+  },
+  elegante: {
+    id: "elegante",
+    name: "Elegante",
+    primary: "#9c7a3c",
+    secondary: "#4b3f2f",
+    background: "#faf7f2",
+    surface: "#ffffff",
+    text: "#211c15",
+    muted: "#7a6f5f",
+    buttonStyle: "outline",
+    radius: "none",
+    shadow: false,
+    maxWidth: 1000,
+    spacing: "spacious",
+    font: "display",
+    intensity: "subtle",
+  },
+  tecnologico: {
+    id: "tecnologico",
+    name: "Tecnológico",
+    primary: "#3b82f6",
+    secondary: "#22d3ee",
+    background: "#0a0f1e",
+    surface: "#131a2e",
+    text: "#e8ecf5",
+    muted: "#8a94ad",
+    buttonStyle: "gradient",
+    radius: "lg",
+    shadow: true,
+    maxWidth: 1120,
+    spacing: "normal",
+    font: "display",
+    intensity: "bold",
+  },
+  calido: {
+    id: "calido",
+    name: "Cálido",
+    primary: "#c9683f",
+    secondary: "#e0a458",
+    background: "#fff3e8",
+    surface: "#ffffff",
+    text: "#3b2a1e",
+    muted: "#8a7360",
+    buttonStyle: "solid",
+    radius: "lg",
+    shadow: false,
+    maxWidth: 1080,
+    spacing: "normal",
+    font: "sans",
+    intensity: "balanced",
   },
 };
 

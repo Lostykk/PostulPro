@@ -1,44 +1,49 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import {
   ArrowDown,
   ArrowUp,
+  Code2,
   Copy,
   Eye,
   EyeOff,
   FileCode2,
   FileJson,
+  GripVertical,
   Globe,
+  LayoutTemplate,
   Link2,
   Maximize2,
   Minimize2,
   Monitor,
   Palette,
   Plus,
+  Redo2,
   Save,
   Search,
   Smartphone,
   Tablet,
   Trash2,
+  Undo2,
 } from "lucide-react";
 import {
   createSection,
-  emptyLandingV2,
-  migrateLegacyLanding,
-  parseLandingV2,
+  parseLandingDocument,
   SECTION_LABELS,
   SECTION_TYPES,
-  serializeLandingV2,
-  type LandingPageV2,
+  serializeLandingV3,
+  type LandingPageV3,
   type LandingSection,
+  type LandingTemplateId,
   type LandingThemeId,
+  type LandingUiMode,
   type SectionType,
 } from "@/lib/landing/schema";
-import { parseLandingJson } from "@/lib/deliverables/parse-landing";
 import { THEME_LIST, themeToCssVars } from "@/lib/landing/themes";
+import { LANDING_TEMPLATE_LIST, templateConfig } from "@/lib/landing/templates";
 import { LandingSectionRenderer } from "@/components/landing/LandingSectionRenderer";
 import { SectionEditor } from "@/components/landing/SectionEditor";
-import { exportLandingV2Html, exportLandingV2Json } from "@/lib/landing/export";
+import { exportLandingHtml, exportLandingJson, buildLandingHtml } from "@/lib/landing/export";
 import { publicLandingUrl, publishLandingPage, unpublishLandingPage } from "@/lib/landing/publish";
 import { SimpleSelect } from "@/components/ui/simple-select";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -48,20 +53,13 @@ const VIEWPORT_WIDTH: Record<Viewport, string> = { desktop: "100%", tablet: "768
 type Viewport = "desktop" | "tablet" | "mobile";
 type Mode = "edit" | "preview" | "fullscreen";
 type SaveState = "idle" | "saving" | "saved" | "error";
+const HISTORY_LIMIT = 50;
 
-function withoutMetadata(doc: LandingPageV2): unknown {
+function withoutMetadata(doc: LandingPageV3): unknown {
   return { ...doc, metadata: undefined };
 }
 
-function parseInitial(text: string, title: string): LandingPageV2 {
-  const v2 = parseLandingV2(text);
-  if (v2) return v2;
-  const legacy = parseLandingJson(text);
-  if (legacy) return migrateLegacyLanding(legacy, title);
-  return emptyLandingV2(title);
-}
-
-function extractCopy(doc: LandingPageV2): string {
+function extractCopy(doc: LandingPageV3): string {
   const lines: string[] = [];
   for (const s of [...doc.sections].sort((a, b) => a.order - b.order)) {
     if (!s.visible) continue;
@@ -79,6 +77,18 @@ function extractCopy(doc: LandingPageV2): string {
   return lines.join("\n").trim();
 }
 
+// Whether any testimonial/stat in the document is still AI-suggested and
+// unreviewed — used to warn (never block) before publishing, per the
+// anti-fabrication requirement: nothing here is factual until a human has
+// actually looked at it.
+function hasUnreviewedClaims(doc: LandingPageV3): boolean {
+  return doc.sections.some(
+    (s) =>
+      (s.content.testimonials ?? []).some((t) => t.source !== "user_confirmed") ||
+      (s.content.stats ?? []).some((st) => st.source !== "user_confirmed"),
+  );
+}
+
 export function LandingBuilder({
   text,
   title,
@@ -91,8 +101,8 @@ export function LandingBuilder({
   onSave: (newText: string) => Promise<void> | void;
 }) {
   const { user } = useAuth();
-  const initialDoc = useMemo(() => parseInitial(text, title), [text, title]);
-  const [doc, setDoc] = useState<LandingPageV2>(initialDoc);
+  const initialDoc = useMemo(() => parseLandingDocument(text, title), [text, title]);
+  const [doc, setDoc] = useState<LandingPageV3>(initialDoc);
   const [mode, setMode] = useState<Mode>("edit");
   const [viewport, setViewport] = useState<Viewport>("desktop");
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -100,35 +110,50 @@ export function LandingBuilder({
   const [addPickerOpen, setAddPickerOpen] = useState(false);
   const [seoOpen, setSeoOpen] = useState(false);
   const [themeOpen, setThemeOpen] = useState(false);
+  const [templateOpen, setTemplateOpen] = useState(false);
+  const [codeOpen, setCodeOpen] = useState(false);
   const [publishOpen, setPublishOpen] = useState(false);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const [publishing, setPublishing] = useState(false);
   const [slugDraft, setSlugDraft] = useState(doc.seo.slug);
+  const [dragId, setDragId] = useState<string | null>(null);
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const docRef = useRef(doc);
   docRef.current = doc;
+
+  // Undo/redo history: plain past/future stacks of full documents. Refs (not
+  // state) because pushing to them must never itself trigger a render — only
+  // the resulting setDoc does. historyTick forces the toolbar's disabled
+  // state to re-evaluate after a push/pop.
+  const pastRef = useRef<LandingPageV3[]>([]);
+  const futureRef = useRef<LandingPageV3[]>([]);
+  const [historyTick, setHistoryTick] = useState(0);
 
   useEffect(() => {
     setDoc(initialDoc);
     setSaveState("idle");
     setSelectedId(null);
+    pastRef.current = [];
+    futureRef.current = [];
+    setHistoryTick((t) => t + 1);
   }, [initialDoc]);
 
   const dirty = JSON.stringify(withoutMetadata(doc)) !== JSON.stringify(withoutMetadata(initialDoc));
 
-  async function persist(target: LandingPageV2) {
+  async function persist(target: LandingPageV3) {
     setSaveState("saving");
     try {
-      await onSave(serializeLandingV2(target));
+      await onSave(serializeLandingV3(target));
       setSaveState("saved");
     } catch {
       setSaveState("error");
     }
   }
 
-  // Debounced autosave (Fase C/P): edits never cost credits, and nothing is
-  // lost if the tab closes before the timer fires — dirty is recomputed from
-  // the last saved `text` prop on every render.
+  // Debounced autosave (Fase C/P, extended in Landing Studio): edits never
+  // cost credits, and nothing is lost if the tab closes before the timer
+  // fires — dirty is recomputed from the last saved `text` prop on every
+  // render.
   useEffect(() => {
     if (!dirty) return;
     if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
@@ -141,20 +166,71 @@ export function LandingBuilder({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [doc]);
 
+  // Every content-changing action goes through here instead of setDoc
+  // directly, so it becomes one undo step. UI-only state (view mode,
+  // viewport, dialogs) never touches this — only `doc` itself.
+  const updateDoc = useCallback((updater: (d: LandingPageV3) => LandingPageV3) => {
+    setDoc((d) => {
+      const next = updater(d);
+      if (next === d) return d;
+      pastRef.current = [...pastRef.current.slice(-(HISTORY_LIMIT - 1)), d];
+      futureRef.current = [];
+      setHistoryTick((t) => t + 1);
+      return next;
+    });
+  }, []);
+
+  const undo = useCallback(() => {
+    setDoc((d) => {
+      const prev = pastRef.current.at(-1);
+      if (!prev) return d;
+      pastRef.current = pastRef.current.slice(0, -1);
+      futureRef.current = [...futureRef.current, d];
+      setHistoryTick((t) => t + 1);
+      return prev;
+    });
+  }, []);
+
+  const redo = useCallback(() => {
+    setDoc((d) => {
+      const next = futureRef.current.at(-1);
+      if (!next) return d;
+      futureRef.current = futureRef.current.slice(0, -1);
+      pastRef.current = [...pastRef.current, d];
+      setHistoryTick((t) => t + 1);
+      return next;
+    });
+  }, []);
+
+  useEffect(() => {
+    function onKeyDown(e: KeyboardEvent) {
+      const target = e.target as HTMLElement | null;
+      const isEditable = target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable);
+      if (isEditable) return;
+      const mod = e.metaKey || e.ctrlKey;
+      if (!mod || e.key.toLowerCase() !== "z") return;
+      e.preventDefault();
+      if (e.shiftKey) redo();
+      else undo();
+    }
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [undo, redo]);
+
   const sortedSections = useMemo(() => [...doc.sections].sort((a, b) => a.order - b.order), [doc.sections]);
   const selected = sortedSections.find((s) => s.id === selectedId) ?? null;
 
-  function patchDoc(patch: Partial<LandingPageV2>) {
-    setDoc((d) => ({ ...d, ...patch }));
+  function patchDoc(patch: Partial<LandingPageV3>) {
+    updateDoc((d) => ({ ...d, ...patch }));
   }
   function updateSectionContent(id: string, content: LandingSection["content"]) {
-    setDoc((d) => ({ ...d, sections: d.sections.map((s) => (s.id === id ? { ...s, content } : s)) }));
+    updateDoc((d) => ({ ...d, sections: d.sections.map((s) => (s.id === id ? { ...s, content } : s)) }));
   }
   function toggleVisible(id: string) {
-    setDoc((d) => ({ ...d, sections: d.sections.map((s) => (s.id === id ? { ...s, visible: !s.visible } : s)) }));
+    updateDoc((d) => ({ ...d, sections: d.sections.map((s) => (s.id === id ? { ...s, visible: !s.visible } : s)) }));
   }
   function duplicateSection(id: string) {
-    setDoc((d) => {
+    updateDoc((d) => {
       const sorted = [...d.sections].sort((a, b) => a.order - b.order);
       const idx = sorted.findIndex((s) => s.id === id);
       if (idx === -1) return d;
@@ -167,7 +243,7 @@ export function LandingBuilder({
     });
   }
   function removeSection(id: string) {
-    setDoc((d) => ({
+    updateDoc((d) => ({
       ...d,
       sections: d.sections.filter((s) => s.id !== id).map((s, i) => ({ ...s, order: i })),
     }));
@@ -175,7 +251,7 @@ export function LandingBuilder({
     setConfirmDeleteId(null);
   }
   function moveSection(id: string, dir: -1 | 1) {
-    setDoc((d) => {
+    updateDoc((d) => {
       const list = [...d.sections].sort((a, b) => a.order - b.order);
       const idx = list.findIndex((s) => s.id === id);
       const swapIdx = idx + dir;
@@ -186,17 +262,43 @@ export function LandingBuilder({
       return { ...d, sections: list.map((s, i) => ({ ...s, order: i })) };
     });
   }
+  function reorderSection(draggedId: string, targetId: string) {
+    if (draggedId === targetId) return;
+    updateDoc((d) => {
+      const list = [...d.sections].sort((a, b) => a.order - b.order);
+      const from = list.findIndex((s) => s.id === draggedId);
+      const to = list.findIndex((s) => s.id === targetId);
+      if (from === -1 || to === -1) return d;
+      const [item] = list.splice(from, 1);
+      list.splice(to, 0, item);
+      return { ...d, sections: list.map((s, i) => ({ ...s, order: i })) };
+    });
+  }
   function addSection(type: SectionType) {
-    setDoc((d) => ({ ...d, sections: [...d.sections, createSection(type, d.sections.length)] }));
+    updateDoc((d) => ({ ...d, sections: [...d.sections, createSection(type, d.sections.length)] }));
     setAddPickerOpen(false);
   }
+  // Switching preset/template only ever patches that one field — content,
+  // images, CTAs, SEO and section order are never touched, so it's free,
+  // instant, and never loses edits (Fase 8/9 of Landing Studio).
   function applyTheme(themeId: LandingThemeId) {
     const preset = THEME_LIST.find((t) => t.id === themeId);
     if (preset) patchDoc({ theme: preset });
   }
+  function applyTemplate(templateId: LandingTemplateId) {
+    patchDoc({ templateId });
+    setTemplateOpen(false);
+  }
+  function toggleUiMode() {
+    const next: LandingUiMode = doc.uiMode === "advanced" ? "simple" : "advanced";
+    // A view-mode preference, not editable content — doesn't consume an
+    // undo step, so toggling back and forth never pollutes history.
+    setDoc((d) => ({ ...d, uiMode: next }));
+  }
 
   const usedTypes = new Set(doc.sections.map((s) => s.type));
   const availableTypes = SECTION_TYPES.filter((t) => !usedTypes.has(t));
+  const isAdvanced = doc.uiMode === "advanced";
 
   async function handlePublish() {
     if (!generationId) return;
@@ -210,6 +312,15 @@ export function LandingBuilder({
     } finally {
       setPublishing(false);
     }
+  }
+  function confirmAndPublish() {
+    if (hasUnreviewedClaims(doc)) {
+      const ok = window.confirm(
+        "Esta landing todavía tiene testimonios o estadísticas de ejemplo sugeridos por la IA (marcados 'Ejemplo — revisar'). ¿Confirmás que ya los revisaste y son reales antes de publicar?",
+      );
+      if (!ok) return;
+    }
+    void handlePublish();
   }
   async function handleUnpublish() {
     if (!generationId) return;
@@ -259,16 +370,26 @@ export function LandingBuilder({
         saveState={saveState}
         dirty={dirty}
         onSaveNow={() => persist(doc)}
+        onOpenTemplate={() => setTemplateOpen(true)}
         onOpenTheme={() => setThemeOpen(true)}
         onOpenSeo={() => setSeoOpen(true)}
         onOpenPublish={() => setPublishOpen(true)}
-        onExportHtml={() => exportLandingV2Html(doc)}
-        onExportJson={() => exportLandingV2Json(doc)}
+        onOpenCode={() => setCodeOpen(true)}
+        onExportHtml={() => exportLandingHtml(doc)}
+        onExportJson={() => exportLandingJson(doc)}
         onCopyAll={async () => {
           await navigator.clipboard.writeText(extractCopy(doc));
           toast.success("Copy completo copiado");
         }}
+        onUndo={undo}
+        onRedo={redo}
+        canUndo={pastRef.current.length > 0}
+        canRedo={futureRef.current.length > 0}
+        historyTick={historyTick}
         themeName={doc.theme.name}
+        templateName={templateConfig(doc.templateId).name}
+        isAdvanced={isAdvanced}
+        onToggleAdvanced={toggleUiMode}
       />
 
       <div className={`flex gap-4 ${mode === "fullscreen" ? "flex-1 min-h-0 px-4 pb-4" : ""}`}>
@@ -282,12 +403,19 @@ export function LandingBuilder({
                   selected={s.id === selectedId}
                   isFirst={i === 0}
                   isLast={i === sortedSections.length - 1}
+                  dragging={dragId === s.id}
                   onSelect={() => setSelectedId(s.id)}
                   onToggleVisible={() => toggleVisible(s.id)}
                   onDuplicate={() => duplicateSection(s.id)}
                   onDelete={() => setConfirmDeleteId(s.id)}
                   onMoveUp={() => moveSection(s.id, -1)}
                   onMoveDown={() => moveSection(s.id, 1)}
+                  onDragStart={() => setDragId(s.id)}
+                  onDragEnd={() => setDragId(null)}
+                  onDropOn={() => {
+                    if (dragId) reorderSection(dragId, s.id);
+                    setDragId(null);
+                  }}
                 />
               ))}
               <button
@@ -322,11 +450,12 @@ export function LandingBuilder({
                   key={s.id}
                   section={s}
                   theme={doc.theme}
+                  templateId={doc.templateId}
                   selected={s.id === selectedId}
                   onSelect={() => setSelectedId(s.id)}
                 />
               ) : (
-                <LandingSectionRenderer key={s.id} section={s} theme={doc.theme} />
+                <LandingSectionRenderer key={s.id} section={s} theme={doc.theme} templateId={doc.templateId} />
               ),
             )}
             {sortedSections.length === 0 && (
@@ -339,8 +468,10 @@ export function LandingBuilder({
       </div>
 
       <AddSectionDialog open={addPickerOpen} onOpenChange={setAddPickerOpen} available={availableTypes} onAdd={addSection} />
-      <ThemeDialog open={themeOpen} onOpenChange={setThemeOpen} doc={doc} onApplyPreset={applyTheme} onPatch={(theme) => patchDoc({ theme })} />
-      <SeoDialog open={seoOpen} onOpenChange={setSeoOpen} doc={doc} onPatch={(seo) => patchDoc({ seo })} />
+      <TemplateDialog open={templateOpen} onOpenChange={setTemplateOpen} doc={doc} onApply={applyTemplate} />
+      <ThemeDialog open={themeOpen} onOpenChange={setThemeOpen} doc={doc} isAdvanced={isAdvanced} onApplyPreset={applyTheme} onPatch={(theme) => patchDoc({ theme })} />
+      <SeoDialog open={seoOpen} onOpenChange={setSeoOpen} doc={doc} isAdvanced={isAdvanced} onPatch={(seo) => patchDoc({ seo })} />
+      {isAdvanced && <CodeDialog open={codeOpen} onOpenChange={setCodeOpen} doc={doc} />}
       <PublishDialog
         open={publishOpen}
         onOpenChange={setPublishOpen}
@@ -349,7 +480,7 @@ export function LandingBuilder({
         setSlugDraft={setSlugDraft}
         publishing={publishing}
         canPublish={!!generationId}
-        onPublish={handlePublish}
+        onPublish={confirmAndPublish}
         onUnpublish={handleUnpublish}
         onCopyLink={copyPublicLink}
       />
@@ -359,7 +490,7 @@ export function LandingBuilder({
           <DialogHeader>
             <DialogTitle>¿Eliminar esta sección?</DialogTitle>
           </DialogHeader>
-          <p className="text-sm text-muted-foreground">Esta acción no se puede deshacer una vez guardada.</p>
+          <p className="text-sm text-muted-foreground">Podés deshacer esta acción con el botón Deshacer o Ctrl+Z.</p>
           <DialogFooter>
             <button
               type="button"
@@ -385,11 +516,13 @@ export function LandingBuilder({
 function EditablePreviewSection({
   section,
   theme,
+  templateId,
   selected,
   onSelect,
 }: {
   section: LandingSection;
-  theme: LandingPageV2["theme"];
+  theme: LandingPageV3["theme"];
+  templateId: LandingTemplateId;
   selected: boolean;
   onSelect: () => void;
 }) {
@@ -404,7 +537,7 @@ function EditablePreviewSection({
           Oculta
         </span>
       )}
-      <LandingSectionRenderer section={display} theme={theme} />
+      <LandingSectionRenderer section={display} theme={theme} templateId={templateId} />
     </div>
   );
 }
@@ -414,28 +547,47 @@ function SectionRow({
   selected,
   isFirst,
   isLast,
+  dragging,
   onSelect,
   onToggleVisible,
   onDuplicate,
   onDelete,
   onMoveUp,
   onMoveDown,
+  onDragStart,
+  onDragEnd,
+  onDropOn,
 }: {
   section: LandingSection;
   selected: boolean;
   isFirst: boolean;
   isLast: boolean;
+  dragging: boolean;
   onSelect: () => void;
   onToggleVisible: () => void;
   onDuplicate: () => void;
   onDelete: () => void;
   onMoveUp: () => void;
   onMoveDown: () => void;
+  onDragStart: () => void;
+  onDragEnd: () => void;
+  onDropOn: () => void;
 }) {
   return (
     <div
-      className={`flex items-center gap-1 rounded-lg px-2 py-1.5 text-xs transition ${selected ? "bg-violet-500/15 text-violet-200" : "hover:bg-white/5"}`}
+      draggable
+      onDragStart={onDragStart}
+      onDragEnd={onDragEnd}
+      onDragOver={(e) => e.preventDefault()}
+      onDrop={(e) => {
+        e.preventDefault();
+        onDropOn();
+      }}
+      className={`flex items-center gap-1 rounded-lg px-2 py-1.5 text-xs transition ${selected ? "bg-violet-500/15 text-violet-200" : "hover:bg-white/5"} ${dragging ? "opacity-40" : ""}`}
     >
+      <span className="cursor-grab text-muted-foreground/50" aria-hidden="true">
+        <GripVertical className="w-3 h-3" />
+      </span>
       <button type="button" onClick={onSelect} className="flex-1 text-left truncate font-medium">
         {SECTION_LABELS[section.type]}
       </button>
@@ -491,13 +643,23 @@ function Toolbar({
   saveState,
   dirty,
   onSaveNow,
+  onOpenTemplate,
   onOpenTheme,
   onOpenSeo,
   onOpenPublish,
+  onOpenCode,
   onExportHtml,
   onExportJson,
   onCopyAll,
+  onUndo,
+  onRedo,
+  canUndo,
+  canRedo,
+  historyTick,
   themeName,
+  templateName,
+  isAdvanced,
+  onToggleAdvanced,
 }: {
   mode: Mode;
   setMode: (m: Mode) => void;
@@ -506,14 +668,25 @@ function Toolbar({
   saveState: SaveState;
   dirty: boolean;
   onSaveNow: () => void;
+  onOpenTemplate: () => void;
   onOpenTheme: () => void;
   onOpenSeo: () => void;
   onOpenPublish: () => void;
+  onOpenCode: () => void;
   onExportHtml: () => void;
   onExportJson: () => void;
   onCopyAll: () => void;
+  onUndo: () => void;
+  onRedo: () => void;
+  canUndo: boolean;
+  canRedo: boolean;
+  historyTick: number;
   themeName: string;
+  templateName: string;
+  isAdvanced: boolean;
+  onToggleAdvanced: () => void;
 }) {
+  void historyTick; // forces re-render so canUndo/canRedo reflect the latest ref state
   return (
     <div className="flex items-center justify-between gap-2 flex-wrap">
       <div className="flex items-center gap-2 flex-wrap">
@@ -539,6 +712,21 @@ function Toolbar({
             <Smartphone className="w-3.5 h-3.5" />
           </IconTab>
         </div>
+        <div className="inline-flex rounded-lg bg-white/5 p-1 gap-0.5">
+          <IconBtn label="Deshacer (Ctrl+Z)" onClick={onUndo} disabled={!canUndo}>
+            <Undo2 className="w-3.5 h-3.5" />
+          </IconBtn>
+          <IconBtn label="Rehacer (Ctrl+Shift+Z)" onClick={onRedo} disabled={!canRedo}>
+            <Redo2 className="w-3.5 h-3.5" />
+          </IconBtn>
+        </div>
+        <button
+          type="button"
+          onClick={onOpenTemplate}
+          className="inline-flex items-center gap-1.5 h-8 px-2.5 rounded-lg text-xs font-medium bg-white/10 hover:bg-white/15 transition"
+        >
+          <LayoutTemplate className="w-3.5 h-3.5" /> {templateName}
+        </button>
         <button
           type="button"
           onClick={onOpenTheme}
@@ -553,6 +741,14 @@ function Toolbar({
         >
           <Search className="w-3.5 h-3.5" /> SEO
         </button>
+        <button
+          type="button"
+          onClick={onToggleAdvanced}
+          title="El modo avanzado muestra JSON, HTML y configuración técnica — no hace falta para lograr una landing profesional"
+          className={`inline-flex items-center gap-1.5 h-8 px-2.5 rounded-lg text-xs font-medium transition ${isAdvanced ? "bg-violet-500/20 text-violet-200" : "bg-white/10 hover:bg-white/15"}`}
+        >
+          {isAdvanced ? "Modo avanzado" : "Modo simple"}
+        </button>
       </div>
 
       <div className="flex items-center gap-2 flex-wrap">
@@ -563,6 +759,15 @@ function Toolbar({
         >
           <Copy className="w-3.5 h-3.5" /> Copiar copy
         </button>
+        {isAdvanced && (
+          <button
+            type="button"
+            onClick={onOpenCode}
+            className="inline-flex items-center gap-1.5 h-8 px-2.5 rounded-lg text-xs font-medium bg-white/10 hover:bg-white/15 transition"
+          >
+            <Code2 className="w-3.5 h-3.5" /> Código
+          </button>
+        )}
         <button
           type="button"
           onClick={onExportHtml}
@@ -582,7 +787,7 @@ function Toolbar({
           onClick={onOpenPublish}
           className="inline-flex items-center gap-1.5 h-8 px-2.5 rounded-lg text-xs font-medium bg-white/10 hover:bg-white/15 transition"
         >
-          <Globe className="w-3.5 h-3.5" /> Publicar
+          <Globe className="w-3.5 h-3.5" /> Publicar (preview)
         </button>
         <SaveStatusLabel state={saveState} dirty={dirty} />
         <button
@@ -678,103 +883,195 @@ function AddSectionDialog({
   );
 }
 
+// Small CSS-only mockup — not a screenshot, but a real structural preview:
+// hero composition, nav position and card grid density actually reflect the
+// template's config, so the 8 options read as genuinely different layouts
+// rather than a color swatch picker.
+function TemplateThumbnail({ id }: { id: LandingTemplateId }) {
+  const tpl = templateConfig(id);
+  const preset = THEME_LIST.find((t) => t.id === tpl.defaultPresetId) ?? THEME_LIST[0];
+  const heroBlocks =
+    tpl.heroLayout === "centered" || tpl.heroLayout === "fullbleed" ? (
+      <div className="h-6 rounded" style={{ background: preset.primary, opacity: 0.7 }} />
+    ) : (
+      <div className={`grid grid-cols-2 gap-1 ${tpl.heroLayout === "split-left" ? "[direction:rtl]" : ""}`}>
+        <div className="h-6 rounded" style={{ background: preset.muted, opacity: 0.4 }} />
+        <div className="h-6 rounded" style={{ background: preset.primary, opacity: 0.7 }} />
+      </div>
+    );
+  return (
+    <div className="rounded-md overflow-hidden border border-white/10" style={{ background: preset.background }}>
+      <div className="h-2" style={{ background: preset.surface }} />
+      <div className="p-2 space-y-1.5">
+        {heroBlocks}
+        <div className="grid gap-1" style={{ gridTemplateColumns: `repeat(${tpl.gridColumns},1fr)` }}>
+          {Array.from({ length: tpl.gridColumns }).map((_, i) => (
+            <div key={i} className="h-4 rounded-sm" style={{ background: preset.surface, border: `1px solid ${preset.muted}44` }} />
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function TemplateDialog({
+  open,
+  onOpenChange,
+  doc,
+  onApply,
+}: {
+  open: boolean;
+  onOpenChange: (o: boolean) => void;
+  doc: LandingPageV3;
+  onApply: (id: LandingTemplateId) => void;
+}) {
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-3xl max-h-[85vh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle>Elegí un modelo</DialogTitle>
+        </DialogHeader>
+        <p className="text-xs text-muted-foreground -mt-2 mb-2">
+          Cambiar de modelo es instantáneo: no consume créditos, no llama a la IA y no pierde tu contenido ni tus imágenes.
+        </p>
+        <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
+          {LANDING_TEMPLATE_LIST.map((tpl) => {
+            const active = doc.templateId === tpl.id;
+            return (
+              <div
+                key={tpl.id}
+                className={`rounded-xl border p-3 transition ${active ? "border-violet-500 bg-violet-500/10" : "border-white/10 bg-white/5"}`}
+              >
+                <TemplateThumbnail id={tpl.id} />
+                <p className="text-sm font-semibold mt-2">{tpl.name}</p>
+                <p className="text-[11px] text-muted-foreground mt-0.5">{tpl.shortDescription}</p>
+                <p className="text-[10px] text-muted-foreground/70 mt-1 italic">{tpl.recommendedFor}</p>
+                <button
+                  type="button"
+                  onClick={() => onApply(tpl.id)}
+                  disabled={active}
+                  className="mt-2 w-full h-8 rounded-lg text-xs font-semibold bg-gradient-brand text-white disabled:opacity-50 transition"
+                >
+                  {active ? "En uso" : "Usar este modelo"}
+                </button>
+              </div>
+            );
+          })}
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 function ThemeDialog({
   open,
   onOpenChange,
   doc,
+  isAdvanced,
   onApplyPreset,
   onPatch,
 }: {
   open: boolean;
   onOpenChange: (o: boolean) => void;
-  doc: LandingPageV2;
+  doc: LandingPageV3;
+  isAdvanced: boolean;
   onApplyPreset: (id: LandingThemeId) => void;
-  onPatch: (theme: LandingPageV2["theme"]) => void;
+  onPatch: (theme: LandingPageV3["theme"]) => void;
 }) {
   const t = doc.theme;
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-lg max-h-[85vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>Tema visual</DialogTitle>
+          <DialogTitle>Preset visual</DialogTitle>
         </DialogHeader>
-        <div className="grid grid-cols-3 gap-2 mb-4">
+        <div className="grid grid-cols-4 gap-2 mb-4">
           {THEME_LIST.map((preset) => (
             <button
               key={preset.id}
               type="button"
               onClick={() => onApplyPreset(preset.id)}
-              className={`rounded-lg border p-3 text-left transition ${t.id === preset.id ? "border-violet-500 bg-violet-500/10" : "border-white/10 bg-white/5 hover:bg-white/10"}`}
+              className={`rounded-lg border p-2.5 text-left transition ${t.id === preset.id ? "border-violet-500 bg-violet-500/10" : "border-white/10 bg-white/5 hover:bg-white/10"}`}
             >
               <div className="flex gap-1 mb-2">
-                <span className="w-4 h-4 rounded-full inline-block" style={{ background: preset.primary }} />
-                <span className="w-4 h-4 rounded-full inline-block" style={{ background: preset.secondary }} />
-                <span className="w-4 h-4 rounded-full inline-block border border-white/20" style={{ background: preset.background }} />
+                <span className="w-3.5 h-3.5 rounded-full inline-block" style={{ background: preset.primary }} />
+                <span className="w-3.5 h-3.5 rounded-full inline-block" style={{ background: preset.secondary }} />
+                <span className="w-3.5 h-3.5 rounded-full inline-block border border-white/20" style={{ background: preset.background }} />
               </div>
-              <p className="text-xs font-semibold">{preset.name}</p>
+              <p className="text-[11px] font-semibold">{preset.name}</p>
             </button>
           ))}
         </div>
 
-        <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-2">Personalizar</p>
-        <div className="grid grid-cols-2 gap-3">
-          <ColorField label="Primario" value={t.primary} onChange={(v) => onPatch({ ...t, primary: v })} />
-          <ColorField label="Secundario" value={t.secondary} onChange={(v) => onPatch({ ...t, secondary: v })} />
-          <ColorField label="Fondo" value={t.background} onChange={(v) => onPatch({ ...t, background: v })} />
-          <ColorField label="Texto" value={t.text} onChange={(v) => onPatch({ ...t, text: v })} />
-          <div>
-            <FieldLabel>Estilo de botón</FieldLabel>
-            <SimpleSelect
-              value={t.buttonStyle}
-              onValueChange={(v) => onPatch({ ...t, buttonStyle: v as typeof t.buttonStyle })}
-              options={[
-                { value: "solid", label: "Sólido" },
-                { value: "outline", label: "Contorno" },
-                { value: "gradient", label: "Degradado" },
-              ]}
-            />
-          </div>
-          <div>
-            <FieldLabel>Bordes</FieldLabel>
-            <SimpleSelect
-              value={t.radius}
-              onValueChange={(v) => onPatch({ ...t, radius: v as typeof t.radius })}
-              options={[
-                { value: "none", label: "Rectos" },
-                { value: "md", label: "Suaves" },
-                { value: "lg", label: "Redondeados" },
-                { value: "full", label: "Muy redondeados" },
-              ]}
-            />
-          </div>
-          <div>
-            <FieldLabel>Espaciado</FieldLabel>
-            <SimpleSelect
-              value={t.spacing}
-              onValueChange={(v) => onPatch({ ...t, spacing: v as typeof t.spacing })}
-              options={[
-                { value: "compact", label: "Compacto" },
-                { value: "normal", label: "Normal" },
-                { value: "spacious", label: "Espacioso" },
-              ]}
-            />
-          </div>
-          <div>
-            <FieldLabel>Tipografía</FieldLabel>
-            <SimpleSelect
-              value={t.font}
-              onValueChange={(v) => onPatch({ ...t, font: v as typeof t.font })}
-              options={[
-                { value: "sans", label: "Sans-serif" },
-                { value: "display", label: "Display" },
-              ]}
-            />
-          </div>
-          <label className="flex items-center gap-2 text-sm mt-1">
-            <input type="checkbox" checked={t.shadow} onChange={(e) => onPatch({ ...t, shadow: e.target.checked })} />
-            Sombra en tarjetas
-          </label>
-        </div>
+        {!isAdvanced && (
+          <p className="text-xs text-muted-foreground">
+            Activá el <strong>Modo avanzado</strong> en la barra superior para personalizar colores, bordes, sombras y tipografía campo por campo.
+          </p>
+        )}
+
+        {isAdvanced && (
+          <>
+            <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-2">Personalización avanzada</p>
+            <div className="grid grid-cols-2 gap-3">
+              <ColorField label="Primario" value={t.primary} onChange={(v) => onPatch({ ...t, primary: v })} />
+              <ColorField label="Secundario" value={t.secondary} onChange={(v) => onPatch({ ...t, secondary: v })} />
+              <ColorField label="Fondo" value={t.background} onChange={(v) => onPatch({ ...t, background: v })} />
+              <ColorField label="Texto" value={t.text} onChange={(v) => onPatch({ ...t, text: v })} />
+              <div>
+                <FieldLabel>Estilo de botón</FieldLabel>
+                <SimpleSelect
+                  value={t.buttonStyle}
+                  onValueChange={(v) => onPatch({ ...t, buttonStyle: v as typeof t.buttonStyle })}
+                  options={[
+                    { value: "solid", label: "Sólido" },
+                    { value: "outline", label: "Contorno" },
+                    { value: "gradient", label: "Degradado" },
+                  ]}
+                />
+              </div>
+              <div>
+                <FieldLabel>Bordes</FieldLabel>
+                <SimpleSelect
+                  value={t.radius}
+                  onValueChange={(v) => onPatch({ ...t, radius: v as typeof t.radius })}
+                  options={[
+                    { value: "none", label: "Rectos" },
+                    { value: "md", label: "Suaves" },
+                    { value: "lg", label: "Redondeados" },
+                    { value: "full", label: "Muy redondeados" },
+                  ]}
+                />
+              </div>
+              <div>
+                <FieldLabel>Espaciado</FieldLabel>
+                <SimpleSelect
+                  value={t.spacing}
+                  onValueChange={(v) => onPatch({ ...t, spacing: v as typeof t.spacing })}
+                  options={[
+                    { value: "compact", label: "Compacto" },
+                    { value: "normal", label: "Normal" },
+                    { value: "spacious", label: "Espacioso" },
+                  ]}
+                />
+              </div>
+              <div>
+                <FieldLabel>Tipografía</FieldLabel>
+                <SimpleSelect
+                  value={t.font}
+                  onValueChange={(v) => onPatch({ ...t, font: v as typeof t.font })}
+                  options={[
+                    { value: "sans", label: "Sans-serif" },
+                    { value: "display", label: "Display" },
+                  ]}
+                />
+              </div>
+              <label className="flex items-center gap-2 text-sm mt-1">
+                <input type="checkbox" checked={t.shadow} onChange={(e) => onPatch({ ...t, shadow: e.target.checked })} />
+                Sombra en tarjetas
+              </label>
+            </div>
+          </>
+        )}
       </DialogContent>
     </Dialog>
   );
@@ -805,12 +1102,14 @@ function SeoDialog({
   open,
   onOpenChange,
   doc,
+  isAdvanced,
   onPatch,
 }: {
   open: boolean;
   onOpenChange: (o: boolean) => void;
-  doc: LandingPageV2;
-  onPatch: (seo: LandingPageV2["seo"]) => void;
+  doc: LandingPageV3;
+  isAdvanced: boolean;
+  onPatch: (seo: LandingPageV3["seo"]) => void;
 }) {
   const seo = doc.seo;
   return (
@@ -840,33 +1139,66 @@ function SeoDialog({
               onChange={(e) => onPatch({ ...seo, slug: e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, "-") })}
             />
           </div>
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <FieldLabel>OG title</FieldLabel>
-              <input className="input" value={seo.ogTitle} onChange={(e) => onPatch({ ...seo, ogTitle: e.target.value })} />
-            </div>
-            <div>
-              <FieldLabel>OG image (URL)</FieldLabel>
-              <input className="input" value={seo.ogImage} onChange={(e) => onPatch({ ...seo, ogImage: e.target.value })} />
-            </div>
-          </div>
-          <div>
-            <FieldLabel>OG description</FieldLabel>
-            <textarea
-              className="input min-h-[60px] resize-y"
-              value={seo.ogDescription}
-              onChange={(e) => onPatch({ ...seo, ogDescription: e.target.value })}
-            />
-          </div>
-          <div>
-            <FieldLabel>Canonical URL (opcional)</FieldLabel>
-            <input className="input" value={seo.canonical} onChange={(e) => onPatch({ ...seo, canonical: e.target.value })} />
-          </div>
-          <label className="flex items-center gap-2 text-sm">
-            <input type="checkbox" checked={seo.noindex} onChange={(e) => onPatch({ ...seo, noindex: e.target.checked })} />
-            No indexar (recomendado mientras es preview)
-          </label>
+          {!isAdvanced && (
+            <p className="text-xs text-muted-foreground">
+              Activá el <strong>Modo avanzado</strong> para editar Open Graph, canonical y la opción de no-indexar.
+            </p>
+          )}
+          {isAdvanced && (
+            <>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <FieldLabel>OG title</FieldLabel>
+                  <input className="input" value={seo.ogTitle} onChange={(e) => onPatch({ ...seo, ogTitle: e.target.value })} />
+                </div>
+                <div>
+                  <FieldLabel>OG image (URL)</FieldLabel>
+                  <input className="input" value={seo.ogImage} onChange={(e) => onPatch({ ...seo, ogImage: e.target.value })} />
+                </div>
+              </div>
+              <div>
+                <FieldLabel>OG description</FieldLabel>
+                <textarea
+                  className="input min-h-[60px] resize-y"
+                  value={seo.ogDescription}
+                  onChange={(e) => onPatch({ ...seo, ogDescription: e.target.value })}
+                />
+              </div>
+              <div>
+                <FieldLabel>Canonical URL (opcional)</FieldLabel>
+                <input className="input" value={seo.canonical} onChange={(e) => onPatch({ ...seo, canonical: e.target.value })} />
+              </div>
+              <label className="flex items-center gap-2 text-sm">
+                <input type="checkbox" checked={seo.noindex} onChange={(e) => onPatch({ ...seo, noindex: e.target.checked })} />
+                No indexar (recomendado mientras es preview)
+              </label>
+            </>
+          )}
         </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function CodeDialog({ open, onOpenChange, doc }: { open: boolean; onOpenChange: (o: boolean) => void; doc: LandingPageV3 }) {
+  const [tab, setTab] = useState<"json" | "html">("json");
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle>Contenido técnico</DialogTitle>
+        </DialogHeader>
+        <div className="inline-flex rounded-lg bg-white/5 p-1 gap-1 mb-2 w-fit">
+          <TabBtn active={tab === "json"} onClick={() => setTab("json")}>
+            JSON
+          </TabBtn>
+          <TabBtn active={tab === "html"} onClick={() => setTab("html")}>
+            HTML
+          </TabBtn>
+        </div>
+        <pre className="whitespace-pre-wrap font-mono text-xs leading-relaxed rounded-xl border border-white/10 bg-black/30 p-4 overflow-auto max-h-[55vh]">
+          {tab === "json" ? JSON.stringify(doc, null, 2) : buildLandingHtml(doc)}
+        </pre>
       </DialogContent>
     </Dialog>
   );
@@ -886,7 +1218,7 @@ function PublishDialog({
 }: {
   open: boolean;
   onOpenChange: (o: boolean) => void;
-  doc: LandingPageV2;
+  doc: LandingPageV3;
   slugDraft: string;
   setSlugDraft: (s: string) => void;
   publishing: boolean;

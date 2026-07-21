@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { buildLandingHtml } from "@/lib/landing/export";
-import { createSection, emptyLandingV2 } from "@/lib/landing/schema";
+import { createSection, emptyLandingV3, type LandingTemplateId } from "@/lib/landing/schema";
 
-function docWithSections(sections: ReturnType<typeof createSection>[]) {
-  const doc = emptyLandingV2("Test landing");
+function docWithSections(sections: ReturnType<typeof createSection>[], templateId?: LandingTemplateId) {
+  const doc = emptyLandingV3("Test landing", templateId);
   doc.sections = sections;
   return doc;
 }
@@ -21,10 +21,34 @@ describe("buildLandingHtml", () => {
     expect(html).not.toContain("¿Se ve esto?");
   });
 
-  it("shows the explicit pending placeholder when no hero image is set", () => {
+  it("renders an abstract SVG fallback visual instead of a pending placeholder when no hero image is set", () => {
     const hero = createSection("hero", 0);
     const html = buildLandingHtml(docWithSections([hero]));
-    expect(html).toContain("Imagen de portada pendiente");
+    expect(html).not.toContain("Imagen de portada pendiente");
+    expect(html).not.toContain("pendiente");
+    expect(html).toContain("<svg");
+    expect(html).toContain("Composición visual decorativa");
+  });
+
+  it("uses a different fallback visual per template", () => {
+    const hero = createSection("hero", 0);
+    const saasHtml = buildLandingHtml(docWithSections([hero], "saas_premium"));
+    const luxuryHtml = buildLandingHtml(docWithSections([hero], "luxury_editorial"));
+    expect(saasHtml).not.toEqual(luxuryHtml);
+  });
+
+  it("marks ai-suggested testimonials and stats with a review badge, never publishing them as verified facts silently", () => {
+    const testimonials = createSection("testimonials", 0);
+    testimonials.content.testimonials = [{ quote: "Excelente", name: "Cliente", role: "", source: "ai_suggested" }];
+    const html = buildLandingHtml(docWithSections([testimonials]));
+    expect(html).toContain("Ejemplo — revisar");
+  });
+
+  it("does not badge a user-confirmed testimonial", () => {
+    const testimonials = createSection("testimonials", 0);
+    testimonials.content.testimonials = [{ quote: "Excelente", name: "Cliente", role: "", source: "user_confirmed" }];
+    const html = buildLandingHtml(docWithSections([testimonials]));
+    expect(html).not.toContain("Ejemplo — revisar");
   });
 
   it("never emits a javascript: URL for CTA links", () => {
