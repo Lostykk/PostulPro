@@ -5,6 +5,11 @@
 **Status:** Root cause identified and fixed in code (see commits on this branch). DB-level
 confirmation of this specific row was not possible — see "Audit limitations" below.
 
+**Update 2026-07-21:** Supabase Management API access was granted mid-incident, closing that
+gap — the pending migration was applied, and a second, related incident on this same project
+(a step falsely marked the whole project "completed" at 75%) was diagnosed and fully reconciled
+with direct DB verification. See "Second incident: false 'completed' state" below.
+
 ## Symptom
 
 User submitted an idea via "Construir con IA" in Preview. The created project stayed in
@@ -133,14 +138,13 @@ a real logged-in session this session doesn't have. Whoever has QA access should
 recovery attempt for this specific project (same id, same idempotency key, no new project/credit
 spend), and confirms end-to-end.
 
-Separately, the new `reconcile_stuck_ai_project_planning` migration has **not been applied** to the
-shared database — see "Audit limitations" above; the Supabase CLI account authenticated in this
-session returned `403` on both `db query --linked` and `migration list --linked` (an org-permission
-limit, not something fixable from here). This does not block the core fix (which only calls the
-already-applied `fail_ai_project_planning`), but the defense-in-depth reconciler stays inert
-(scheduled every 5 minutes, erroring harmlessly and logging "function does not exist") until
-someone with sufficient Supabase org privileges runs `supabase db push --linked` (or applies
-`supabase/migrations/20260802020000_reconcile_stuck_ai_project_planning.sql` directly).
+Separately, the new `reconcile_stuck_ai_project_planning` migration had **not been applied** to the
+shared database at the time this was originally written — see "Audit limitations" above; the
+Supabase CLI account authenticated in this session returned `403` on both `db query --linked` and
+`migration list --linked` (an org-permission limit). **Resolved 2026-07-21**: the account's org role
+was upgraded, and the migration (plus the ones from the second incident below) was applied via
+`supabase db push --linked`, confirmed with `supabase migration list --linked` showing all 51
+migrations in sync (`local == remote`, zero drift).
 
 ## Fix (see code changes on this branch)
 
@@ -160,3 +164,76 @@ someone with sufficient Supabase org privileges runs `supabase db push --linked`
    `reconcile_stale_reservations_v2` pattern exactly (batched, idempotent, service-role only, no
    client-supplied filters). Wired through the same secret-gated internal-HTTP + Nitro Task
    pattern as the existing credit reconciler (`RECONCILE_SECRET`, already configured on preview).
+4. `checkAiExecutionAllowed` gained a third, optional `email` argument — a
+   `PREVIEW_AI_ALLOWED_EMAILS` (comma-separated, case-insensitive) allowlist alongside the original
+   single-user-id one, additive, neither replacing the other. `api-auth.server.ts`'s
+   `resolveAuthEmail()` sources it from the verified Auth session (falling through
+   `user.email` → `user.user_metadata.email` → `user.identities[0].identity_data.email`, since
+   Google OAuth was observed leaving the top-level field empty for a fully signed-in account) —
+   never from a client-supplied value or the `public.users` profile column (found unreliable for
+   this exact purpose). Threaded through **every** call site sharing this guard
+   (`$id.plan.ts`, `executor.server.ts` — used by `run.ts`/`retry.ts`/`run-next.ts` — and
+   `generate-ai.ts`), after an initial pass only covered planning and a QA account could plan a
+   project but not execute any of its steps.
+
+## Second incident: step stuck in 'running' falsely marked the whole project "completed"
+
+**Reported:** 2026-07-21, same project (`4d71dfd5-ca53-495b-ada6-5eccaed90884`), after planning was
+recovered and 3 of 4 steps completed for real. The 4th step ("Plan de Negocio y Estrategia de
+Lanzamiento", `business-plan`, 5 credits) stayed "En progreso" forever, while the UI simultaneously
+showed 3/4 (75%) *and* a "your 4 deliverables are ready" banner — a real contradiction, not a
+display glitch.
+
+**Root cause #1** (why the step got stuck): `executor.server.ts` streams model output via
+`waitUntil`, and its own comment already documented the gap — *"Bounded by a platform-enforced
+ceiling, not a guarantee for slow steps — the evidence-based reconciler is the actual safety net for
+those."* `business-plan` is the longest/highest-token deliverable of the four; the Worker was
+almost certainly killed by Cloudflare's platform ceiling before either the success path or the
+`settleFailure` catch block could run, leaving `ai_project_steps.status='running'` forever with an
+unresolved `credit_reservations` row.
+
+**Root cause #2** (why the project falsely showed "completed"): `complete_ai_project_step` decided
+"is the project done?" by checking for a next **`pending`** step — but a step stuck in `'running'`
+is invisible to that check. Once the other 3 steps finished, the RPC found no `pending` step left
+and incorrectly flipped `ai_projects.status` to `'completed'`, even though the 4th deliverable never
+actually finished. `skip_ai_project_step` had the identical bug.
+
+**Verified live** (Supabase access granted mid-incident — see above): `ai_projects` row showed
+`status: "completed"`, `progress_percent: 75`, `spent_credits: 8` (2+3+3, the three real
+completions) at the same time. The account showed `credits_used: 13` — matching 8 consumed + 5
+still-reserved for the stuck step, **not** a double charge. The `credit_reservations` row for that
+step was `status: "reserved"`, `job_outcome: null` — genuinely still outstanding, not lost.
+
+**Fix** (migrations `20260802030000` + `20260802040000`, the latter fixing a real bug in the
+former — a `RETURNS TABLE` column named `project_id` collided with the `ai_project_steps.project_id`
+column reference inside the function body, "ambiguous column" on every call, same class of bug as
+`20260714020000`/`20260714030000` for `claim_ai_project_step`):
+
+1. `complete_ai_project_step` / `skip_ai_project_step` now check for **zero remaining steps not in
+   `('completed','skipped','cancelled')`** instead of "zero next `pending` step" — a stuck `running`
+   or unretried `failed` step now correctly keeps the project from being marked done.
+2. New `reconcile_stuck_ai_project_steps()` RPC (service_role only, same per-tool age thresholds as
+   `reconcile_stale_reservations_v2`) — marks a step stuck in `'running'` past its threshold as
+   `'failed'`/`'timeout'`, `credits_reserved=false`, and recomputes the project's
+   `progress_percent` (never touching an already-`'completed'` project). Deliberately does **not**
+   touch `credit_reservations`/`users` — the existing credit reconciler already owns that side on
+   the same thresholds, proven live in this same session (see below). Wired into the same 5-minute
+   Cron Trigger as the other three reconcilers.
+
+**This specific project, fully reconciled and verified live in this session**:
+- Ran `reconcile_stuck_ai_project_steps` manually once the migration was live — it correctly found
+  and failed the stuck step (`outcome: "failed_timeout"`).
+- The step's credit reservation had *already* been auto-refunded by the pre-existing
+  `reconcile_stale_reservations_v2` cron (`refund_reason: "no_evidence_after_threshold"`,
+  `refunded_at` recorded) — no manual credit action was needed or taken; `users.credits_used` is
+  back to `8` (correct).
+- The project's `status` column still read the bug's stale `'completed'` (the reconciler correctly
+  refuses to touch an already-`'completed'` project, by design) — corrected with a single,
+  explicitly user-confirmed `UPDATE` to `'running'` (`completed_at` cleared), the exact state the
+  now-fixed RPC would have produced naturally. This was a one-time repair of already-corrupted data
+  from the bug, not a new standing mechanism.
+- The actual Business Plan **document was never generated** — the original attempt was killed
+  mid-stream with nothing persisted, so there is no content to recover. The step is now `'failed'`
+  with a real "Reintentar" button, same idempotency key
+  (`4d71dfd5-ca53-495b-ada6-5eccaed90884::1::business-plan`), ready for exactly one real retry
+  attempt — not yet performed as of this writing.
