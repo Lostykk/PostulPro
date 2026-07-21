@@ -15,9 +15,12 @@
 //     unchanged — whatever account it already names keeps working).
 //   - PREVIEW_AI_ALLOWED_EMAILS: comma-separated emails, for QA accounts
 //     added later without needing that account's raw user id (which this
-//     guard has no way to look up on its own — the caller already has the
-//     authenticated user's own row, email included, from the same profile
-//     lookup it uses for the role check).
+//     guard has no way to look up on its own). The caller resolves this
+//     from the verified Auth session (see api-auth.server.ts's
+//     resolveAuthEmail — some providers, e.g. Google OAuth, leave the
+//     top-level user.email empty even for a fully signed-in account, so it
+//     falls back through user_metadata/identities), never from a
+//     client-supplied value.
 // See docs/build-with-ai-stuck-project-incident.md for why this exists.
 
 export type AiGuardResult =
