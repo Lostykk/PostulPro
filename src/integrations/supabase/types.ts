@@ -1597,6 +1597,14 @@ export type Database = {
           project_id: string;
         }[];
       };
+      reconcile_stuck_ai_project_steps: {
+        Args: { p_batch_limit?: number };
+        Returns: {
+          outcome: string;
+          project_id: string;
+          step_id: string;
+        }[];
+      };
       refund_credits: {
         Args: { p_cost: number };
         Returns: {

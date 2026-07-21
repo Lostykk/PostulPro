@@ -14,6 +14,9 @@ const reconcileHotmartTaskPath = fileURLToPath(
 const reconcileStuckProjectsTaskPath = fileURLToPath(
   new URL("./tasks/reconcile-stuck-projects.ts", import.meta.url),
 );
+const reconcileStuckStepsTaskPath = fileURLToPath(
+  new URL("./tasks/reconcile-stuck-steps.ts", import.meta.url),
+);
 
 export default defineConfig({
   tanstackStart: {
@@ -98,9 +101,26 @@ export default defineConfig({
         description:
           "Fail 'planning' AI projects stuck past a timeout via reconcile_stuck_ai_project_planning",
       },
+      // Sibling to reconcile-stuck-projects, but for step EXECUTION rather
+      // than planning — real incident: a business-plan step killed
+      // mid-generation (past Cloudflare's platform ceiling for the
+      // waitUntil-extended request) left the step 'running' forever and,
+      // via a separate bug now also fixed, made the whole project falsely
+      // report 'completed' at 75%. Does not touch credits — reconcile_stale_reservations_v2
+      // already owns that side on the same per-tool thresholds.
+      "reconcile-stuck-steps": {
+        handler: reconcileStuckStepsTaskPath,
+        description:
+          "Fail 'running' project steps stuck past their per-tool timeout via reconcile_stuck_ai_project_steps",
+      },
     },
     scheduledTasks: {
-      "*/5 * * * *": ["reconcile-credits", "reconcile-hotmart", "reconcile-stuck-projects"],
+      "*/5 * * * *": [
+        "reconcile-credits",
+        "reconcile-hotmart",
+        "reconcile-stuck-projects",
+        "reconcile-stuck-steps",
+      ],
     },
   } as any,
 });

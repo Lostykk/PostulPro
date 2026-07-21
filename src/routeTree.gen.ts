@@ -40,6 +40,7 @@ import { Route as ApiProjectsCapabilitiesRouteImport } from './routes/api/projec
 import { Route as ApiProjectsIdRouteImport } from './routes/api/projects/$id'
 import { Route as ApiNotificationsWelcomeRouteImport } from './routes/api/notifications/welcome'
 import { Route as ApiNotificationsWeeklySummaryQaRouteImport } from './routes/api/notifications/weekly-summary-qa'
+import { Route as ApiInternalReconcileStuckStepsRouteImport } from './routes/api/internal/reconcile-stuck-steps'
 import { Route as ApiInternalReconcileStuckProjectsRouteImport } from './routes/api/internal/reconcile-stuck-projects'
 import { Route as ApiInternalReconcileCreditsRouteImport } from './routes/api/internal/reconcile-credits'
 import { Route as ApiBillingWebhookRouteImport } from './routes/api/billing/webhook'
@@ -225,6 +226,12 @@ const ApiNotificationsWeeklySummaryQaRoute =
     path: '/api/notifications/weekly-summary-qa',
     getParentRoute: () => rootRouteImport,
   } as any)
+const ApiInternalReconcileStuckStepsRoute =
+  ApiInternalReconcileStuckStepsRouteImport.update({
+    id: '/api/internal/reconcile-stuck-steps',
+    path: '/api/internal/reconcile-stuck-steps',
+    getParentRoute: () => rootRouteImport,
+  } as any)
 const ApiInternalReconcileStuckProjectsRoute =
   ApiInternalReconcileStuckProjectsRouteImport.update({
     id: '/api/internal/reconcile-stuck-projects',
@@ -408,6 +415,7 @@ export interface FileRoutesByFullPath {
   '/api/billing/webhook': typeof ApiBillingWebhookRoute
   '/api/internal/reconcile-credits': typeof ApiInternalReconcileCreditsRoute
   '/api/internal/reconcile-stuck-projects': typeof ApiInternalReconcileStuckProjectsRoute
+  '/api/internal/reconcile-stuck-steps': typeof ApiInternalReconcileStuckStepsRoute
   '/api/notifications/weekly-summary-qa': typeof ApiNotificationsWeeklySummaryQaRoute
   '/api/notifications/welcome': typeof ApiNotificationsWelcomeRoute
   '/api/projects/$id': typeof ApiProjectsIdRouteWithChildren
@@ -464,6 +472,7 @@ export interface FileRoutesByTo {
   '/api/billing/webhook': typeof ApiBillingWebhookRoute
   '/api/internal/reconcile-credits': typeof ApiInternalReconcileCreditsRoute
   '/api/internal/reconcile-stuck-projects': typeof ApiInternalReconcileStuckProjectsRoute
+  '/api/internal/reconcile-stuck-steps': typeof ApiInternalReconcileStuckStepsRoute
   '/api/notifications/weekly-summary-qa': typeof ApiNotificationsWeeklySummaryQaRoute
   '/api/notifications/welcome': typeof ApiNotificationsWelcomeRoute
   '/api/projects/$id': typeof ApiProjectsIdRouteWithChildren
@@ -524,6 +533,7 @@ export interface FileRoutesById {
   '/api/billing/webhook': typeof ApiBillingWebhookRoute
   '/api/internal/reconcile-credits': typeof ApiInternalReconcileCreditsRoute
   '/api/internal/reconcile-stuck-projects': typeof ApiInternalReconcileStuckProjectsRoute
+  '/api/internal/reconcile-stuck-steps': typeof ApiInternalReconcileStuckStepsRoute
   '/api/notifications/weekly-summary-qa': typeof ApiNotificationsWeeklySummaryQaRoute
   '/api/notifications/welcome': typeof ApiNotificationsWelcomeRoute
   '/api/projects/$id': typeof ApiProjectsIdRouteWithChildren
@@ -584,6 +594,7 @@ export interface FileRouteTypes {
     | '/api/billing/webhook'
     | '/api/internal/reconcile-credits'
     | '/api/internal/reconcile-stuck-projects'
+    | '/api/internal/reconcile-stuck-steps'
     | '/api/notifications/weekly-summary-qa'
     | '/api/notifications/welcome'
     | '/api/projects/$id'
@@ -640,6 +651,7 @@ export interface FileRouteTypes {
     | '/api/billing/webhook'
     | '/api/internal/reconcile-credits'
     | '/api/internal/reconcile-stuck-projects'
+    | '/api/internal/reconcile-stuck-steps'
     | '/api/notifications/weekly-summary-qa'
     | '/api/notifications/welcome'
     | '/api/projects/$id'
@@ -699,6 +711,7 @@ export interface FileRouteTypes {
     | '/api/billing/webhook'
     | '/api/internal/reconcile-credits'
     | '/api/internal/reconcile-stuck-projects'
+    | '/api/internal/reconcile-stuck-steps'
     | '/api/notifications/weekly-summary-qa'
     | '/api/notifications/welcome'
     | '/api/projects/$id'
@@ -740,6 +753,7 @@ export interface RootRouteChildren {
   ApiBillingWebhookRoute: typeof ApiBillingWebhookRoute
   ApiInternalReconcileCreditsRoute: typeof ApiInternalReconcileCreditsRoute
   ApiInternalReconcileStuckProjectsRoute: typeof ApiInternalReconcileStuckProjectsRoute
+  ApiInternalReconcileStuckStepsRoute: typeof ApiInternalReconcileStuckStepsRoute
   ApiNotificationsWeeklySummaryQaRoute: typeof ApiNotificationsWeeklySummaryQaRoute
   ApiNotificationsWelcomeRoute: typeof ApiNotificationsWelcomeRoute
   ApiProjectsIdRoute: typeof ApiProjectsIdRouteWithChildren
@@ -965,6 +979,13 @@ declare module '@tanstack/react-router' {
       path: '/api/notifications/weekly-summary-qa'
       fullPath: '/api/notifications/weekly-summary-qa'
       preLoaderRoute: typeof ApiNotificationsWeeklySummaryQaRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/internal/reconcile-stuck-steps': {
+      id: '/api/internal/reconcile-stuck-steps'
+      path: '/api/internal/reconcile-stuck-steps'
+      fullPath: '/api/internal/reconcile-stuck-steps'
+      preLoaderRoute: typeof ApiInternalReconcileStuckStepsRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/internal/reconcile-stuck-projects': {
@@ -1280,6 +1301,7 @@ const rootRouteChildren: RootRouteChildren = {
   ApiInternalReconcileCreditsRoute: ApiInternalReconcileCreditsRoute,
   ApiInternalReconcileStuckProjectsRoute:
     ApiInternalReconcileStuckProjectsRoute,
+  ApiInternalReconcileStuckStepsRoute: ApiInternalReconcileStuckStepsRoute,
   ApiNotificationsWeeklySummaryQaRoute: ApiNotificationsWeeklySummaryQaRoute,
   ApiNotificationsWelcomeRoute: ApiNotificationsWelcomeRoute,
   ApiProjectsIdRoute: ApiProjectsIdRouteWithChildren,
