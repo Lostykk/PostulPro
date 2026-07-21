@@ -498,4 +498,56 @@ describe("runProjectStep — preview allowlist gate short-circuits everything el
     delete process.env.AI_GENERATION_ENABLED;
     delete process.env.PREVIEW_AI_ALLOWED_USER_ID;
   });
+
+  // Regression coverage for a real incident: a QA account already covered
+  // by PREVIEW_AI_ALLOWED_EMAILS could plan a project (the route already
+  // threaded email through) but got rejected running any of its steps,
+  // because this call site never received the 6th `email` argument at all
+  // — a plain oversight, not a logic bug in the guard itself. See
+  // docs/build-with-ai-stuck-project-incident.md.
+  it("allows a non-admin, non-user-id-allowlisted caller whose email is on PREVIEW_AI_ALLOWED_EMAILS", async () => {
+    process.env.APP_ENV = "preview";
+    process.env.AI_GENERATION_ENABLED = "true";
+    process.env.PREVIEW_AI_ALLOWED_USER_ID = "the-qa-user";
+    process.env.PREVIEW_AI_ALLOWED_EMAILS = "qa2@example.com";
+    const supabase = createMockSupabase(
+      { claim_ai_project_step: { data: [{ claimed: false, reason: "forbidden" }], error: null } },
+      { role: "user" },
+    );
+    const res = await runProjectStep(
+      supabase,
+      "someone-else",
+      "proj-1",
+      "step-1",
+      fakeRequest(),
+      "qa2@example.com",
+    );
+    // Same proof pattern as the admin case above: reached the claim RPC
+    // (rejected for an unrelated reason), meaning the preview gate itself
+    // let it through.
+    expect(supabase.calls.some((c) => c.name === "claim_ai_project_step")).toBe(true);
+    expect(res.status).toBe(403);
+    delete process.env.APP_ENV;
+    delete process.env.AI_GENERATION_ENABLED;
+    delete process.env.PREVIEW_AI_ALLOWED_USER_ID;
+    delete process.env.PREVIEW_AI_ALLOWED_EMAILS;
+  });
+
+  it("still rejects when the email argument is omitted (the exact shape of the real bug)", async () => {
+    process.env.APP_ENV = "preview";
+    process.env.AI_GENERATION_ENABLED = "true";
+    process.env.PREVIEW_AI_ALLOWED_USER_ID = "the-qa-user";
+    process.env.PREVIEW_AI_ALLOWED_EMAILS = "qa2@example.com";
+    const supabase = createMockSupabase({}, { role: "user" });
+    // No 6th argument passed — this is exactly what run-next.ts/run.ts/
+    // retry.ts did before this fix, for an account allowlisted only by
+    // email.
+    const res = await runProjectStep(supabase, "someone-else", "proj-1", "step-1", fakeRequest());
+    expect(res.status).toBe(403);
+    expect(supabase.calls.filter((c) => c.type === "rpc")).toHaveLength(0);
+    delete process.env.APP_ENV;
+    delete process.env.AI_GENERATION_ENABLED;
+    delete process.env.PREVIEW_AI_ALLOWED_USER_ID;
+    delete process.env.PREVIEW_AI_ALLOWED_EMAILS;
+  });
 });

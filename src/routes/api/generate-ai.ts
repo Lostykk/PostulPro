@@ -6,6 +6,7 @@ import { callModel, logModelUsage, type ModelUsage } from "@/lib/ai/call-model.s
 import { checkAiExecutionAllowed } from "@/lib/ai/preview-guard.server";
 import { maybeSendLowCreditsEmail } from "@/lib/notifications/low-credits.server";
 import { isOwner } from "@/lib/auth/is-owner";
+import { resolveAuthEmail } from "@/lib/api-auth.server";
 import {
   classifyProviderFailure,
   confirmConsumedOrLog,
@@ -80,7 +81,7 @@ export const Route = createFileRoute("/api/generate-ai")({
         // Preview-only allowlist gate — admins bypass the single-QA-user
         // restriction without replacing it; the kill switch still applies to
         // everyone. No-op in production.
-        const guard = checkAiExecutionAllowed(userId, owner);
+        const guard = checkAiExecutionAllowed(userId, owner, resolveAuthEmail(userData.user));
         if (!guard.allowed) return json({ error: guard.message, code: guard.code }, guard.status);
 
         let body: { tool?: string; prompt?: string; title?: string };

@@ -7,7 +7,7 @@ import type { Database } from "@/integrations/supabase/types";
 // the real value lives in `user_metadata.email` or the first identity's
 // `identity_data.email` instead. Falls through all three so "what did this
 // person actually sign in with" is answered reliably regardless of provider.
-function resolveAuthEmail(user: User): string | null {
+export function resolveAuthEmail(user: User): string | null {
   if (user.email) return user.email;
   const metaEmail = user.user_metadata?.email;
   if (typeof metaEmail === "string" && metaEmail) return metaEmail;

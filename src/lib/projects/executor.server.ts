@@ -62,6 +62,7 @@ export async function runProjectStep(
   projectId: string,
   stepId: string,
   request: Request,
+  email: string | null = null,
 ): Promise<Response> {
   const appOrigin = new URL(request.url).origin;
   const waitUntil = getWaitUntil(request);
@@ -69,7 +70,13 @@ export async function runProjectStep(
   // disallowed caller never puts a step into "claimed" state. Admins bypass
   // the single-QA-user restriction without replacing it. The extra role
   // lookup only runs in preview, so production pays zero cost for it — this
-  // whole block is a no-op there, same as before.
+  // whole block is a no-op there, same as before. `email` (from the
+  // verified Auth session — see api-auth.server.ts's resolveAuthEmail) was
+  // missing from this call site until a real incident showed it: a QA
+  // account already covered by PREVIEW_AI_ALLOWED_EMAILS could plan a
+  // project (POST .../plan already threaded email through) but not execute
+  // any of its steps, since this guard call never received it. See
+  // docs/build-with-ai-stuck-project-incident.md.
   let isAdminForGuard = false;
   if (isPreviewEnvironment()) {
     const { data: guardProfile } = await supabase
@@ -79,7 +86,7 @@ export async function runProjectStep(
       .maybeSingle();
     isAdminForGuard = isOwner(guardProfile);
   }
-  const guard = checkAiExecutionAllowed(userId, isAdminForGuard);
+  const guard = checkAiExecutionAllowed(userId, isAdminForGuard, email);
   if (!guard.allowed) return json({ error: guard.message, code: guard.code }, guard.status);
 
   const { data: claimRows, error: claimErr } = await supabase.rpc("claim_ai_project_step", {

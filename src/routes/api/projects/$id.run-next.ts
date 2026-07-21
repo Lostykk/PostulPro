@@ -15,13 +15,13 @@ export const Route = createFileRoute("/api/projects/$id/run-next")({
       POST: async ({ request, params }) => {
         const ctx = await authenticate(request);
         if (!isAuthedCtx(ctx)) return ctx;
-        const { supabase, userId } = ctx;
+        const { supabase, userId, email } = ctx;
 
         const stepId = await resolveNextStepId(supabase, params.id);
         if (!stepId)
           return json({ error: "No queda ningún paso pendiente.", code: "no_next_step" }, 409);
 
-        return runProjectStep(supabase, userId, params.id, stepId, request);
+        return runProjectStep(supabase, userId, params.id, stepId, request, email);
       },
     },
   },
