@@ -2,10 +2,17 @@ import { describe, expect, it } from "vitest";
 import {
   createSection,
   emptyLandingV2,
+  emptyLandingV3,
   isLandingV2,
+  isLandingV3,
+  LANDING_TEMPLATE_IDS,
   migrateLegacyLanding,
+  migrateV2ToV3,
+  parseLandingDocument,
   parseLandingV2,
+  parseLandingV3,
   serializeLandingV2,
+  serializeLandingV3,
 } from "@/lib/landing/schema";
 import { emptyLandingData, type LandingPageData } from "@/lib/deliverables/parse-landing";
 
@@ -136,5 +143,100 @@ describe("parseLandingV2 / serializeLandingV2 / isLandingV2", () => {
     expect(isLandingV2([])).toBe(false);
     expect(isLandingV2({ version: 1, sections: [] })).toBe(false);
     expect(isLandingV2({ version: 2, sections: [] })).toBe(true);
+  });
+});
+
+describe("emptyLandingV3", () => {
+  it("produces a valid v3 document with a default template and simple ui mode", () => {
+    const doc = emptyLandingV3("Mi landing");
+    expect(doc.version).toBe(3);
+    expect(LANDING_TEMPLATE_IDS).toContain(doc.templateId);
+    expect(doc.uiMode).toBe("simple");
+    expect(doc.sections).toEqual([]);
+  });
+
+  it("accepts an explicit template id", () => {
+    const doc = emptyLandingV3("Mi landing", "luxury_editorial");
+    expect(doc.templateId).toBe("luxury_editorial");
+  });
+});
+
+describe("migrateV2ToV3", () => {
+  it("is a pure, one-hop mapping that never changes content or drops sections", () => {
+    const v2 = emptyLandingV2("Landing v2");
+    v2.sections = [createSection("hero", 0), createSection("faq", 1)];
+    const v3 = migrateV2ToV3(v2);
+    expect(v3.version).toBe(3);
+    expect(v3.uiMode).toBe("simple");
+    expect(LANDING_TEMPLATE_IDS).toContain(v3.templateId);
+    expect(v3.sections).toHaveLength(2);
+    expect(v3.sections[0].content.title).toBe(v2.sections[0].content.title);
+  });
+
+  it("marks existing testimonials and stats without a source as ai_suggested, never assuming they're verified", () => {
+    const v2 = emptyLandingV2("Landing v2");
+    const testimonials = createSection("testimonials", 0);
+    testimonials.content.testimonials = [{ quote: "Genial", name: "Alguien", role: "" }];
+    const stats = createSection("statistics", 1);
+    stats.content.stats = [{ label: "Clientes", value: "500+" }];
+    v2.sections = [testimonials, stats];
+    const v3 = migrateV2ToV3(v2);
+    expect(v3.sections[0].content.testimonials?.[0].source).toBe("ai_suggested");
+    expect(v3.sections[1].content.stats?.[0].source).toBe("ai_suggested");
+  });
+
+  it("preserves an existing user_confirmed source instead of overwriting it", () => {
+    const v2 = emptyLandingV2("Landing v2");
+    const testimonials = createSection("testimonials", 0);
+    testimonials.content.testimonials = [{ quote: "Real", name: "Cliente real", role: "CEO", source: "user_confirmed" }];
+    v2.sections = [testimonials];
+    const v3 = migrateV2ToV3(v2);
+    expect(v3.sections[0].content.testimonials?.[0].source).toBe("user_confirmed");
+  });
+});
+
+describe("parseLandingV3 / serializeLandingV3 / isLandingV3", () => {
+  it("round-trips a v3 document", () => {
+    const doc = emptyLandingV3("Round trip v3", "startup_bold");
+    const parsed = parseLandingV3(serializeLandingV3(doc));
+    expect(parsed?.templateId).toBe("startup_bold");
+    expect(parsed?.version).toBe(3);
+  });
+
+  it("rejects a v2 document (no templateId) and rejects a document with an unknown templateId", () => {
+    expect(isLandingV3({ version: 2, sections: [] })).toBe(false);
+    expect(isLandingV3({ version: 3, sections: [], templateId: "not_a_real_template" })).toBe(false);
+    expect(isLandingV3({ version: 3, sections: [], templateId: "saas_premium" })).toBe(true);
+  });
+});
+
+describe("parseLandingDocument", () => {
+  it("returns a v3 doc unchanged when given v3 JSON", () => {
+    const doc = emptyLandingV3("Already v3", "corporate_trust");
+    const result = parseLandingDocument(serializeLandingV3(doc), "fallback name");
+    expect(result.templateId).toBe("corporate_trust");
+  });
+
+  it("migrates a v2 document (Landing Studio's predecessor) up to v3 without content loss", () => {
+    const v2 = emptyLandingV2("Old builder doc");
+    v2.sections = [createSection("hero", 0)];
+    const result = parseLandingDocument(serializeLandingV2(v2), "fallback name");
+    expect(result.version).toBe(3);
+    expect(result.sections).toHaveLength(1);
+    expect(result.sections[0].content.title).toBe(v2.sections[0].content.title);
+  });
+
+  it("migrates raw legacy v1 landing-copy AI output all the way to v3, same as a fresh generation would see", () => {
+    const legacy: LandingPageData = { ...emptyLandingData(), headlines: ["Título real"], cta: "Empezar" };
+    const result = parseLandingDocument(JSON.stringify(legacy), "Mi proyecto");
+    expect(result.version).toBe(3);
+    const hero = result.sections.find((s) => s.type === "hero");
+    expect(hero?.content.title).toBe("Título real");
+  });
+
+  it("falls back to an empty v3 document for unparseable input instead of throwing", () => {
+    const result = parseLandingDocument("not json at all, not legacy either {{{", "Nueva landing");
+    expect(result.version).toBe(3);
+    expect(result.sections).toEqual([]);
   });
 });

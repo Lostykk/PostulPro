@@ -1,6 +1,6 @@
 import { supabase } from "@/integrations/supabase/client";
 import type { Json } from "@/integrations/supabase/types";
-import type { LandingPageV2 } from "@/lib/landing/schema";
+import { isLandingV3, migrateV2ToV3, type LandingPageV2, type LandingPageV3 } from "@/lib/landing/schema";
 
 export type PublishResult = { slug: string; publishedAt: string };
 
@@ -10,7 +10,7 @@ export type PublishResult = { slug: string; publishedAt: string };
 export async function publishLandingPage(
   generationId: string,
   slug: string,
-  doc: LandingPageV2,
+  doc: LandingPageV3,
 ): Promise<PublishResult> {
   const { data, error } = await supabase.rpc("publish_landing_page", {
     p_generation_id: generationId,
@@ -28,14 +28,19 @@ export async function unpublishLandingPage(generationId: string): Promise<void> 
   if (error) throw new Error(error.message);
 }
 
-export type PublishedLanding = { data: LandingPageV2; publishedAt: string };
+export type PublishedLanding = { data: LandingPageV3; publishedAt: string };
 
+// Snapshots published before Landing Studio (v2, no templateId) are upgraded
+// on read via the same pure v2->v3 migration the builder uses — the public
+// page always renders a v3 doc, never a raw pre-template one.
 export async function getPublishedLanding(slug: string): Promise<PublishedLanding | null> {
   const { data, error } = await supabase.rpc("get_published_landing", { p_slug: slug });
   if (error) throw new Error(error.message);
   const row = data?.[0];
   if (!row) return null;
-  return { data: row.data as unknown as LandingPageV2, publishedAt: row.published_at };
+  const raw = row.data as unknown;
+  const doc = isLandingV3(raw) ? raw : migrateV2ToV3(raw as LandingPageV2);
+  return { data: doc, publishedAt: row.published_at };
 }
 
 export function publicLandingUrl(slug: string): string {

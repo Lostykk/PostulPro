@@ -1,7 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { getPublishedLanding } from "@/lib/landing/publish";
-import type { LandingPageV2 } from "@/lib/landing/schema";
+import type { LandingPageV3 } from "@/lib/landing/schema";
 import { LandingSectionRenderer } from "@/components/landing/LandingSectionRenderer";
 import { themeToCssVars } from "@/lib/landing/themes";
 
@@ -20,7 +20,7 @@ type State =
   | { status: "loading" }
   | { status: "not_found" }
   | { status: "error" }
-  | { status: "ready"; doc: LandingPageV2 };
+  | { status: "ready"; doc: LandingPageV3 };
 
 function PublicLandingPage() {
   const { slug } = Route.useParams();
@@ -88,7 +88,7 @@ function PublicLandingPage() {
   return (
     <div style={{ background: doc.theme.background, color: doc.theme.text, minHeight: "100vh", ...cssVars }}>
       {sections.map((s) => (
-        <LandingSectionRenderer key={s.id} section={s} theme={doc.theme} />
+        <LandingSectionRenderer key={s.id} section={s} theme={doc.theme} templateId={doc.templateId} />
       ))}
       <div className="text-center py-4 text-[11px]" style={{ color: "var(--lp-muted)" }}>
         Página de preview — creada con PostulPro

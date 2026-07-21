@@ -10,7 +10,7 @@
 // v2 sections purely (no AI call, no new copy) so existing generations gain
 // the builder without regenerating or losing what the model wrote.
 
-import type { LandingPageData } from "@/lib/deliverables/parse-landing";
+import { parseLandingJson, type LandingPageData } from "@/lib/deliverables/parse-landing";
 import { THEME_PRESETS } from "@/lib/landing/themes";
 
 export const SECTION_TYPES = [
@@ -68,7 +68,16 @@ export type LandingImage = {
 
 export type LandingItem = { title: string; body: string };
 export type LandingFaqItem = { q: string; a: string };
-export type LandingTestimonial = { quote: string; name: string; role: string };
+// `source` tracks provenance for content types that read as factual claims
+// (testimonials, stats) — "ai_suggested" means the model wrote it as
+// placeholder/example copy that must be reviewed before it can be trusted;
+// "user_confirmed" means a human has actually edited that item. Missing
+// (legacy docs) is treated as ai_suggested by the migration. This never
+// blocks publishing — it drives an "Ejemplo — revisar" badge and the
+// publish-confirmation copy in LandingBuilder, never a hard gate, since we
+// have no way to independently verify a "confirmed" item is actually real.
+export type LandingContentSource = "ai_suggested" | "user_confirmed";
+export type LandingTestimonial = { quote: string; name: string; role: string; source?: LandingContentSource };
 export type LandingPricingTier = {
   name: string;
   price: string;
@@ -78,7 +87,7 @@ export type LandingPricingTier = {
   highlighted: boolean;
 };
 export type LandingNavLink = { label: string; href: string };
-export type LandingStat = { label: string; value: string };
+export type LandingStat = { label: string; value: string; source?: LandingContentSource };
 
 export type SectionContent = {
   eyebrow?: string;
@@ -108,7 +117,19 @@ export type LandingSection = {
   order: number;
 };
 
-export type LandingThemeId = "authority_dark" | "conversion_light" | "bold_brand";
+// The original 3 ids (authority_dark/conversion_light/bold_brand) are kept
+// forever, unrenamed, so documents stored before Landing Studio still
+// resolve to a real preset — only their display `name` changed (see
+// themes.ts) to align with the 8 named presets. The 5 new ids are additive.
+export type LandingThemeId =
+  | "authority_dark"
+  | "conversion_light"
+  | "bold_brand"
+  | "moderno"
+  | "minimalista"
+  | "elegante"
+  | "tecnologico"
+  | "calido";
 
 export type LandingTheme = {
   id: LandingThemeId;
@@ -162,6 +183,32 @@ export type LandingPageV2 = {
   publish_config: LandingPublishConfig;
 };
 
+// The 8 structural templates ("modelos"). A template is a set of layout
+// choices (hero composition, nav chrome, grid density, card treatment,
+// footer shape, heading case, which visual fills an empty image) — never
+// content. Switching `templateId` only ever patches that one field, exactly
+// like switching `theme` today: no section/content loss, no AI call, no
+// credit cost. See templates.ts for the concrete config per id.
+export const LANDING_TEMPLATE_IDS = [
+  "saas_premium",
+  "startup_bold",
+  "minimal_elegant",
+  "luxury_editorial",
+  "corporate_trust",
+  "personal_brand",
+  "product_launch",
+  "local_service",
+] as const;
+export type LandingTemplateId = (typeof LANDING_TEMPLATE_IDS)[number];
+
+export type LandingUiMode = "simple" | "advanced";
+
+export type LandingPageV3 = Omit<LandingPageV2, "version"> & {
+  version: 3;
+  templateId: LandingTemplateId;
+  uiMode: LandingUiMode;
+};
+
 let idCounter = 0;
 export function genSectionId(type: SectionType): string {
   idCounter += 1;
@@ -205,6 +252,10 @@ export function emptyLandingV2(name = "Landing sin título"): LandingPageV2 {
     },
     publish_config: { status: "draft", slug: null, publishedAt: null },
   };
+}
+
+export function emptyLandingV3(name = "Landing sin título", templateId: LandingTemplateId = "saas_premium"): LandingPageV3 {
+  return { ...emptyLandingV2(name), version: 3, templateId, uiMode: "simple" };
 }
 
 // Factory used by the "Agregar sección" picker — sensible, non-empty
@@ -292,8 +343,8 @@ export function createSection(type: SectionType, order: number): LandingSection 
         ...base,
         content: {
           stats: [
-            { label: "Clientes", value: "1,000+" },
-            { label: "Satisfacción", value: "98%" },
+            { label: "Clientes", value: "1,000+", source: "ai_suggested" },
+            { label: "Satisfacción", value: "98%", source: "ai_suggested" },
           ],
         },
       };
@@ -302,7 +353,7 @@ export function createSection(type: SectionType, order: number): LandingSection 
         ...base,
         content: {
           title: "Lo que dicen nuestros clientes",
-          testimonials: [{ quote: "Excelente producto.", name: "Cliente satisfecho", role: "" }],
+          testimonials: [{ quote: "Excelente producto.", name: "Cliente satisfecho", role: "", source: "ai_suggested" }],
         },
       };
     case "comparison":
@@ -418,7 +469,9 @@ export function migrateLegacyLanding(data: LandingPageData, name = "Landing page
           .filter(Boolean)
           .map((block) => {
             const m = block.match(/^"?(.+?)"?\s*—\s*(.+)$/);
-            return m ? { quote: m[1], name: m[2], role: "" } : { quote: block, name: "", role: "" };
+            return m
+              ? { quote: m[1], name: m[2], role: "", source: "ai_suggested" as const }
+              : { quote: block, name: "", role: "", source: "ai_suggested" as const };
           }),
       },
     });
@@ -457,6 +510,16 @@ export function isLandingV2(raw: unknown): raw is LandingPageV2 {
   );
 }
 
+export function isLandingV3(raw: unknown): raw is LandingPageV3 {
+  return (
+    !!raw &&
+    typeof raw === "object" &&
+    (raw as { version?: unknown }).version === 3 &&
+    Array.isArray((raw as { sections?: unknown }).sections) &&
+    LANDING_TEMPLATE_IDS.includes((raw as { templateId?: LandingTemplateId }).templateId as LandingTemplateId)
+  );
+}
+
 export function parseLandingV2(raw: string): LandingPageV2 | null {
   const cleaned = raw
     .replace(/^```json\s*/i, "")
@@ -473,4 +536,75 @@ export function parseLandingV2(raw: string): LandingPageV2 | null {
 
 export function serializeLandingV2(doc: LandingPageV2): string {
   return JSON.stringify({ ...doc, metadata: { ...doc.metadata, updatedAt: new Date().toISOString() } }, null, 2);
+}
+
+// A previous theme id is a reasonable signal for which structural template
+// an already-styled v2 document should land on — it's a one-time default,
+// never a restriction; the user can change it freely afterward with zero
+// content loss, same as any other template switch.
+const THEME_TO_DEFAULT_TEMPLATE: Record<LandingThemeId, LandingTemplateId> = {
+  authority_dark: "product_launch",
+  conversion_light: "corporate_trust",
+  bold_brand: "startup_bold",
+  moderno: "saas_premium",
+  minimalista: "minimal_elegant",
+  elegante: "luxury_editorial",
+  tecnologico: "saas_premium",
+  calido: "personal_brand",
+};
+
+// One-hop, pure data migration (no AI call, no content change) — mirrors
+// migrateLegacyLanding's contract exactly. Existing testimonials/stats have
+// no way to know whether a human already reviewed them, so they're marked
+// `ai_suggested` rather than silently assumed safe to publish as-is.
+export function migrateV2ToV3(doc: LandingPageV2): LandingPageV3 {
+  const templateId = THEME_TO_DEFAULT_TEMPLATE[doc.theme.id] ?? "saas_premium";
+  return {
+    ...doc,
+    version: 3,
+    templateId,
+    uiMode: "simple",
+    sections: doc.sections.map((s) => ({
+      ...s,
+      content: {
+        ...s.content,
+        testimonials: s.content.testimonials?.map((t) => ({ ...t, source: t.source ?? "ai_suggested" })),
+        stats: s.content.stats?.map((st) => ({ ...st, source: st.source ?? "ai_suggested" })),
+      },
+    })),
+  };
+}
+
+export function parseLandingV3(raw: string): LandingPageV3 | null {
+  const cleaned = raw
+    .replace(/^```json\s*/i, "")
+    .replace(/```\s*$/, "")
+    .trim();
+  try {
+    const parsed = JSON.parse(cleaned) as unknown;
+    if (isLandingV3(parsed)) return parsed;
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+export function serializeLandingV3(doc: LandingPageV3): string {
+  return JSON.stringify({ ...doc, metadata: { ...doc.metadata, updatedAt: new Date().toISOString() } }, null, 2);
+}
+
+// The single entry point the builder should use to load ANY stored
+// generation, regardless of which era it was written in: v3 (current),
+// v2 (Landing Studio's predecessor, "Fase G" builder), or v1 (raw
+// landing-copy AI output, never touched by a builder at all). Always
+// returns a v3 document; never mutates the source, never calls the AI,
+// never charges credits — the caller decides if/when to persist the result.
+export function parseLandingDocument(raw: string, name = "Landing page"): LandingPageV3 {
+  const v3 = parseLandingV3(raw);
+  if (v3) return v3;
+  const v2 = parseLandingV2(raw);
+  if (v2) return migrateV2ToV3(v2);
+  const legacy = parseLandingJson(raw);
+  if (legacy) return migrateV2ToV3(migrateLegacyLanding(legacy, name));
+  return emptyLandingV3(name);
 }
