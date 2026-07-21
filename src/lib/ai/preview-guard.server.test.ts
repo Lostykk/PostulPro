@@ -5,7 +5,12 @@ import { isPreviewEnvironment, checkAiExecutionAllowed } from "@/lib/ai/preview-
 const QA_USER_ID = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee";
 const OTHER_USER_ID = "11111111-2222-3333-4444-555555555555";
 
-const ENV_KEYS = ["APP_ENV", "AI_GENERATION_ENABLED", "PREVIEW_AI_ALLOWED_USER_ID"];
+const ENV_KEYS = [
+  "APP_ENV",
+  "AI_GENERATION_ENABLED",
+  "PREVIEW_AI_ALLOWED_USER_ID",
+  "PREVIEW_AI_ALLOWED_EMAILS",
+];
 const savedEnv: Record<string, string | undefined> = {};
 
 beforeEach(() => {
@@ -121,6 +126,64 @@ describe("checkAiExecutionAllowed — preview, allowlist not configured (fails c
     // PREVIEW_AI_ALLOWED_USER_ID intentionally left unset.
     expect(checkAiExecutionAllowed(QA_USER_ID)).toMatchObject({ allowed: false, status: 403 });
     expect(checkAiExecutionAllowed(OTHER_USER_ID)).toMatchObject({ allowed: false, status: 403 });
+  });
+});
+
+describe("checkAiExecutionAllowed — email allowlist (third argument)", () => {
+  beforeEach(() => {
+    process.env.APP_ENV = "preview";
+    process.env.AI_GENERATION_ENABLED = "true";
+    process.env.PREVIEW_AI_ALLOWED_USER_ID = QA_USER_ID;
+    process.env.PREVIEW_AI_ALLOWED_EMAILS = "qa2@example.com, ANOTHER@Example.com";
+  });
+
+  it("allows a non-allowlisted-by-id user whose email is in the email allowlist", () => {
+    expect(checkAiExecutionAllowed(OTHER_USER_ID, false, "qa2@example.com")).toEqual({
+      allowed: true,
+    });
+  });
+
+  it("is case-insensitive and trims whitespace on both the list and the caller's email", () => {
+    expect(checkAiExecutionAllowed(OTHER_USER_ID, false, "  Another@example.COM  ")).toEqual({
+      allowed: true,
+    });
+  });
+
+  it("still rejects an email not on the list", () => {
+    expect(checkAiExecutionAllowed(OTHER_USER_ID, false, "nope@example.com")).toMatchObject({
+      allowed: false,
+      status: 403,
+      code: "ai_restricted_in_preview",
+    });
+  });
+
+  it("the original user-id allowlist keeps working unchanged, independent of the email list", () => {
+    expect(checkAiExecutionAllowed(QA_USER_ID, false, null)).toEqual({ allowed: true });
+  });
+
+  it("rejects when email is null/omitted and not covered by the id allowlist", () => {
+    expect(checkAiExecutionAllowed(OTHER_USER_ID)).toMatchObject({ allowed: false, status: 403 });
+    expect(checkAiExecutionAllowed(OTHER_USER_ID, false, null)).toMatchObject({
+      allowed: false,
+      status: 403,
+    });
+  });
+
+  it("an empty PREVIEW_AI_ALLOWED_EMAILS never matches anything, including an empty caller email", () => {
+    process.env.PREVIEW_AI_ALLOWED_EMAILS = "";
+    expect(checkAiExecutionAllowed(OTHER_USER_ID, false, "")).toMatchObject({
+      allowed: false,
+      status: 403,
+    });
+  });
+
+  it("the kill switch still blocks an email-allowlisted user — operational switch, not per-user", () => {
+    process.env.AI_GENERATION_ENABLED = "false";
+    expect(checkAiExecutionAllowed(OTHER_USER_ID, false, "qa2@example.com")).toMatchObject({
+      allowed: false,
+      status: 503,
+      code: "ai_disabled_in_preview",
+    });
   });
 });
 

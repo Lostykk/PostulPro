@@ -136,15 +136,17 @@ export const Route = createFileRoute("/api/projects/$id/plan")({
         // single-QA-user restriction without replacing it. The role lookup
         // only runs in preview, so production pays zero extra cost.
         let isAdminForGuard = false;
+        let emailForGuard: string | null = null;
         if (isPreviewEnvironment()) {
           const { data: guardProfile } = await supabase
             .from("users")
-            .select("role")
+            .select("role,email")
             .eq("id", userId)
             .maybeSingle();
           isAdminForGuard = isOwner(guardProfile);
+          emailForGuard = guardProfile?.email ?? null;
         }
-        const guard = checkAiExecutionAllowed(userId, isAdminForGuard);
+        const guard = checkAiExecutionAllowed(userId, isAdminForGuard, emailForGuard);
         if (!guard.allowed) {
           // Without this, the project row is left exactly as
           // create_ai_project left it (status='planning', no plan) forever —
